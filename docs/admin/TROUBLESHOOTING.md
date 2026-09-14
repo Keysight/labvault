@@ -9,6 +9,8 @@
 | Password change redirects to dashboard | Username in `LABVAULT_PASSWORD_LOCKED_USERNAMES` | `manage.py changepassword` or clear the env var and restart `web` |
 | Fleet API 401 after rotate | Still sending `labvault-default-api-token` | Use the new token from Settings → API Tokens; revoke leftover `demo-api` |
 | nginx 502 | Upstream port wrong | Must be `127.0.0.1:8000` |
+| Browser TLS warning | Lab self-signed cert | Expected on first run; install `LABVAULT_TLS_CERT` or `curl -k` |
+| `https://host:9443` refused | nginx TLS edge down | `docker compose ps nginx` / `systemctl status nginx`; certs in `/var/lib/labvault/tls` |
 | `opsd_unavailable` | No opsd socket | Enable `labvault-opsd` or ignore on compose-only |
 | Compose DB errors from host ctl | Hostname `db` | Use `docker compose exec web …` |
 | `GET /api/diagnostics.json` → 500 | Live driver `probe()` hangs (e.g. SONiC REST) | Use `/api/fleet/health.json`; do not treat diagnostics export as a liveness probe |

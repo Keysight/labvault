@@ -10,6 +10,7 @@
 #
 # Reads (first found): $LABVAULT_ROOT/.env then /etc/labvault/labvault.env
 #   LABVAULT_PUBLIC_HOSTNAME
+#   LABVAULT_TLS_PORT (default 9443)
 #   LABVAULT_TLS_CERT or LABVAULT_SSL_CERT
 #   LABVAULT_TLS_KEY  or LABVAULT_SSL_KEY
 
@@ -18,7 +19,7 @@ set -euo pipefail
 LABVAULT_ROOT="${LABVAULT_ROOT:-/opt/labvault/current}"
 ENV_FILE="${ENV_FILE:-}"
 TEMPLATE="$LABVAULT_ROOT/deploy/nginx/labvault-https.conf.template"
-OUT_NAME="${OUT_NAME:-labvault-443.conf}"
+OUT_NAME="${OUT_NAME:-labvault-9443.conf}"
 NGINX_CONF_DIR="${NGINX_CONF_DIR:-/etc/nginx/conf.d}"
 NGINX_SERVICE="${NGINX_SERVICE:-nginx}"
 
@@ -57,8 +58,9 @@ done
 load_env
 
 HOSTNAME="${HOSTNAME:-${LABVAULT_PUBLIC_HOSTNAME:-}}"
-SSL_CERT="${SSL_CERT:-${LABVAULT_TLS_CERT:-${LABVAULT_SSL_CERT:-/etc/labvault/tls/fullchain.pem}}}"
-SSL_KEY="${SSL_KEY:-${LABVAULT_TLS_KEY:-${LABVAULT_SSL_KEY:-/etc/labvault/tls/privkey.pem}}}"
+TLS_PORT="${LABVAULT_TLS_PORT:-9443}"
+SSL_CERT="${SSL_CERT:-${LABVAULT_TLS_CERT:-${LABVAULT_SSL_CERT:-/var/lib/labvault/tls/fullchain.pem}}}"
+SSL_KEY="${SSL_KEY:-${LABVAULT_TLS_KEY:-${LABVAULT_SSL_KEY:-/var/lib/labvault/tls/privkey.pem}}}"
 
 if [[ -z "$HOSTNAME" ]]; then
     echo "Set LABVAULT_PUBLIC_HOSTNAME or pass --hostname" >&2
@@ -81,10 +83,11 @@ OUT_PATH="$NGINX_CONF_DIR/$OUT_NAME"
 sed -e "s|@@LABVAULT_SERVER_NAME@@|$HOSTNAME|g" \
     -e "s|@@LABVAULT_SSL_CERT@@|$SSL_CERT|g" \
     -e "s|@@LABVAULT_SSL_KEY@@|$SSL_KEY|g" \
+    -e "s|@@LABVAULT_TLS_PORT@@|$TLS_PORT|g" \
     "$TEMPLATE" >"$OUT_PATH"
 
 chmod 644 "$OUT_PATH"
-echo "Wrote $OUT_PATH (server_name=$HOSTNAME, upstream=127.0.0.1:8000)"
+echo "Wrote $OUT_PATH (server_name=$HOSTNAME, tls_port=$TLS_PORT, upstream=127.0.0.1:8000)"
 
 nginx -t
 systemctl reload "$NGINX_SERVICE"

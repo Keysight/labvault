@@ -6,6 +6,7 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp -n .env.example .env                  # strong DJANGO_SECRET_KEY
 python manage.py migrate
+# Dev-only HTTP. Customer installs use HTTPS :9443 (see docs/install/TLS.md).
 python manage.py runserver 0.0.0.0:8000
 ```
 

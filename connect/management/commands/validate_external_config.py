@@ -65,7 +65,7 @@ class Command(BaseCommand):
                         errors.append(f"TLS {label} missing: {path}")
                     elif label == "key":
                         mode = p.stat().st_mode & 0o777
-                        if mode & 0o077:
+                        if mode & 0o007:
                             errors.append(f"TLS key permissions too open: {oct(mode)}")
         for env_name in ("DATABASE_URL", "NP_TIMESERIES_DATABASE_URL"):
             val = (os.environ.get(env_name) or "").strip()

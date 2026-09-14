@@ -24,8 +24,9 @@
 | `LABVAULT_CSRF_TRUSTED_ORIGINS` | Full origins including scheme |
 | `LABVAULT_PUBLIC_HOSTNAME` | FQDN for nginx / CSRF helpers |
 | `LABVAULT_PUBLIC_ORIGIN` | Public origin (validate_external_config) |
-| `LABVAULT_USE_TLS` | `true` behind HTTPS |
-| `LABVAULT_TLS_CERT` / `LABVAULT_TLS_KEY` | Cert paths |
+| `LABVAULT_USE_TLS` | Default `true` |
+| `LABVAULT_TLS_PORT` | Default `9443` |
+| `LABVAULT_TLS_CERT` / `LABVAULT_TLS_KEY` | Default `/var/lib/labvault/tls/` (generated on oneshot) |
 | `LABVAULT_OPS_SOCK` | Default `/run/labvault/ops.sock` |
 | `LABVAULT_WORKER_MODE` | Workers default `idle` |
 | `LABVAULT_BOOTSTRAP_PASSWORD` | First admin password (only if no users exist) |

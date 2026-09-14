@@ -30,8 +30,8 @@ if [[ "${LABVAULT_SKIP_HTTP80:-}" =~ ^(1|true|yes)$ ]]; then
   exit 0
 fi
 
-if [[ -f "${NGINX_CONF_DIR}/labvault-443.conf" ]]; then
-  log "Production TLS vhost labvault-443.conf present — skipping lab edge"
+if [[ -f "${NGINX_CONF_DIR}/labvault-443.conf" || -f "${NGINX_CONF_DIR}/labvault-9443.conf" ]]; then
+  log "TLS vhost already present — skipping lab :80 edge"
   exit 0
 fi
 
@@ -95,8 +95,9 @@ fi
 if systemctl is-active --quiet firewalld 2>/dev/null; then
   firewall-cmd --permanent --add-service=http >/dev/null 2>&1 || true
   firewall-cmd --permanent --add-service=https >/dev/null 2>&1 || true
+  firewall-cmd --permanent --add-port=9443/tcp >/dev/null 2>&1 || true
   firewall-cmd --reload >/dev/null 2>&1 || true
-  log "firewalld: http/https allowed"
+  log "firewalld: http/https/9443 allowed"
 fi
 
 # Wire Django env when present so https PUBLIC_ORIGIN validates.
@@ -121,7 +122,7 @@ for ENV_FILE in /etc/labvault/labvault.env "${LABVAULT_ROOT}/.env"; do
     # Ensure https origins are trusted for CSRF (append if missing).
     if grep -q '^LABVAULT_CSRF_TRUSTED_ORIGINS=' "$ENV_FILE"; then
       cur="$(grep '^LABVAULT_CSRF_TRUSTED_ORIGINS=' "$ENV_FILE" | head -1 | cut -d= -f2-)"
-      for o in "https://${IP}" "https://${HOST}" "https://${IP}:443"; do
+      for o in "https://${IP}:9443" "https://${HOST}:9443" "https://${IP}" "https://${HOST}"; do
         [[ "$cur" == *"$o"* ]] || cur="${cur},${o}"
       done
       sed -i "s|^LABVAULT_CSRF_TRUSTED_ORIGINS=.*|LABVAULT_CSRF_TRUSTED_ORIGINS=${cur}|" "$ENV_FILE"
@@ -134,4 +135,4 @@ done
 nginx -t
 systemctl enable --now "$NGINX_SERVICE"
 systemctl reload "$NGINX_SERVICE" 2>/dev/null || systemctl restart "$NGINX_SERVICE"
-log "edge active: http://<ip>/ → https://<ip>/login/ ; https://<ip>/ → app :8000"
+log "edge active: http://<ip>/ → https://<ip>:9443/login/"

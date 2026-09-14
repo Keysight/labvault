@@ -49,12 +49,13 @@ Deploy-matrix failure mode without these: `Building wheel for python-ldap ... er
 
 | Port | Role |
 |------|------|
-| **8000/tcp** | Gunicorn (oneshot default) |
-| 443/tcp | nginx TLS (optional) |
+| **9443/tcp** | nginx TLS (customer default) |
+| 8000/tcp | Gunicorn loopback upstream only |
+| 80/tcp | optional redirect to `https://<host>:9443` |
 | 80/tcp | HTTP→HTTPS redirect (optional) |
 | 5432/tcp | Postgres (local or compose network) |
 
-Legacy internal stacks sometimes used **18000** — this customer SKU oneshot does **not**. Nginx templates upstream `127.0.0.1:8000`.
+Legacy internal stacks sometimes used **18000** — this customer SKU oneshot does **not**. Nginx templates upstream `127.0.0.1:8000` and publish HTTPS on **9443**.
 
 ## Health & login paths
 

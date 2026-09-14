@@ -23,9 +23,15 @@ ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',') if h.strip()]
 if '*' in ALLOWED_HOSTS:
     raise RuntimeError('DJANGO_ALLOWED_HOSTS must not contain * on customer SKU')
 
-# TLS termination at nginx (port 443). Set LABVAULT_USE_TLS=true when behind HTTPS proxy.
-_use_tls = os.environ.get('LABVAULT_USE_TLS', 'false').lower() in ('1', 'true', 'yes')
-# Co-located LAAS/tools may call gunicorn on 127.0.0.1:18000 over plain HTTP.
+# TLS is the customer default. Nginx terminates HTTPS on LABVAULT_TLS_PORT
+# (9443 — unused elsewhere in this SKU). Gunicorn stays on loopback :8000.
+# Set LABVAULT_USE_TLS=false only for local HTTP debugging.
+_use_tls = os.environ.get('LABVAULT_USE_TLS', 'true').lower() in ('1', 'true', 'yes')
+try:
+    LABVAULT_TLS_PORT = int(os.environ.get('LABVAULT_TLS_PORT', '9443') or '9443')
+except ValueError:
+    LABVAULT_TLS_PORT = 9443
+# Loopback probes may still hit gunicorn over plain HTTP on :8000.
 _allow_local_http_api = os.environ.get('LABVAULT_ALLOW_LOCAL_HTTP_API', 'true').lower() in (
     '1', 'true', 'yes',
 )
@@ -39,8 +45,17 @@ if _use_tls:
         SECURE_HSTS_SECONDS = int(_hsts)
         SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 
-# CSRF trusted origins (Django 4+ Origin check). Needed for HTTP demos on :18001
-# as well as HTTPS — set LABVAULT_CSRF_TRUSTED_ORIGINS explicitly when using IPs/ports.
+def _https_origin(host: str, port: int) -> str:
+    host = (host or '').strip()
+    if not host:
+        return ''
+    if port in (443, 0):
+        return f'https://{host}'
+    return f'https://{host}:{port}'
+
+
+# CSRF trusted origins (Django 4+ Origin check). Default HTTPS :9443.
+# Override with LABVAULT_CSRF_TRUSTED_ORIGINS when using a custom host/port.
 _csrf_origins = os.environ.get('LABVAULT_CSRF_TRUSTED_ORIGINS', '').strip()
 if _csrf_origins:
     CSRF_TRUSTED_ORIGINS = [
@@ -48,8 +63,15 @@ if _csrf_origins:
     ]
 elif _use_tls:
     _public_host = os.environ.get('LABVAULT_PUBLIC_HOSTNAME', '').strip()
-    if _public_host:
-        CSRF_TRUSTED_ORIGINS = [f'https://{_public_host}']
+    CSRF_TRUSTED_ORIGINS = [
+        origin
+        for origin in (
+            _https_origin(_public_host, LABVAULT_TLS_PORT) if _public_host else '',
+            _https_origin('127.0.0.1', LABVAULT_TLS_PORT),
+            _https_origin('localhost', LABVAULT_TLS_PORT),
+        )
+        if origin
+    ]
 
 
 # Session idle timeout (default 1 hour). Extend on each request when SAVE_EVERY_REQUEST is true.

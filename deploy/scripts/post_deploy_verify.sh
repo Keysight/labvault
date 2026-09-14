@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Post-deploy verify: required services up + fleet/Pulse plumbing healthy enough to use.
 # Usage:
-#   BASE_URL=http://127.0.0.1:8000 TOKEN=<fleet-token> \
+#   BASE_URL=https://127.0.0.1:9443 TOKEN=<fleet-token> \
 #     ./deploy/scripts/post_deploy_verify.sh
 # Compose adapter (default): also checks `docker compose ps`.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL:-https://127.0.0.1:9443}"
+CURL_OPTS=()
+if [[ "$BASE_URL" == https://* ]]; then
+  CURL_OPTS+=(-k)
+fi
 if [[ -z "${TOKEN:-}" && -f "${LABVAULT_STATE_DIR:-/var/lib/labvault}/fleet-token" ]]; then
   TOKEN="$(awk -F= '/^token=/{print $2}' "${LABVAULT_STATE_DIR:-/var/lib/labvault}/fleet-token" | tr -d '[:space:]')"
 fi
@@ -24,7 +28,7 @@ fail() { printf 'FAIL %s\n' "$*"; FAIL=$((FAIL + 1)); }
 need_http() {
   local name="$1" expect="$2" url="$3"
   local code
-  code=$(curl -sS -o /tmp/lv_verify_body -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "$url" || echo 000)
+  code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/lv_verify_body -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "$url" || echo 000)
   if [[ "$code" == "$expect" ]]; then
     pass "$name ($code)"
   else
@@ -92,14 +96,15 @@ elif [[ "$ADAPTER" == "systemd" ]]; then
 fi
 
 python3 - <<'PY' || FAIL=$((FAIL + 1))
-import json, os, urllib.request
+import json, os, ssl, urllib.request
 base = os.environ["BASE_URL"]
 token = os.environ["TOKEN"]
+ctx = ssl._create_unverified_context() if base.startswith("https://") else None
 req = urllib.request.Request(
     f"{base}/api/fleet/heartbeat.json",
     headers={"Authorization": f"Bearer {token}"},
 )
-with urllib.request.urlopen(req, timeout=60) as r:
+with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
     data = json.load(r)
 mode = data.get("mode")
 counts = data.get("counts") or {}

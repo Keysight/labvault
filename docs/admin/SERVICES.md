@@ -26,7 +26,7 @@ Without the **shared Django cache volume/dir**, web cannot see heartbeat writes.
 | **opsd** | host unit `labvault-opsd` | `labvault-opsd` | Unix socket lifecycle broker; same unit name on every mode |
 | **refresh** | — | `labvault-refresh` | Device refresh loop (bare metal) |
 | **jobs** | — | `labvault-cli-worker` | Async CLI jobs (bare metal) |
-| **nginx** | host nginx | `nginx` | Port 80→8000 lab redirect and/or TLS in front of `:8000` |
+| **nginx** | `nginx` | `nginx` | TLS **:9443** → gunicorn `:8000`; optional `:80` redirect |
 
 Aliases accepted by CLI/opsd (always resolved to the logical name): `metrics_db` → `metrics-db`, `cli_ssh` → `cli-ssh`, `cli-worker` → `jobs`.
 
@@ -35,7 +35,7 @@ Appliance login after install:
 ```bash
 sudo cat /var/lib/labvault/bootstrap-credentials
 ssh -p 2222 <staff-user>@<host>
-# UI: http://<host>/  (redirects to :8000/login/) or http://<host>:8000/login/
+# UI: https://<host>:9443/login/
 ```
 
 ## Compose (customer SKU)
@@ -68,4 +68,4 @@ systemctl status labvault-web labvault-heartbeat labvault-collector labvault-ops
 
 ## Browser entry (all modes)
 
-Typing only the appliance IP (`http://10.x.x.x/`) hits host nginx on **:80**, which **302-redirects** to `http://<ip>:8000/login/`. Direct `:8000` still works. Full TLS installs replace that with HTTPS on :443.
+The customer URL is `https://<host>:9443/login/`. Optional host nginx on **:80** redirects to that origin. Gunicorn on `:8000` is loopback only.

@@ -40,7 +40,7 @@ Full catalog: **[MODULES.md](MODULES.md)**
 
 | What | Where |
 |------|--------|
-| Login | `/login/` — first boot reads `/var/lib/labvault/bootstrap-credentials` |
+| Login | `https://<host>:9443/login/` — first boot reads `/var/lib/labvault/bootstrap-credentials` |
 | Liveness | `/health/live` (**no** trailing slash) |
 | Readiness | `/health/ready` |
 | Staff CLI | `/cli/` |

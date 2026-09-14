@@ -15,6 +15,6 @@ sudo LABVAULT_RESTORE_DATASET=/path/to/labvault_export.json \
   ./deploy/install/oneshot-compose.sh
 ```
 
-Minimum sizing: 4 vCPU, 8 GiB RAM, 40 GiB free disk. Open `8000/tcp` (and `443` if you terminate TLS).
+Minimum sizing: 4 vCPU, 8 GiB RAM, 40 GiB free disk. Open **9443/tcp** for the default TLS UI.
 
 Generic cloud-init notes live under `deploy/proxmox/`.

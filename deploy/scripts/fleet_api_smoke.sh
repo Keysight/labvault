@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # Fleet + health API smoke test (customer SKU).
 # Empty-lab safe. Optional live inventory checks via LABVAULT_SMOKE_CHASSIS_ID / LABVAULT_SMOKE_OCS_IP.
-# Usage: BASE_URL=http://host:8000 TOKEN=... ./deploy/scripts/fleet_api_smoke.sh
+# Usage: BASE_URL=https://host:9443 TOKEN=... ./deploy/scripts/fleet_api_smoke.sh
 set -euo pipefail
 
-BASE_URL="${BASE_URL:-http://127.0.0.1:8000}"
+BASE_URL="${BASE_URL:-https://127.0.0.1:9443}"
+CURL_OPTS=()
+if [[ "$BASE_URL" == https://* ]]; then
+  CURL_OPTS+=(-k)
+fi
 TOKEN="${TOKEN:-}"
 if [[ -z "$TOKEN" && -f "${LABVAULT_STATE_DIR:-/var/lib/labvault}/fleet-token" ]]; then
   TOKEN="$(awk -F= '/^token=/{print $2}' "${LABVAULT_STATE_DIR:-/var/lib/labvault}/fleet-token" | tr -d '[:space:]')"
@@ -16,7 +20,7 @@ FAIL=0
 check() {
   local name="$1" expect="$2" url="$3"
   local code body
-  code=$(curl -sS -o /tmp/lv_smoke_body -w '%{http_code}' "${AUTH[@]}" "$url" || echo 000)
+  code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/lv_smoke_body -w '%{http_code}' "${AUTH[@]}" "$url" || echo 000)
   body=$(head -c 200 /tmp/lv_smoke_body | tr '\n' ' ')
   if [[ "$code" == "$expect" ]]; then
     printf 'PASS %-42s %s\n' "$name" "$code"
@@ -29,7 +33,7 @@ check() {
 check_noauth() {
   local name="$1" expect="$2" url="$3"
   local code body
-  code=$(curl -sS -o /tmp/lv_smoke_body -w '%{http_code}' "$url" || echo 000)
+  code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/lv_smoke_body -w '%{http_code}' "$url" || echo 000)
   body=$(head -c 120 /tmp/lv_smoke_body | tr '\n' ' ')
   if [[ "$code" == "$expect" ]]; then
     printf 'PASS %-42s %s\n' "$name" "$code"
@@ -39,6 +43,7 @@ check_noauth() {
   fi
 }
 
+export BASE_URL TOKEN
 printf 'Smoke %s\n' "$BASE_URL"
 
 check 'health/live' 200 "$BASE_URL/health/live"
@@ -78,14 +83,14 @@ fi
 if [[ -n "$SMOKE_USER" && -n "$SMOKE_PASS" ]]; then
   JAR=/tmp/lv_smoke_cookies.txt
   rm -f "$JAR"
-  csrf=$(curl -sS -c "$JAR" "$BASE_URL/login/" | sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' | head -1)
-  curl -sS -b "$JAR" -c "$JAR" -X POST "$BASE_URL/login/" \
+  csrf=$(curl -sS "${CURL_OPTS[@]}" -c "$JAR" "$BASE_URL/login/" | sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' | head -1)
+  curl -sS "${CURL_OPTS[@]}" -b "$JAR" -c "$JAR" -X POST "$BASE_URL/login/" \
     -H 'Content-Type: application/x-www-form-urlencoded' \
     --data-urlencode "csrfmiddlewaretoken=${csrf}" \
     --data-urlencode "username=${SMOKE_USER}" \
     --data-urlencode "password=${SMOKE_PASS}" \
     -o /dev/null
-  code=$(curl -sS -b "$JAR" -o /tmp/lv_smoke_body -w '%{http_code}' "$BASE_URL/api/live-status/" || echo 000)
+  code=$(curl -sS "${CURL_OPTS[@]}" -b "$JAR" -o /tmp/lv_smoke_body -w '%{http_code}' "$BASE_URL/api/live-status/" || echo 000)
   if [[ "$code" == "200" ]]; then
     printf 'PASS %-42s %s\n' 'live-status (session)' "$code"
   else
@@ -97,14 +102,15 @@ else
 fi
 
 python3 - <<'PY' || FAIL=$((FAIL + 1))
-import json, os, urllib.request
+import json, os, ssl, urllib.request
 base = os.environ["BASE_URL"]
 token = os.environ["TOKEN"]
+ctx = ssl._create_unverified_context() if base.startswith("https://") else None
 req = urllib.request.Request(
     f"{base}/api/fleet/heartbeat.json",
     headers={"Authorization": f"Bearer {token}"},
 )
-with urllib.request.urlopen(req, timeout=60) as r:
+with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
     data = json.load(r)
 counts = data.get("counts") or {}
 mode = data.get("mode")
@@ -116,7 +122,7 @@ if chassis_id and worker == "live":
         f"{base}/api/fleet/health.json",
         headers={"Authorization": f"Bearer {token}"},
     )
-    with urllib.request.urlopen(req, timeout=60) as r:
+    with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
         health = json.load(r)
     row = next((c for c in health.get("chassis", []) if str(c.get("chassis_id")) == chassis_id), None)
     if not row:

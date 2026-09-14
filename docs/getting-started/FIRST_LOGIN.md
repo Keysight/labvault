@@ -13,7 +13,7 @@ Random credentials are the default. Demo logins (`admin` / `labvault!`) are **no
 
 | | |
 |--|--|
-| Login URL | `https://<host>/` (TLS) or `http://<host>:8000/login/` |
+| Login URL | `https://<host>:9443/login/` (default TLS; first-run cert is self-signed) |
 | Username / password | values in `bootstrap-credentials` |
 | Fleet token | value in `fleet-token` (`Authorization: Bearer …`) |
 
@@ -27,7 +27,7 @@ New password must pass Django’s rules: **at least 8 characters**, not too simi
 
 ### In the UI
 
-1. Open `http://<host>:8000/login/` and sign in with the credential file.
+1. Open `https://<host>:9443/login/` and sign in with the credential file. Accept the lab certificate warning, or install `LABVAULT_TLS_CERT`.
 2. In the **bottom-left** of the sidebar, next to your username, click **Password**
    (or open `/accounts/password_change/` directly).
 3. Enter the old password from the credential file, then your new secret twice.
@@ -58,7 +58,7 @@ Do **not** re-run `bootstrap_labvault` just to change the password — a second 
 
 ## 2. Replace the fleet API token (recommended immediately)
 
-1. Still logged in as the bootstrap admin, open **Admin → Settings** or `http://<host>:8000/settings/`.
+1. Still logged in as the bootstrap admin, open **Admin → Settings** or `https://<host>:9443/settings/`.
 2. Open the **API Tokens** tab.
 3. Generate a new token and **copy the banner value immediately**.
 4. Revoke the install token.
@@ -72,7 +72,7 @@ Swagger (`/api/docs/`) **Authorize** uses the same Bearer string.
 
 | Situation | What to do |
 |-----------|------------|
-| Isolated lab, throwaway VM | Still rotate if anyone else can reach `:8000` |
+| Isolated lab, throwaway VM | Still rotate if anyone else can reach `:9443` |
 | Shared or production-like | Rotate password **and** token before sharing the URL |
 | Want unguessable secrets at install | default (random) — `sudo cat` the two files above |
 | Custom values at install | `LABVAULT_BOOTSTRAP_PASSWORD` and `LABVAULT_FLEET_TOKEN` |

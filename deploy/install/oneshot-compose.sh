@@ -59,8 +59,7 @@ if [[ ! -f .env ]]; then
   IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
   sed -i "s|^DJANGO_SECRET_KEY=.*|DJANGO_SECRET_KEY=${SK}|" .env
   sed -i "s|^DJANGO_ALLOWED_HOSTS=.*|DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,${HOST},${IP}|" .env
-  ORIGINS="http://127.0.0.1:8000,http://localhost:8000"
-  [[ -n "$IP" ]] && ORIGINS="${ORIGINS},http://${IP}:8000,http://${IP},https://${IP},https://${IP}:443"
+  ORIGINS="$(default_tls_origins "$HOST" "$IP")"
   if grep -q '^LABVAULT_CSRF_TRUSTED_ORIGINS=' .env; then
     sed -i "s|^LABVAULT_CSRF_TRUSTED_ORIGINS=.*|LABVAULT_CSRF_TRUSTED_ORIGINS=${ORIGINS}|" .env
   else
@@ -70,8 +69,13 @@ if [[ ! -f .env ]]; then
   sed -i 's|^DATABASE_URL=.*|DATABASE_URL=postgres://labvault:labvault@db:5432/labvault|' .env
   sed -i 's|^NP_TIMESERIES_DATABASE_URL=.*|NP_TIMESERIES_DATABASE_URL=postgres://labvault:labvault@metrics-db:5432/labvault_metrics|' .env
   grep -q '^LABVAULT_CSRF_TRUSTED_ORIGINS=' .env || \
-    echo "LABVAULT_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://localhost:8000" >> .env
-  grep -q '^LABVAULT_USE_TLS=' .env || echo "LABVAULT_USE_TLS=false" >> .env
+    echo "LABVAULT_CSRF_TRUSTED_ORIGINS=${ORIGINS}" >> .env
+  grep -q '^LABVAULT_USE_TLS=' .env || echo "LABVAULT_USE_TLS=true" >> .env
+  grep -q '^LABVAULT_TLS_PORT=' .env || echo "LABVAULT_TLS_PORT=$(default_tls_port)" >> .env
+  grep -q '^LABVAULT_PUBLIC_ORIGIN=' .env || echo "LABVAULT_PUBLIC_ORIGIN=$(https_origin 127.0.0.1)" >> .env
+  grep -q '^LABVAULT_TLS_DIR=' .env || echo "LABVAULT_TLS_DIR=/var/lib/labvault/tls" >> .env
+  grep -q '^LABVAULT_TLS_CERT=' .env || echo "LABVAULT_TLS_CERT=/var/lib/labvault/tls/fullchain.pem" >> .env
+  grep -q '^LABVAULT_TLS_KEY=' .env || echo "LABVAULT_TLS_KEY=/var/lib/labvault/tls/privkey.pem" >> .env
   # Pulse / fleet plug-and-play defaults (shared cache + sane tick interval).
   grep -q '^LABVAULT_CACHE_DIR=' .env || echo "LABVAULT_CACHE_DIR=/app/var/django_cache" >> .env
   grep -q '^LABVAULT_HEARTBEAT_LOCK=' .env || \
@@ -80,8 +84,13 @@ if [[ ! -f .env ]]; then
     echo "LABVAULT_HEARTBEAT_INTERVAL_SECONDS=120" >> .env
 fi
 
-# Ensure Pulse defaults even when .env already existed from an older tree.
+# Ensure Pulse + TLS defaults even when .env already existed from an older tree.
 grep -q '^LABVAULT_CACHE_DIR=' .env || echo "LABVAULT_CACHE_DIR=/app/var/django_cache" >> .env
+grep -q '^LABVAULT_USE_TLS=' .env || echo "LABVAULT_USE_TLS=true" >> .env
+grep -q '^LABVAULT_TLS_PORT=' .env || echo "LABVAULT_TLS_PORT=$(default_tls_port)" >> .env
+grep -q '^LABVAULT_TLS_DIR=' .env || echo "LABVAULT_TLS_DIR=/var/lib/labvault/tls" >> .env
+grep -q '^LABVAULT_TLS_CERT=' .env || echo "LABVAULT_TLS_CERT=/var/lib/labvault/tls/fullchain.pem" >> .env
+grep -q '^LABVAULT_TLS_KEY=' .env || echo "LABVAULT_TLS_KEY=/var/lib/labvault/tls/privkey.pem" >> .env
 grep -q '^LABVAULT_HEARTBEAT_LOCK=' .env || \
   echo "LABVAULT_HEARTBEAT_LOCK=/app/var/django_cache/fleet_heartbeat.lock" >> .env
 grep -q '^LABVAULT_HEARTBEAT_INTERVAL_SECONDS=' .env || \
@@ -121,13 +130,17 @@ PY
 
 export LABVAULT_OPS_SOCK_HOST="${LABVAULT_OPS_SOCK_HOST:-/run/labvault}"
 export LABVAULT_HTTP_PORT="${LABVAULT_HTTP_PORT:-8000}"
+export LABVAULT_TLS_PORT="${LABVAULT_TLS_PORT:-$(default_tls_port)}"
+export LABVAULT_TLS_DIR="${LABVAULT_TLS_DIR:-/var/lib/labvault/tls}"
+mkdir -p "$LABVAULT_TLS_DIR"
+bash "$ROOT/deploy/scripts/ensure-labvault-tls.sh"
 
 log "Building and starting compose stack"
 docker compose -f deploy/compose/docker-compose.yml up -d --build
 
-log "Waiting for /health/ready"
+log "Waiting for HTTPS /health/ready on :${LABVAULT_TLS_PORT}"
 deadline=$((SECONDS + 180))
-until curl -fsS "http://127.0.0.1:${LABVAULT_HTTP_PORT}/health/ready" >/dev/null 2>&1; do
+until curl -kfsS "https://127.0.0.1:${LABVAULT_TLS_PORT}/health/ready" >/dev/null 2>&1; do
   if (( SECONDS >= deadline )); then
     docker compose -f deploy/compose/docker-compose.yml ps
     die "/health/ready not ready within 180s"
@@ -189,7 +202,7 @@ else
   log "Running post_deploy_verify"
   TOKEN="$(awk -F= '/^token=/{print $2}' "$STATE/fleet-token" | tr -d '[:space:]')"
   [[ -n "$TOKEN" ]] || die "fleet token missing after bootstrap"
-  BASE_URL="http://127.0.0.1:${LABVAULT_HTTP_PORT}" TOKEN="$TOKEN" \
+  BASE_URL="https://127.0.0.1:${LABVAULT_TLS_PORT}" TOKEN="$TOKEN" \
     LABVAULT_WORKER_MODE="${LABVAULT_WORKER_MODE}" ADAPTER=compose \
     LABVAULT_STATE_DIR="$STATE" \
     bash "$ROOT/deploy/scripts/post_deploy_verify.sh" || \
@@ -198,8 +211,9 @@ fi
 
 echo "services=docs/admin/SERVICES.md"
 echo "verify=./deploy/scripts/post_deploy_verify.sh"
+maybe_install_tls "$ROOT" ""
 maybe_install_http80 "$ROOT" ""
-print_ready_banner "$STATE" "${LABVAULT_HTTP_PORT}"
+print_ready_banner "$STATE" "${LABVAULT_TLS_PORT}" https
 echo "ssh_cli=ssh -p ${LABVAULT_CLI_SSH_PORT:-2222} <staff-user>@127.0.0.1"
 echo "opsd=labvault-opsd (host) sock=/run/labvault/ops.sock"
 echo "pulse=LABVAULT_WORKER_MODE=${LABVAULT_WORKER_MODE}"

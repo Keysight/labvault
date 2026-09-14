@@ -28,13 +28,13 @@ Empty installs stay idle unless you set `LABVAULT_WORKER_MODE=live`.
 |---------|-------|------|
 | `db` | `postgres:15` | Primary DB (`labvault`) |
 | `metrics-db` | `postgres:15` | Timeseries (`labvault_metrics`) |
-| `web` | build `deploy/compose/Dockerfile` | Gunicorn `:8000` + entrypoint migrate |
+| `web` | build `deploy/compose/Dockerfile` | Gunicorn loopback `:8000` + entrypoint migrate |
 | `refresh` | same | `run_labvault_refresh` |
 | `jobs` | same | `run_cli_worker` |
 | `heartbeat` | same | `run_fleet_heartbeat` (idle by default) |
 | `collector` | same | `run_metric_collector` (idle by default) |
 | `cli-ssh` | same | Appliance SSH CLI `:2222` |
-| `nginx` | `nginx:1.27-alpine` | Optional HTTP edge (`LABVAULT_NGINX_PORT`, default 8080) |
+| `nginx` | `nginx:1.27-alpine` | TLS edge **:9443** → `web:8000` |
 
 `opsd` runs on the **host** (`labvault-opsd.service`). Containers never mount `docker.sock`.
 
@@ -55,14 +55,14 @@ Default password `labvault` is for **lab installs only**. Change for any shared 
 cp -n .env.example .env   # set DJANGO_SECRET_KEY
 mkdir -p /run/labvault
 docker compose -f deploy/compose/docker-compose.yml up -d --build
-curl -fsS http://127.0.0.1:8000/health/ready
+curl -kfsS https://127.0.0.1:9443/health/ready
 ./labvaultctl --adapter compose status
 ```
 
 ## Verify checklist
 
-- [ ] `curl -fsS http://127.0.0.1:8000/health/live`
-- [ ] `curl -fsS http://127.0.0.1:8000/health/ready`
+- [ ] `curl -kfsS https://127.0.0.1:9443/health/live`
+- [ ] `curl -kfsS https://127.0.0.1:9443/health/ready`
 - [ ] Login at `/login/` using `/var/lib/labvault/bootstrap-credentials`
 - [ ] Rotate password and fleet token ([FIRST_LOGIN](../getting-started/FIRST_LOGIN.md))
 - [ ] Staff `/cli/` loads; `diag cheap` → ok

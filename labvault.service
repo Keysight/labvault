@@ -1,5 +1,5 @@
 # DEPRECATED — do not install this file.
 # Use deploy/systemd/labvault-web.service (and siblings) via:
 #   sudo ./deploy/install/oneshot-systemd.sh
-# Web bind: 127.0.0.1:8000  WorkingDirectory: /opt/labvault/current
+# Web bind: 127.0.0.1:8000 (loopback). Customer HTTPS: :9443.
 # EnvironmentFile: /etc/labvault/labvault.env

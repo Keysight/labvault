@@ -27,7 +27,7 @@ Restore uses a `labvault-full-export` v1 JSON dataset (same as Compose/systemd),
 ## Acceptance
 
 ```bash
-curl -fsS http://127.0.0.1:8000/health/ready
+curl -kfsS https://127.0.0.1:9443/health/ready
 ./labvaultctl --adapter systemd backup
 ./labvaultctl --adapter systemd restore --drill "$(ls -d /var/lib/labvault/backups/labvault-* | tail -1)"
 ```

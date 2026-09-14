@@ -10,9 +10,9 @@ Service capability matrix: [SERVICE_CONTROL.md](SERVICE_CONTROL.md).
 # After logging in with cookie jar:
 TOKEN=$(grep csrftoken cj | awk '{print $NF}')
 curl -b cj -c cj -H "X-CSRFToken: $TOKEN" -H "Content-Type: application/json" \
-  -H "Referer: http://127.0.0.1:8000/cli/" \
+  -H "Referer: https://127.0.0.1:9443/cli/" \
   -d '{"line":"whoami"}' \
-  http://127.0.0.1:8000/api/cli/v1/invoke/
+  -k https://127.0.0.1:9443/api/cli/v1/invoke/
 ```
 
 Mutating flow:

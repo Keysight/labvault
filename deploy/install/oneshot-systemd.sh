@@ -18,16 +18,16 @@ source "$ROOT_SRC/deploy/install/lib-ready.sh"
 install_host_deps() {
   if command -v dnf >/dev/null; then
     log "Installing Rocky/RHEL build deps"
-    dnf install -y python3 python3-pip python3-devel gcc git \
+    dnf install -y python3 python3-pip python3-devel gcc git nginx openssl \
       openldap-devel openssl-devel cyrus-sasl-devel libpq-devel \
       postgresql-server postgresql-contrib || \
-      dnf install -y python3 python3-pip python3-devel gcc git \
+      dnf install -y python3 python3-pip python3-devel gcc git nginx openssl \
         openldap-devel openssl-devel cyrus-sasl-devel
   elif command -v apt-get >/dev/null; then
     log "Installing Debian/Ubuntu build deps"
     apt-get update -y
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-      python3 python3-venv python3-pip python3-dev build-essential git \
+      python3 python3-venv python3-pip python3-dev build-essential git nginx openssl \
       libldap2-dev libsasl2-dev libssl-dev libpq-dev \
       postgresql postgresql-contrib
   else
@@ -78,8 +78,13 @@ NP_TIMESERIES_DATABASE_URL=postgres://labvault:labvault@127.0.0.1:5432/labvault_
 LABVAULT_CACHE_DIR=/var/lib/labvault/django_cache
 LABVAULT_HEARTBEAT_LOCK=/var/lib/labvault/django_cache/fleet_heartbeat.lock
 LABVAULT_HEARTBEAT_INTERVAL_SECONDS=120
-LABVAULT_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://${HOST}:8000,http://${IP}:8000,http://${IP},http://${HOST},https://${IP},https://${HOST},https://${IP}:443,https://${HOST}:443
-LABVAULT_USE_TLS=false
+LABVAULT_CSRF_TRUSTED_ORIGINS=$(default_tls_origins "$HOST" "$IP")
+LABVAULT_USE_TLS=true
+LABVAULT_TLS_PORT=$(default_tls_port)
+LABVAULT_PUBLIC_ORIGIN=$(https_origin 127.0.0.1)
+LABVAULT_TLS_DIR=/var/lib/labvault/tls
+LABVAULT_TLS_CERT=/var/lib/labvault/tls/fullchain.pem
+LABVAULT_TLS_KEY=/var/lib/labvault/tls/privkey.pem
 LABVAULT_OPS_SOCK=/run/labvault/ops.sock
 EOF
   chmod 600 "$ENV_FILE"
@@ -163,6 +168,10 @@ fi
 log "labvaultctl install --adapter systemd"
 ./labvaultctl --adapter systemd --state-dir "$STATE" install
 
+export LABVAULT_TLS_PORT="${LABVAULT_TLS_PORT:-$(default_tls_port)}"
+bash "$ROOT_SRC/deploy/scripts/ensure-labvault-tls.sh"
+maybe_install_tls "$ROOT_SRC" "$INSTALL_ROOT"
+
 systemctl enable --now labvault-opsd labvault-cli-ssh labvault-web labvault-refresh \
   labvault-heartbeat labvault-collector labvault-cli-worker
 if [[ "${LABVAULT_WORKER_MODE}" == "live" ]]; then
@@ -174,13 +183,13 @@ if [[ ! "${LABVAULT_SKIP_VERIFY:-}" =~ ^(1|true|yes)$ ]]; then
   [[ -f "$STATE/fleet-token" ]] || die "fleet token missing after bootstrap"
   TOKEN="$(awk -F= '/^token=/{print $2}' "$STATE/fleet-token" | tr -d '[:space:]')"
   [[ -n "$TOKEN" ]] || die "fleet token empty"
-  BASE_URL="http://127.0.0.1:8000" TOKEN="$TOKEN" ADAPTER=systemd \
+  BASE_URL="https://127.0.0.1:${LABVAULT_TLS_PORT:-$(default_tls_port)}" TOKEN="$TOKEN" ADAPTER=systemd \
     LABVAULT_STATE_DIR="$STATE" \
     bash "$INSTALL_ROOT/deploy/scripts/post_deploy_verify.sh" || \
     die "post_deploy_verify failed — see docs/admin/SERVICES.md"
 fi
 
 maybe_install_http80 "$ROOT_SRC" "$INSTALL_ROOT"
-print_ready_banner "$STATE" 8000
+print_ready_banner "$STATE" "${LABVAULT_TLS_PORT:-$(default_tls_port)}" https
 echo "ssh_cli=ssh -p ${LABVAULT_CLI_SSH_PORT:-2222} <staff-user>@127.0.0.1"
 echo "pulse=LABVAULT_WORKER_MODE=${LABVAULT_WORKER_MODE}"

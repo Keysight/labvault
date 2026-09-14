@@ -16,7 +16,7 @@ Installs OS packages (including OpenLDAP devel), creates `labvault` user, syncs 
 
 | Unit | Exec |
 |------|------|
-| `labvault-web` | gunicorn → `127.0.0.1:8000` |
+| `labvault-web` | gunicorn → `127.0.0.1:8000` (nginx TLS **:9443**) |
 | `labvault-refresh` | `run_labvault_refresh` |
 | `labvault-heartbeat` | `run_fleet_heartbeat` |
 | `labvault-collector` | `run_metric_collector` |
@@ -45,11 +45,11 @@ There is **no** `backup create --out`. Backup prints the directory path.
 
 ## TLS
 
-After oneshot:
+Oneshot enables HTTPS on **:9443** and generates a lab cert if you have not set `LABVAULT_TLS_CERT`. To replace it:
 
 ```bash
 sudo LABVAULT_ROOT=/opt/labvault/current \
   ./deploy/scripts/install-labvault-nginx.sh --hostname labvault.example
 ```
 
-Upstream is **:8000**. Set `LABVAULT_USE_TLS=true` and CSRF origins for HTTPS.
+Upstream stays **127.0.0.1:8000**. See [TLS.md](TLS.md).

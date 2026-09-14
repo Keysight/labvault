@@ -35,9 +35,9 @@ Critical bare-metal packages: `openldap-devel` (Rocky) or `libldap2-dev` (Debian
 
 | URL | Purpose |
 |-----|---------|
-| `http://<host>:8000/login/` | UI login — read `/var/lib/labvault/bootstrap-credentials` |
-| `http://<host>:8000/health/ready` | Ready probe (**no** trailing slash) |
-| `http://<host>:8000/cli/` | Staff LabVault CLI |
+| `https://<host>:9443/login/` | UI login — read `/var/lib/labvault/bootstrap-credentials` |
+| `https://<host>:9443/health/ready` | Ready probe (**no** trailing slash) |
+| `https://<host>:9443/cli/` | Staff LabVault CLI |
 
 Oneshot writes mode `0600` copies under `/var/lib/labvault/` (`bootstrap-credentials`, `fleet-token`). Random credentials are the default. Demo logins are **not** the default; they require `LABVAULT_DEMO_DEFAULTS=1`.
 
@@ -47,4 +47,4 @@ First-login steps: [docs/getting-started/FIRST_LOGIN.md](docs/getting-started/FI
 
 [SECURITY.md](SECURITY.md) · [docs/security/HARDENING.md](docs/security/HARDENING.md)
 
-No `docker.sock`. App listens on **:8000** (nginx upstream must match).
+No `docker.sock`. Customer HTTPS is **:9443** (self-signed until you install `LABVAULT_TLS_CERT`). Gunicorn stays on loopback **:8000**. First-run `curl` needs `-k`. See [docs/install/TLS.md](docs/install/TLS.md).

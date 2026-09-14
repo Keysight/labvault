@@ -59,7 +59,8 @@ services:
       timeout: 5s
       retries: 12
     ports:
-      - "${LABVAULT_HTTP_PORT:-8000}:8000"
+      # Loopback only — customer URL is HTTPS :9443 via nginx.
+      - "127.0.0.1:${LABVAULT_HTTP_PORT:-8000}:8000"
     restart: unless-stopped
 
   heartbeat:
@@ -171,9 +172,10 @@ services:
   nginx:
     image: nginx:1.27-alpine
     volumes:
-      - ./nginx-http.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx-tls.conf:/etc/nginx/nginx.conf:ro
+      - ${LABVAULT_TLS_DIR:-/var/lib/labvault/tls}:/etc/nginx/certs:ro
     ports:
-      - "${LABVAULT_NGINX_PORT:-8080}:80"
+      - "${LABVAULT_TLS_PORT:-9443}:9443"
     depends_on:
       web:
         condition: service_healthy

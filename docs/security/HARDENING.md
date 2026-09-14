@@ -9,7 +9,7 @@ Implemented controls:
 - Health endpoints without inventory leakage
 - Hard-dumped Capex / Hyperview / LAAS / AI Nexus / Snappi / Demo / UHD hardware
 - Random bootstrap credentials by default (`/var/lib/labvault/bootstrap-credentials`); published demo logins are not the default and require `LABVAULT_DEMO_DEFAULTS=1`
-- Nginx TLS termination recommended
+- Nginx TLS on **:9443** by default (generated lab cert; replace on shared hosts)
 - Compose default DB password is lab-only — rotate for shared use
 - `tools/check_public_source.py` fails closed on dumped surfaces
 

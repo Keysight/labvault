@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import time
@@ -73,12 +74,32 @@ def _manage(*args: str) -> None:
     _run([_python(), str(ROOT / "manage.py"), *args])
 
 
-def _health_ok(url: str = "http://127.0.0.1:8000/health/ready", timeout: float = 2.0) -> bool:
-    try:
-        with urllib.request.urlopen(url, timeout=timeout) as resp:
-            return 200 <= resp.status < 300
-    except (urllib.error.URLError, TimeoutError, OSError):
-        return False
+def _tls_port() -> str:
+    return os.environ.get("LABVAULT_TLS_PORT", "9443")
+
+
+def _public_base() -> str:
+    if os.environ.get("LABVAULT_USE_TLS", "true").lower() in ("1", "true", "yes"):
+        return f"https://127.0.0.1:{_tls_port()}"
+    return f"http://127.0.0.1:{os.environ.get('LABVAULT_HTTP_PORT', '8000')}"
+
+
+def _health_ok(url: str | None = None, timeout: float = 2.0) -> bool:
+    candidates = []
+    if url:
+        candidates.append(url)
+    else:
+        candidates.append("http://127.0.0.1:8000/health/ready")
+        candidates.append(f"{_public_base()}/health/ready")
+    for candidate in candidates:
+        try:
+            ctx = ssl._create_unverified_context() if candidate.startswith("https://") else None
+            with urllib.request.urlopen(candidate, timeout=timeout, context=ctx) as resp:
+                if 200 <= resp.status < 300:
+                    return True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            continue
+    return False
 
 
 def _systemctl_is_active(unit: str) -> str:
@@ -128,8 +149,8 @@ def cmd_host_deps(args: argparse.Namespace) -> int:
 def cmd_check(args: argparse.Namespace) -> int:
     _manage("check", "--deploy")
     _manage("validate_external_config")
-    live = _health_ok("http://127.0.0.1:8000/health/live")
-    ready = _health_ok("http://127.0.0.1:8000/health/ready")
+    live = _health_ok("http://127.0.0.1:8000/health/live") or _health_ok(f"{_public_base()}/health/live")
+    ready = _health_ok("http://127.0.0.1:8000/health/ready") or _health_ok(f"{_public_base()}/health/ready")
     print(f"health.live={'ok' if live else 'down'}")
     print(f"health.ready={'ok' if ready else 'down'}")
     return 0 if ready or args.allow_down else (0 if not any([live, ready]) else 1)
@@ -220,8 +241,8 @@ def cmd_install(args: argparse.Namespace) -> int:
         ):
             _run(["systemctl", "enable", "--now", unit])
     print("READY")
-    print("login=http://127.0.0.1:8000/login/")
-    print("cli=http://127.0.0.1:8000/cli/")
+    print(f"login={_public_base()}/login/")
+    print(f"cli={_public_base()}/cli/")
     print("ssh_cli=ssh -p ${LABVAULT_CLI_SSH_PORT:-2222} <staff-user>@127.0.0.1")
     if cred.exists():
         print(f"credential_file={cred}")
@@ -363,8 +384,8 @@ def cmd_restore(args: argparse.Namespace) -> int:
 def cmd_status(args: argparse.Namespace) -> int:
     print("adapter=", args.adapter)
     print("root=", ROOT)
-    print("health.live=", "ok" if _health_ok("http://127.0.0.1:8000/health/live") else "down")
-    print("health.ready=", "ok" if _health_ok("http://127.0.0.1:8000/health/ready") else "down")
+    print("health.live=", "ok" if _health_ok("http://127.0.0.1:8000/health/live") or _health_ok(f"{_public_base()}/health/live") else "down")
+    print("health.ready=", "ok" if _health_ok("http://127.0.0.1:8000/health/ready") or _health_ok(f"{_public_base()}/health/ready") else "down")
     if args.adapter == "compose":
         _run(
             ["docker", "compose", "-f", str(ROOT / "deploy/compose/docker-compose.yml"), "ps"],
@@ -480,7 +501,7 @@ def main() -> int:
 
     def _cli(_a: argparse.Namespace) -> int:
         print("Primary: ssh -p 2222 <staff-user>@<host>  (appliance CLI, no OS shell)")
-        print("Browser: http://127.0.0.1:8000/cli/ (staff)")
+        print(f"Browser: {_public_base()}/cli/ (staff)")
         print("API: GET /api/cli/v1/commands/  POST /api/cli/v1/confirm/  POST /api/cli/v1/invoke/")
         print("Commands: help, whoami, show devices|chassis|topologies|fleet|settings|insights|services,")
         print("          settings set, service start|stop|restart <name|all> reason=\"...\", diag cheap")

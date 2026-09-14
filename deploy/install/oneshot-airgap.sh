@@ -94,17 +94,21 @@ DJANGO_DEBUG=false
 DATABASE_URL=${DB_URL}
 NP_TIMESERIES_DATABASE_URL=${METRICS_URL}
 LABVAULT_CACHE_DIR=/var/lib/labvault/django_cache
-LABVAULT_CSRF_TRUSTED_ORIGINS=http://127.0.0.1:8000,http://${HOST}:8000,http://${IP}:8000,http://${IP},http://${HOST},https://${IP},https://${HOST},https://${IP}:443,https://${HOST}:443
-LABVAULT_USE_TLS=false
+LABVAULT_CSRF_TRUSTED_ORIGINS=$(default_tls_origins "$HOST" "$IP")
+LABVAULT_USE_TLS=true
+LABVAULT_TLS_PORT=$(default_tls_port)
+LABVAULT_PUBLIC_ORIGIN=$(https_origin 127.0.0.1)
+LABVAULT_TLS_DIR=/var/lib/labvault/tls
+LABVAULT_TLS_CERT=/var/lib/labvault/tls/fullchain.pem
+LABVAULT_TLS_KEY=/var/lib/labvault/tls/privkey.pem
 LABVAULT_OPS_SOCK=/run/labvault/ops.sock
 LABVAULT_OPS_ADAPTER=systemd
-LABVAULT_PUBLIC_ORIGIN=http://localhost:8000
 EOF
   chmod 600 "$ENV_FILE"
   chown root:labvault "$ENV_FILE"
 fi
-# Always ensure PUBLIC_ORIGIN so validate_external_config passes on HTTP lab installs.
-grep -q '^LABVAULT_PUBLIC_ORIGIN=' "$ENV_FILE" || echo 'LABVAULT_PUBLIC_ORIGIN=http://localhost:8000' >> "$ENV_FILE"
+grep -q '^LABVAULT_PUBLIC_ORIGIN=' "$ENV_FILE" || echo "LABVAULT_PUBLIC_ORIGIN=$(https_origin 127.0.0.1)" >> "$ENV_FILE"
+grep -q '^LABVAULT_USE_TLS=' "$ENV_FILE" || echo "LABVAULT_USE_TLS=true" >> "$ENV_FILE"
 
 for unit in deploy/systemd/*.service; do
   sed "s|/opt/labvault/current|${INSTALL_ROOT}|g" "$unit" > "/etc/systemd/system/$(basename "$unit")"
@@ -140,6 +144,9 @@ fi
 getent group labvault-ops >/dev/null || groupadd --system labvault-ops
 usermod -aG labvault-ops labvault
 mkdir -p /var/lib/labvault/cli-ssh && chown labvault:labvault /var/lib/labvault/cli-ssh && chmod 700 /var/lib/labvault/cli-ssh
+export LABVAULT_TLS_PORT="${LABVAULT_TLS_PORT:-$(default_tls_port)}"
+bash "$ROOT_SRC/deploy/scripts/ensure-labvault-tls.sh"
+maybe_install_tls "$ROOT_SRC" "$INSTALL_ROOT"
 systemctl enable --now labvault-opsd labvault-cli-ssh labvault-web labvault-refresh \
   labvault-heartbeat labvault-collector labvault-cli-worker
 if [[ "${LABVAULT_WORKER_MODE}" == "live" ]]; then
@@ -151,14 +158,14 @@ if [[ ! "${LABVAULT_SKIP_VERIFY:-}" =~ ^(1|true|yes)$ ]]; then
   [[ -f "$STATE/fleet-token" ]] || die "fleet token missing after bootstrap"
   TOKEN="$(awk -F= '/^token=/{print $2}' "$STATE/fleet-token" | tr -d '[:space:]')"
   [[ -n "$TOKEN" ]] || die "fleet token empty"
-  BASE_URL="http://127.0.0.1:8000" TOKEN="$TOKEN" ADAPTER=systemd \
+  BASE_URL="https://127.0.0.1:${LABVAULT_TLS_PORT:-$(default_tls_port)}" TOKEN="$TOKEN" ADAPTER=systemd \
     LABVAULT_STATE_DIR="$STATE" \
     bash "$INSTALL_ROOT/deploy/scripts/post_deploy_verify.sh" || \
     die "post_deploy_verify failed — see docs/admin/SERVICES.md"
 fi
 
 maybe_install_http80 "$ROOT_SRC" "$INSTALL_ROOT"
-print_ready_banner "$STATE" 8000
+print_ready_banner "$STATE" "${LABVAULT_TLS_PORT:-$(default_tls_port)}" https
 echo "ssh_cli=ssh -p ${LABVAULT_CLI_SSH_PORT:-2222} <staff-user>@127.0.0.1"
 echo "pulse=LABVAULT_WORKER_MODE=${LABVAULT_WORKER_MODE}"
 echo "restore=LABVAULT_RESTORE_DATASET=/path/labvault_export.json $0 <wheelhouse> [install_root]"

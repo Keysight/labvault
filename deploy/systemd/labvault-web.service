@@ -18,8 +18,7 @@ Restart=on-failure
 RestartSec=5
 StartLimitBurst=5
 ExecStartPre=/opt/labvault/current/.venv/bin/python manage.py validate_external_config
-# Bind all interfaces so customer VMs are reachable without a mandatory nginx hop.
-# TLS termination remains optional via deploy/nginx + install-labvault-nginx.sh.
-ExecStart=/opt/labvault/current/.venv/bin/gunicorn labvault.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300 --graceful-timeout 30 --max-requests 300 --max-requests-jitter 50
+# Loopback only. Customer HTTPS is nginx :9443 (see docs/install/TLS.md).
+ExecStart=/opt/labvault/current/.venv/bin/gunicorn labvault.wsgi:application --bind 127.0.0.1:8000 --workers 3 --timeout 300 --graceful-timeout 30 --max-requests 300 --max-requests-jitter 50
 [Install]
 WantedBy=multi-user.target
