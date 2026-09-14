@@ -97,7 +97,7 @@ Swagger (`/api/docs/`) **Authorize** uses the same Bearer string.
 |-----------|------------|
 | Isolated lab, throwaway VM | Still rotate if anyone else can reach `:9443` |
 | Shared or production-like | Rotate password **and** token before sharing the URL |
-| Want unguessable secrets at install | default (random) — `sudo cat` the two files above |
+| Want unguessable secrets at install | `LABVAULT_BOOTSTRAP_RANDOM=1` — then `sudo cat` the two files above |
 | Custom values at install | `LABVAULT_BOOTSTRAP_PASSWORD` and `LABVAULT_FLEET_TOKEN` |
 | Published demo values | oneshot default (`LABVAULT_DEMO_DEFAULTS=1`); random only with `LABVAULT_BOOTSTRAP_RANDOM=1` |
 
