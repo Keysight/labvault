@@ -107,8 +107,15 @@ else
   echo "LABVAULT_WORKER_MODE=${LABVAULT_WORKER_MODE}" >> .env
 fi
 
-if [[ ! "${LABVAULT_DEMO_DEFAULTS:-}" =~ ^(1|true|yes)$ ]]; then
-  export LABVAULT_BOOTSTRAP_RANDOM="${LABVAULT_BOOTSTRAP_RANDOM:-1}"
+if [[ "${LABVAULT_BOOTSTRAP_RANDOM:-}" =~ ^(1|true|yes)$ ]]; then
+  export LABVAULT_DEMO_DEFAULTS="${LABVAULT_DEMO_DEFAULTS:-0}"
+else
+  export LABVAULT_DEMO_DEFAULTS="${LABVAULT_DEMO_DEFAULTS:-1}"
+fi
+if grep -q '^LABVAULT_DEMO_DEFAULTS=' .env; then
+  sed -i "s|^LABVAULT_DEMO_DEFAULTS=.*|LABVAULT_DEMO_DEFAULTS=${LABVAULT_DEMO_DEFAULTS}|" .env
+else
+  echo "LABVAULT_DEMO_DEFAULTS=${LABVAULT_DEMO_DEFAULTS}" >> .env
 fi
 
 # Reject placeholder secrets early

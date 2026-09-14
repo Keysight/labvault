@@ -43,7 +43,7 @@ print_ready_banner() {
   if [[ "$scheme" == "https" ]]; then
     echo "tls_note=First-run uses a generated cert. Browsers warn until you install LABVAULT_TLS_CERT. curl needs -k."
   fi
-  echo "note=Read the credential file. Demo logins are not the default; they require LABVAULT_DEMO_DEFAULTS=1."
+  echo "note=Oneshot sets LABVAULT_DEMO_DEFAULTS=1 so first login is admin / labvault!. A random file-only password is not the default unless LABVAULT_BOOTSTRAP_RANDOM=1."
 }
 
 maybe_install_tls() {

@@ -4,6 +4,7 @@
 
 - Default customer URL is HTTPS **:9443** (nginx TLS). Gunicorn stays on loopback `:8000`.
 - Diagnostics Center is at `/diagnostics/` (staff). Appliance SSH smoke is fail-closed after oneshot.
+- Oneshot default login is `admin` / `labvault!` (`LABVAULT_DEMO_DEFAULTS=1`). A random file-only password is **not** the default unless `LABVAULT_BOOTSTRAP_RANDOM=1` (`.env` or `/etc/labvault/labvault.env`).
 
 - Oneshot installers: compose, systemd, airgap + wheelhouse builder
 - `LABVAULT_RESTORE_DATASET` restores a live lab and turns Lab Pulse on in one shot

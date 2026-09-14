@@ -39,7 +39,7 @@ Critical bare-metal packages: `openldap-devel` (Rocky) or `libldap2-dev` (Debian
 | `https://<host>:9443/health/ready` | Ready probe (**no** trailing slash) |
 | `https://<host>:9443/cli/` | Staff LabVault CLI |
 
-Oneshot writes mode `0600` copies under `/var/lib/labvault/` (`bootstrap-credentials`, `fleet-token`). Random credentials are the default. Demo logins are **not** the default; they require `LABVAULT_DEMO_DEFAULTS=1`.
+Oneshot writes mode `0600` copies under `/var/lib/labvault/` (`bootstrap-credentials`, `fleet-token`). Oneshot sets `LABVAULT_DEMO_DEFAULTS=1` so first login is `admin` / `labvault!`. A random file-only password is **not** the default unless you set `LABVAULT_BOOTSTRAP_RANDOM=1`.
 
 First-login steps: [docs/getting-started/FIRST_LOGIN.md](docs/getting-started/FIRST_LOGIN.md).
 

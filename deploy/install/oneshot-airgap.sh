@@ -137,8 +137,15 @@ if [[ -n "${LABVAULT_RESTORE_DATASET:-}" ]]; then
   export LABVAULT_RESTORE_DATASET
 fi
 chown -R labvault:labvault "$INSTALL_ROOT"
-if [[ ! "${LABVAULT_DEMO_DEFAULTS:-}" =~ ^(1|true|yes)$ ]]; then
-  export LABVAULT_BOOTSTRAP_RANDOM="${LABVAULT_BOOTSTRAP_RANDOM:-1}"
+if [[ "${LABVAULT_BOOTSTRAP_RANDOM:-}" =~ ^(1|true|yes)$ ]]; then
+  export LABVAULT_DEMO_DEFAULTS="${LABVAULT_DEMO_DEFAULTS:-0}"
+else
+  export LABVAULT_DEMO_DEFAULTS="${LABVAULT_DEMO_DEFAULTS:-1}"
+fi
+if grep -q '^LABVAULT_DEMO_DEFAULTS=' "$ENV_FILE"; then
+  sed -i "s|^LABVAULT_DEMO_DEFAULTS=.*|LABVAULT_DEMO_DEFAULTS=${LABVAULT_DEMO_DEFAULTS}|" "$ENV_FILE"
+else
+  echo "LABVAULT_DEMO_DEFAULTS=${LABVAULT_DEMO_DEFAULTS}" >> "$ENV_FILE"
 fi
 ./labvaultctl --adapter systemd --state-dir "$STATE" install
 getent group labvault-ops >/dev/null || groupadd --system labvault-ops

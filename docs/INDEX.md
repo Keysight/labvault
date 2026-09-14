@@ -40,7 +40,7 @@ Full catalog: **[MODULES.md](MODULES.md)**
 
 | What | Where |
 |------|--------|
-| Login | `https://<host>:9443/login/` — first boot reads `/var/lib/labvault/bootstrap-credentials` |
+| Login | `https://<host>:9443/login/` — oneshot `admin` / `labvault!` (`LABVAULT_DEMO_DEFAULTS=1`); a random file-only password is **not** the default unless `LABVAULT_BOOTSTRAP_RANDOM=1` |
 | Liveness | `/health/live` (**no** trailing slash) |
 | Readiness | `/health/ready` |
 | Staff CLI | `/cli/` |

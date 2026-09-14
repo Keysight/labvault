@@ -13,21 +13,21 @@ echo "TARGET=$TARGET stamp=$STAMP"
 
 case "$TARGET" in
   compose)
-    sudo LABVAULT_BOOTSTRAP_RANDOM=1 "$ROOT/deploy/install/oneshot-compose.sh"
+    sudo "$ROOT/deploy/install/oneshot-compose.sh"
     ADAPTER=compose bash "$ROOT/deploy/scripts/post_deploy_verify.sh"
     ;;
   systemd)
-    sudo LABVAULT_BOOTSTRAP_RANDOM=1 "$ROOT/deploy/install/oneshot-systemd.sh"
+    sudo "$ROOT/deploy/install/oneshot-systemd.sh"
     ADAPTER=systemd bash "$ROOT/deploy/scripts/post_deploy_verify.sh"
     ;;
   airgap)
     : "${WHEELHOUSE:?set WHEELHOUSE}"
-    sudo LABVAULT_BOOTSTRAP_RANDOM=1 "$ROOT/deploy/install/oneshot-airgap.sh" "$WHEELHOUSE"
+    sudo "$ROOT/deploy/install/oneshot-airgap.sh" "$WHEELHOUSE"
     ADAPTER=systemd bash "$ROOT/deploy/scripts/post_deploy_verify.sh"
     ;;
   proxmox-restore)
     : "${LABVAULT_RESTORE_DATASET:?set LABVAULT_RESTORE_DATASET}"
-    sudo LABVAULT_BOOTSTRAP_RANDOM=1 LABVAULT_WORKER_MODE=live \
+    sudo LABVAULT_WORKER_MODE=live \
       LABVAULT_RESTORE_DATASET="$LABVAULT_RESTORE_DATASET" \
       "$ROOT/deploy/install/oneshot-compose.sh"
     ADAPTER=compose LABVAULT_WORKER_MODE=live bash "$ROOT/deploy/scripts/post_deploy_verify.sh"

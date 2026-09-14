@@ -9,15 +9,38 @@ sudo cat /var/lib/labvault/fleet-token
 
 (`LABVAULT_STATE_DIR` overrides that directory.)
 
-Random credentials are the default. Demo logins (`admin` / `labvault!`) are **not** the default; they require explicit `LABVAULT_DEMO_DEFAULTS=1`. Rotate any demo values immediately.
+Oneshot sets `LABVAULT_DEMO_DEFAULTS=1` so first login is `admin` / `labvault!`. A random file-only password is **not** the default unless you set `LABVAULT_BOOTSTRAP_RANDOM=1`. Rotate the demo password after first login.
 
 | | |
 |--|--|
 | Login URL | `https://<host>:9443/login/` (default TLS; first-run cert is self-signed) |
-| Username / password | values in `bootstrap-credentials` |
-| Fleet token | value in `fleet-token` (`Authorization: Bearer …`) |
+| Username / password | oneshot default `admin` / `labvault!` (also written to `bootstrap-credentials`) |
+| Fleet token | oneshot default name `demo-api`, value `labvault-default-api-token` (also in `fleet-token`) |
 
-Staff CLI is at `/cli/` (`is_staff` required, else 403).
+Staff CLI is at `/cli/` (`is_staff` required, else 403). Appliance SSH: `ssh -p 2222 admin@<host>` with the same password.
+
+## Install login flags (compose, systemd, airgap)
+
+| Flag | Oneshot default | Effect |
+|------|-----------------|--------|
+| `LABVAULT_DEMO_DEFAULTS=1` | **on** | First admin is `admin` / `labvault!`. First fleet token is `labvault-default-api-token`. |
+| `LABVAULT_BOOTSTRAP_RANDOM=1` | off | Turns demo defaults **off**. Password and token are random, file-only. |
+| `LABVAULT_BOOTSTRAP_PASSWORD` | unset | Overrides the admin password for a **new** install only. |
+| `LABVAULT_FLEET_TOKEN` | unset | Overrides the first fleet Bearer value for a **new** install only. |
+
+A second `bootstrap_labvault` run does **not** reset an existing admin or token.
+
+### Where to set them
+
+| When | Where |
+|------|--------|
+| This oneshot only | Prefix the command: `sudo LABVAULT_BOOTSTRAP_RANDOM=1 ./deploy/install/oneshot-compose.sh` |
+| Compose (persists) | Repo `.env` (see `.env.example`) — `LABVAULT_DEMO_DEFAULTS=1` or `LABVAULT_BOOTSTRAP_RANDOM=1` |
+| systemd / airgap (persists) | `/etc/labvault/labvault.env` (`LABVAULT_ENV_FILE` overrides the path) |
+| After install (password) | UI **Password** or `manage.py changepassword admin` — then edit `bootstrap-credentials` |
+| After install (fleet token) | Settings → **API Tokens** — then edit `fleet-token` |
+
+Oneshot writes the chosen values into `.env` or `labvault.env` as `LABVAULT_DEMO_DEFAULTS=…` so later restarts match the install.
 
 ---
 
@@ -76,6 +99,6 @@ Swagger (`/api/docs/`) **Authorize** uses the same Bearer string.
 | Shared or production-like | Rotate password **and** token before sharing the URL |
 | Want unguessable secrets at install | default (random) — `sudo cat` the two files above |
 | Custom values at install | `LABVAULT_BOOTSTRAP_PASSWORD` and `LABVAULT_FLEET_TOKEN` |
-| Published demo values | only with `LABVAULT_DEMO_DEFAULTS=1` (not the default) |
+| Published demo values | oneshot default (`LABVAULT_DEMO_DEFAULTS=1`); random only with `LABVAULT_BOOTSTRAP_RANDOM=1` |
 
 Lock a username out of self-service password change with `LABVAULT_PASSWORD_LOCKED_USERNAMES`. Break-glass reset (account `godmode` by default, if that user exists): `/accounts/breakglass-reset-password/`. Django `/admin/` is limited to usernames in `LABVAULT_DJANGO_ADMIN_USERNAMES` (default `godmode` only — not `admin`).

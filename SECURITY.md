@@ -19,4 +19,4 @@ Do not file public issues for undisclosed vulnerabilities.
 - Staff-only LabVault CLI; no free-form device shell / host PTY
 - Capex / Hyperview / LAAS / AI Nexus / Snappi / Demo Stage are hard-dumped from this tree
 - Default compose DB password `labvault` is for lab installers only — change before shared use
-- Random UI/API bootstrap secrets are the default; published demo logins are not the default (`LABVAULT_DEMO_DEFAULTS=1` only)
+- Oneshot UI/API bootstrap is `admin` / `labvault!` (`LABVAULT_DEMO_DEFAULTS=1`). A random file-only password is **not** the default unless `LABVAULT_BOOTSTRAP_RANDOM=1`. Rotate on shared hosts.

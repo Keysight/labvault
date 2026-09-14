@@ -19,7 +19,7 @@ Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, personal design credit, UH
 | `LABVAULT_WORKER_MODE` | `idle` until restore or operator sets `live` |
 | `LABVAULT_DRIVER_PLUGIN_MODE` | `off` (built-in drivers only) |
 | Topology wizard / deep scan | Off |
-| Bootstrap | Random credentials unless `LABVAULT_DEMO_DEFAULTS=1` |
+| Bootstrap | Oneshot `admin` / `labvault!` (`LABVAULT_DEMO_DEFAULTS=1`). A random file-only password is **not** the default unless `LABVAULT_BOOTSTRAP_RANDOM=1`. |
 
 ## Restore dataset
 

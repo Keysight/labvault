@@ -19,7 +19,7 @@ Read generated bootstrap credentials:
 sudo cat /var/lib/labvault/bootstrap-credentials
 ```
 
-Random credentials are the default. Demo logins (`admin` / `labvault!`) are **not** the default; they require explicit `LABVAULT_DEMO_DEFAULTS=1`.
+Oneshot sets `LABVAULT_DEMO_DEFAULTS=1` so SSH/web CLI login is `admin` / `labvault!`. A random file-only password is **not** the default unless you set `LABVAULT_BOOTSTRAP_RANDOM=1`.
 
 ## Secondary interface: Web CLI
 

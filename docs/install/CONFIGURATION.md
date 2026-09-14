@@ -31,11 +31,12 @@
 | `LABVAULT_WORKER_MODE` | Workers default `idle` |
 | `LABVAULT_BOOTSTRAP_PASSWORD` | First admin password (only if no users exist) |
 | `LABVAULT_FLEET_TOKEN` | First fleet Bearer value (only if no token exists) |
-| `LABVAULT_DEMO_DEFAULTS` | `1` = published demo login (not the default) |
+| `LABVAULT_DEMO_DEFAULTS` | Oneshot default `1` = `admin` / `labvault!`. A random file-only password is **not** the default unless `LABVAULT_BOOTSTRAP_RANDOM=1`. Set in `.env` (Compose) or `/etc/labvault/labvault.env` (systemd). |
+| `LABVAULT_BOOTSTRAP_RANDOM` | `1` = random password + token at first boot (file-only) |
 | `LABVAULT_PASSWORD_LOCKED_USERNAMES` | Usernames that cannot use `/accounts/password_change/` |
 | `LDAP_*` | See [LDAP.md](LDAP.md) |
 
-Random credentials are the default. Demo logins are not the default; they require `LABVAULT_DEMO_DEFAULTS=1`.
+Oneshot sets `LABVAULT_DEMO_DEFAULTS=1` so first login is `admin` / `labvault!`. A random file-only password is **not** the default unless you set `LABVAULT_BOOTSTRAP_RANDOM=1`. Details and where to change them: [FIRST_LOGIN](../getting-started/FIRST_LOGIN.md).
 
 ## Compose vs host
 
