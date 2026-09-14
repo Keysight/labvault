@@ -11,6 +11,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install python-ldap build deps
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libldap2-dev libsasl2-dev
       - run: pip install -r requirements.txt
       - run: |
           export DJANGO_SECRET_KEY=ci-secret-key-must-be-at-least-32-chars-long

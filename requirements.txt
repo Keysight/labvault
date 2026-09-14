@@ -1,5 +1,5 @@
 # Core framework
-Django>=4.2,<5.0
+Django>=5.2.17,<5.3
 django-sslserver==0.22
 
 # API / networking

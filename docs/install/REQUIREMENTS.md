@@ -21,7 +21,7 @@
 | Component | Compose path | Systemd path |
 |-----------|--------------|--------------|
 | Docker Engine 24+ + Compose v2 plugin | **Required** | Optional |
-| Python 3.9+ (3.11 preferred) | In container image | Host + `.venv` |
+| Python 3.10+ (3.11 preferred; Django 5.2 LTS) | In container image | Host + `.venv` |
 | PostgreSQL 14/15 | Bundled (`db`, `metrics-db`) | Required for production (SQLite OK for labs) |
 | nginx | Optional front | Optional TLS front |
 | OpenLDAP client libs (build) | In image (`libldap2-dev`) | **Required on host before pip** |
