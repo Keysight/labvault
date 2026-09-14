@@ -1,0 +1,420 @@
+{% extends 'connect/base.html' %}
+{% load ip_display %}
+{% block title %}Lab Topology Designer — LabVault{% endblock %}
+{% block page_title %}Lab Topology Designer{% endblock %}
+
+{% block topbar_actions %}
+<button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('lt-import-modal').style.display='block'" title="Import .labtopo.json (creates new topology)">
+  <i class="fas fa-upload me-1"></i> Import Lab
+</button>
+<div class="d-inline-flex align-items-center ms-2 gap-1">
+  <select id="lt-export-pick" class="form-select form-select-sm" style="width:auto;max-width:220px;font-size:.8rem;" title="Topology to export">
+    <option value="">Export topology…</option>
+    {% for t in topos %}
+    <option value="{{ t.id }}">{{ t.name }}</option>
+    {% endfor %}
+  </select>
+  <button type="button" class="btn btn-sm btn-outline-secondary" id="lt-export-btn" title="Download .labtopo.v3.json" disabled>
+    <i class="fas fa-download me-1"></i> Export
+  </button>
+</div>
+<a href="{% url 'lab_topology_onboard' %}" class="btn btn-sm btn-outline-primary ms-2"><i class="fas fa-magic me-1"></i> Onboarding Wizard</a>
+<button type="button" class="btn btn-sm btn-outline-success ms-2" onclick="document.getElementById('lt-build-modal').style.display='block'">
+  <i class="fas fa-hammer me-1"></i> Build Lab from Inventory
+</button>
+<button type="button" class="btn btn-sm ms-2" style="background:#1a2e4a;border:1px solid #58a6ff;color:#58a6ff;" onclick="document.getElementById('lt-dc-modal').style.display='block'" title="Example DC layout from lab_topology_schema.json">
+  <i class="fas fa-building me-1"></i> Build example DC
+</button>
+<form method="post" action="{% url 'lab_topology_from_lldp' %}" class="d-inline ms-2">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-sm btn-outline-info"><i class="fas fa-network-wired me-1"></i> Build from LLDP</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div id="lt-import-modal" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.55);overflow-y:auto;">
+  <div style="background:#1a1a2e;border:1px solid #3a3a5c;border-radius:8px;max-width:560px;margin:48px auto;padding:20px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <strong style="color:#e2e8f0;"><i class="fas fa-upload me-2" style="color:#4ade80;"></i>Import Lab Topology</strong>
+      <button type="button" class="btn-close btn-close-white" onclick="document.getElementById('lt-import-modal').style.display='none'"></button>
+    </div>
+    <p class="text-muted small mb-3">Upload a consolidated <code>.labtopo.v3.json</code> export (or legacy layout JSON). Creates a new topology; view layouts are restored from v3 files.</p>
+    <div class="mb-3">
+      <label class="form-label">Topology file</label>
+      <input type="file" id="lt-import-file" class="form-control" accept=".json,application/json">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Name override (optional)</label>
+      <input type="text" id="lt-import-name" class="form-control" placeholder="From file if blank">
+    </div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" id="lt-import-replace">
+      <label class="form-check-label" for="lt-import-replace">Replace existing topology with the same name</label>
+    </div>
+    <div id="lt-import-status" class="small text-muted mb-2"></div>
+    <button type="button" class="btn btn-nc" id="lt-import-submit"><i class="fas fa-check me-1"></i>Import</button>
+    <button type="button" class="btn btn-outline-secondary ms-2" onclick="document.getElementById('lt-import-modal').style.display='none'">Cancel</button>
+  </div>
+</div>
+
+<div id="lt-build-modal" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.55);overflow-y:auto;">
+  <div style="background:#1a1a2e;border:1px solid #3a3a5c;border-radius:8px;max-width:720px;margin:48px auto;padding:20px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <strong style="color:#e2e8f0;"><i class="fas fa-hammer me-2" style="color:#4ade80;"></i>Build Lab from Inventory</strong>
+      <button type="button" class="btn-close btn-close-white" onclick="document.getElementById('lt-build-modal').style.display='none'"></button>
+    </div>
+    <p class="text-muted small mb-3">Select devices and chassis to seed a new topology. You can add more hardware later in the Editor or Port Fabric.</p>
+    <div class="mb-3">
+      <label class="form-label">Topology name</label>
+      <input type="text" id="lt-build-name" class="form-control" placeholder="My lab topology">
+    </div>
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Devices (switches, OCS, firewalls)</label>
+        <select id="lt-build-devices" class="form-select" multiple size="10" style="font-size:.8rem;">
+          {% for d in devices %}
+          <option value="{{ d.id }}">{{ d|mgmt_label }} ({{ d.vendor_type }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Keysight chassis</label>
+        <select id="lt-build-chassis" class="form-select" multiple size="10" style="font-size:.8rem;">
+          {% for ch in chassis_list %}
+          <option value="{{ ch.id }}">{{ ch|mgmt_label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+    <div id="lt-build-status" class="small text-muted mb-2"></div>
+    <button type="button" class="btn btn-nc" id="lt-build-submit"><i class="fas fa-check me-1"></i>Create Topology</button>
+    <button type="button" class="btn btn-outline-secondary ms-2" onclick="document.getElementById('lt-build-modal').style.display='none'">Cancel</button>
+  </div>
+</div>
+
+<div id="lt-dc-modal" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.55);overflow-y:auto;">
+  <div style="background:#1a1a2e;border:1px solid #3a3a5c;border-radius:8px;max-width:640px;margin:48px auto;padding:20px;">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <strong style="color:#e2e8f0;"><i class="fas fa-building me-2" style="color:#58a6ff;"></i>Build example DC topology</strong>
+      <button type="button" class="btn-close btn-close-white" onclick="document.getElementById('lt-dc-modal').style.display='none'"></button>
+    </div>
+    <p class="text-muted small mb-3">Creates the DC layout from staged <code>resources/lab_topology_schema*.json</code> + a customer <code>ocs_photonic_site.json</code>. Loads chassis ports from cache and wires DAC/B2B links when transceiver serials match.</p>
+    <div class="mb-3">
+      <label class="form-label">Resource preset</label>
+      <select id="lt-dc-preset" class="form-select">
+        <option value="hbg">Example DC (IPv4 layout schema)</option>
+        <option value="v6" selected>Example DC — IPv6 mgmt (lab_topology_schema_v6.json)</option>
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Topology name</label>
+      <input type="text" id="lt-dc-name" class="form-control" value="DC Lab Topology (IPv6 mgmt)" placeholder="DC Lab Topology">
+    </div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="lt-dc-serial" checked>
+      <label class="form-check-label" for="lt-dc-serial">Auto-link DAC / B2B by transceiver serial</label>
+    </div>
+    <div class="form-check mb-2">
+      <input class="form-check-input" type="checkbox" id="lt-dc-lldp" checked>
+      <label class="form-check-label" for="lt-dc-lldp">Add LLDP chassis↔switch links from scan cache</label>
+    </div>
+    <div class="form-check mb-3">
+      <input class="form-check-input" type="checkbox" id="lt-dc-refresh">
+      <label class="form-check-label" for="lt-dc-refresh">Refresh KCOS port cache first (slower)</label>
+    </div>
+    <div id="lt-dc-status" class="small text-muted mb-2"></div>
+    <button type="button" class="btn btn-nc" id="lt-dc-submit"><i class="fas fa-bolt me-1"></i>Create DC Topology</button>
+    <button type="button" class="btn btn-outline-secondary ms-2" onclick="document.getElementById('lt-dc-modal').style.display='none'">Cancel</button>
+  </div>
+</div>
+
+{% if show_new %}
+<div class="card-custom mb-4">
+  <div class="card-header"><i class="fas fa-plus me-2"></i> New Topology</div>
+  <div class="card-body">
+    <form method="post" action="{% url 'lab_topology_new' %}">
+      {% csrf_token %}
+      <div class="mb-3"><label class="form-label">Name</label>
+        <input type="text" name="name" class="form-control" placeholder="Photonic OCS Lab" required></div>
+      <div class="mb-3"><label class="form-label">Description</label>
+        <textarea name="description" class="form-control" rows="2"></textarea></div>
+      <div class="mb-3"><label class="form-label">Tags (comma-separated)</label>
+        <input type="text" name="tags" class="form-control" placeholder="ocs,arista"></div>
+      <button type="submit" class="btn btn-nc">Create</button>
+      <a href="{% url 'lab_topology_list' %}" class="btn btn-outline-secondary ms-2">Cancel</a>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="card-custom">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="fas fa-project-diagram me-2"></i> Saved Topologies</span>
+    <span class="badge badge-nc">{{ topos|length }}</span>
+  </div>
+  <div class="card-body p-0">
+    {% if topos %}
+    <table class="table table-sm table-hover mb-0" style="font-size:0.82rem;">
+      <thead class="table-light">
+        <tr><th>Name</th><th>Source</th><th>Tags</th><th>Nodes</th><th>Links</th><th>Updated</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for t in topos %}
+        {% if t.id not in child_topo_ids %}
+        <tr id="topo-row-{{ t.id }}">
+          <td><a href="{% url 'lab_topology_detail' t.id %}"><strong>{{ t.name }}</strong></a></td>
+          <td><span class="badge bg-secondary">{{ t.source }}</span></td>
+          <td class="text-muted small">{{ t.tags|default:"---" }}</td>
+          <td>{{ t.nodes.count }}</td>
+          <td>{{ t.links.count }}</td>
+          <td class="text-muted small">{{ t.updated_at|date:"Y-m-d H:i" }}</td>
+          <td class="text-nowrap">
+            <a href="{% url 'lab_topology_detail' t.id %}" class="btn btn-xs btn-nc">Open</a>
+            <a href="{% url 'lab_topology_export' t.id %}" class="btn btn-xs btn-outline-secondary ms-1" title="Export JSON"><i class="fas fa-download"></i></a>
+            <button type="button" class="btn btn-xs btn-outline-info ms-1 clone-topo-btn" title="Clone topology"
+              data-topo-id="{{ t.id }}" data-topo-name="{{ t.name }}">
+              <i class="fas fa-clone"></i>
+            </button>
+            <button class="btn btn-xs btn-outline-danger ms-1" title="Delete topology"
+              onclick="deleteTopology({{ t.id }})">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>
+        {% with subs=t.extra.sub_topologies %}
+        {% if subs %}
+        {% for role, sub in subs.items %}
+        <tr class="table-secondary" style="font-size:.78rem;">
+          <td class="ps-4"><i class="fas fa-level-down-alt text-muted me-1"></i>
+            <a href="{% url 'lab_topology_detail' sub.id %}">{{ sub.label|default:sub.name }}</a></td>
+          <td><span class="badge bg-dark">sub</span></td>
+          <td class="text-muted small">{{ role }}</td>
+          <td colspan="2"></td>
+          <td class="text-muted small">↳ {{ t.name|truncatechars:20 }}</td>
+          <td><a href="{% url 'lab_port_fabric' sub.id %}" class="btn btn-xs btn-outline-secondary">Port Fabric</a></td>
+        </tr>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="p-4 text-muted text-center">
+      <i class="fas fa-project-diagram fa-2x mb-2 d-block" style="opacity:0.3;"></i>
+      No topologies yet. <a href="{% url 'lab_topology_new' %}">Create one</a> or
+      <form method="post" action="{% url 'lab_topology_from_lldp' %}" class="d-inline">
+        {% csrf_token %}<button class="btn btn-link p-0" type="submit">build from LLDP</button>
+      </form>.
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+function getCsrf(){
+  var m = document.cookie.match('(^|;)\\s*csrftoken\\s*=\\s*([^;]+)');
+  return m ? m.pop() : '';
+}
+
+function fetchJsonWithTimeout(url, options, timeoutMs) {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, timeoutMs || 120000);
+  var opts = Object.assign({}, options || {}, { signal: ctrl.signal });
+  return fetch(url, opts).then(function(r){
+    clearTimeout(timer);
+    return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
+  }).catch(function(e){
+    clearTimeout(timer);
+    if (e && e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  });
+}
+
+var exportPick = document.getElementById('lt-export-pick');
+var exportBtn = document.getElementById('lt-export-btn');
+if (exportPick && exportBtn) {
+  exportPick.addEventListener('change', function(){
+    exportBtn.disabled = !this.value;
+  });
+  exportBtn.addEventListener('click', function(){
+    var id = exportPick.value;
+    if (!id) return;
+    window.location.href = '/lab-topology/' + id + '/export/';
+  });
+}
+
+document.getElementById('lt-import-submit').addEventListener('click', async function(){
+  var fileInput = document.getElementById('lt-import-file');
+  var sts = document.getElementById('lt-import-status');
+  var btn = this;
+  var file = fileInput.files && fileInput.files[0];
+  if (!file) {
+    sts.textContent = 'Choose a JSON file.';
+    return;
+  }
+  btn.disabled = true;
+  sts.textContent = 'Importing…';
+  var fd = new FormData();
+  fd.append('topo_file', file);
+  var name = document.getElementById('lt-import-name').value.trim();
+  if (name) fd.append('name', name);
+  if (document.getElementById('lt-import-replace').checked) fd.append('replace', '1');
+  try {
+    var r = await fetch('{% url "lab_topology_import_site" %}', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'X-CSRFToken': getCsrf() },
+      body: fd,
+    });
+    var d = await r.json();
+    if (d.ok && d.redirect) {
+      sts.textContent = 'OK — opening topology…';
+      window.location.href = d.redirect;
+    } else {
+      sts.textContent = 'Error: ' + (d.error || 'import failed');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    sts.textContent = 'Error: ' + e;
+    btn.disabled = false;
+  }
+});
+document.getElementById('lt-dc-preset').addEventListener('change', function(){
+  var p = this.value;
+  var nameEl = document.getElementById('lt-dc-name');
+  if (p === 'v6') nameEl.value = 'Example DC topology (IPv6 mgmt)';
+  else nameEl.value = 'Example DC topology';
+});
+document.getElementById('lt-dc-submit').addEventListener('click', async function(){
+  var preset = document.getElementById('lt-dc-preset').value;
+  var name = document.getElementById('lt-dc-name').value.trim() || 'DC Lab Topology';
+  var sts = document.getElementById('lt-dc-status');
+  var btn = this;
+  var t0 = Date.now();
+  btn.disabled = true;
+  sts.textContent = 'Building DC topology (layout + ports + serial links)…';
+  var tick = setInterval(function(){
+    var s = Math.round((Date.now() - t0) / 1000);
+    sts.textContent = 'Building DC topology… ' + s + 's (disable “Refresh KCOS cache” if this hangs)';
+  }, 1000);
+  try {
+    var res = await fetchJsonWithTimeout('/lab-topology/build-dc/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify({
+        name: name,
+        preset: preset,
+        auto_serial: document.getElementById('lt-dc-serial').checked,
+        auto_lldp: document.getElementById('lt-dc-lldp').checked,
+        refresh_cache: document.getElementById('lt-dc-refresh').checked,
+      }),
+    }, 600000);
+    clearInterval(tick);
+    var d = res.data;
+    if (d.ok && d.redirect) {
+      window.location.href = d.redirect;
+    } else {
+      sts.textContent = 'Error: ' + (d.error || 'failed');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    clearInterval(tick);
+    sts.textContent = 'Error: ' + e;
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('lt-build-submit').addEventListener('click', async function(){
+  var name = document.getElementById('lt-build-name').value.trim() || 'New Lab Topology';
+  var devSel = document.getElementById('lt-build-devices');
+  var chSel = document.getElementById('lt-build-chassis');
+  var deviceIds = Array.from(devSel.selectedOptions).map(function(o){ return parseInt(o.value, 10); });
+  var chassisIds = Array.from(chSel.selectedOptions).map(function(o){ return parseInt(o.value, 10); });
+  var sts = document.getElementById('lt-build-status');
+  if (!deviceIds.length && !chassisIds.length) {
+    sts.textContent = 'Select at least one device or chassis.';
+    return;
+  }
+  var btn = this;
+  btn.disabled = true;
+  sts.textContent = 'Creating topology…';
+  try {
+    var res = await fetchJsonWithTimeout('/lab-topology/build-inventory/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify({
+        name: name,
+        device_ids: deviceIds,
+        chassis_ids: chassisIds,
+        full_ports: true,
+        auto_serial: true,
+        auto_lldp: true,
+      }),
+    }, 300000);
+    var d = res.data;
+    if (d.ok && d.redirect) {
+      window.location.href = d.redirect;
+    } else {
+      sts.textContent = 'Error: ' + (d.error || 'failed');
+      btn.disabled = false;
+    }
+  } catch (e) {
+    sts.textContent = 'Error: ' + e;
+    btn.disabled = false;
+  }
+});
+
+document.querySelectorAll('.clone-topo-btn').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    cloneTopology(parseInt(btn.dataset.topoId, 10), btn.dataset.topoName || '');
+  });
+});
+
+async function cloneTopology(topoId, topoName){
+  var label = topoName || ('topology ' + topoId);
+  var newName = prompt('Clone "' + label + '" as:', label + ' (copy)');
+  if (newName === null) return;
+  newName = newName.trim();
+  try {
+    var r = await fetch('/lab-topology/' + topoId + '/clone/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCsrf()},
+      body: JSON.stringify({ name: newName || undefined }),
+    });
+    var d = await r.json();
+    if (d.ok && d.redirect) {
+      window.location.href = d.redirect;
+    } else {
+      alert('Clone failed: ' + (d.error || 'unknown'));
+    }
+  } catch (e) {
+    alert('Clone failed: ' + e);
+  }
+}
+
+async function deleteTopology(topoId){
+  var row = document.getElementById('topo-row-' + topoId);
+  var nameEl = row ? row.querySelector('td strong') : null;
+  var name = nameEl ? nameEl.textContent : 'this topology';
+  if(!confirm('Delete "' + name + '"?\n\nAll nodes and links will be permanently removed.')) return;
+  try {
+    var r = await fetch('/lab-topology/' + topoId + '/delete/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'X-Requested-With': 'XMLHttpRequest', 'X-CSRFToken': getCsrf()}
+    });
+    var d = await r.json();
+    if(d.ok && row){
+      row.style.transition = 'opacity 0.3s';
+      row.style.opacity = '0';
+      setTimeout(function(){ row.remove(); }, 300);
+    }
+  } catch(e){ alert('Delete failed: ' + e); }
+}
+</script>
+{% endblock %}

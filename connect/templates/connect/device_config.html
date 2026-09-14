@@ -1,0 +1,55 @@
+{% extends 'connect/base.html' %}
+{% block title %}Config - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}Config: {{ device.hostname|default:device.ip_address }}{% endblock %}
+
+{% block content %}
+<div class="mb-3 d-flex gap-2 align-items-center">
+    <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a>
+    <form method="post" action="{% url 'backup_config' device.id %}" class="ms-auto">
+        {% csrf_token %}
+        <button class="btn btn-sm btn-nc"><i class="fas fa-download me-1"></i> Backup Config</button>
+    </form>
+</div>
+
+<ul class="nav nav-tabs mb-3">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#running">Running Config</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#startup">Startup Config</a></li>
+    {% if has_diff %}<li class="nav-item"><a class="nav-link text-danger" data-bs-toggle="tab" href="#diff"><i class="fas fa-exclamation-triangle me-1"></i> Diff</a></li>{% endif %}
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#backups">Backups ({{ backups|length }})</a></li>
+</ul>
+
+<div class="tab-content">
+    <div class="tab-pane fade show active" id="running">
+        <div class="terminal-output" style="max-height:600px;">{{ running_config|default:"Unable to retrieve" }}</div>
+    </div>
+    <div class="tab-pane fade" id="startup">
+        <div class="terminal-output" style="max-height:600px;">{{ startup_config|default:"Unable to retrieve" }}</div>
+    </div>
+    {% if has_diff %}
+    <div class="tab-pane fade" id="diff">
+        <div class="terminal-output" style="max-height:600px;color:#fff;">{% for line in diff_text.splitlines %}<div class="{% if line|first == '+' %}diff-add{% elif line|first == '-' %}diff-remove{% elif line|first == '@' %}diff-header{% endif %}">{{ line }}</div>{% endfor %}</div>
+    </div>
+    {% endif %}
+    <div class="tab-pane fade" id="backups">
+        <div class="card-custom">
+            <div class="card-body p-0">
+                <table class="table table-sm table-hover mb-0">
+                    <thead><tr><th>Date</th><th>Type</th><th>By</th><th>Has Changes</th></tr></thead>
+                    <tbody>
+                        {% for b in backups %}
+                        <tr>
+                            <td>{{ b.created_at|date:"Y-m-d H:i" }}</td>
+                            <td>{{ b.config_type }}</td>
+                            <td>{{ b.created_by|default:"system" }}</td>
+                            <td>{% if b.diff_from_previous %}<span class="badge bg-warning text-dark">Yes</span>{% else %}-{% endif %}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted py-3">No backups yet</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

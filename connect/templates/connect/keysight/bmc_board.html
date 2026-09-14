@@ -1,0 +1,369 @@
+{% extends "connect/base.html" %}
+{% block title %}BMC Board - LabVault{% endblock %}
+{% block page_title %}BMC Board{% endblock %}
+
+{% block topbar_actions %}
+<a href="?{{ request.GET.urlencode }}&format=csv" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-download me-1"></i>Export CSV
+</a>
+{% if ipmi_enrich %}
+<a href="?{% if search_q %}q={{ search_q }}&{% endif %}{% if chassis_filter %}chassis={{ chassis_filter }}&{% endif %}{% if mps_filter %}mps={{ mps_filter }}&{% endif %}{% if status_filter %}status={{ status_filter }}{% endif %}"
+   class="btn btn-sm btn-outline-warning ms-1" title="Disable IPMI enrichment (faster)">
+    <i class="fas fa-bolt me-1"></i>IPMI On
+</a>
+{% else %}
+<a href="?{{ request.GET.urlencode }}&ipmi=1"
+   class="btn btn-sm btn-outline-secondary ms-1" title="Enable direct IPMI queries for primary_os_name (slower)">
+    <i class="fas fa-bolt me-1"></i>IPMI Enrich
+</a>
+{% endif %}
+<a href="{% url 'keysight_node_inventory' %}" class="btn btn-sm btn-outline-secondary ms-1">
+    <i class="fas fa-microchip me-1"></i>Node &amp; BMC
+</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+:root { --ks-red: #E31937; }
+
+.ni-stat { background:#fff; border-radius:8px; padding:14px 18px; box-shadow:0 1px 4px rgba(0,0,0,.06); border-top:3px solid var(--ks-red); text-align:center; }
+.ni-stat .val { font-size:1.6rem; font-weight:700; color:#1a1a2e; }
+.ni-stat .lbl { font-size:.68rem; text-transform:uppercase; letter-spacing:.5px; color:#888; margin-top:2px; }
+.ni-filters { background:#fff; border-radius:8px; padding:12px 16px; box-shadow:0 1px 4px rgba(0,0,0,.06); margin-bottom:16px; }
+
+/* BMC cards */
+.bmc-card {
+    background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.06);
+    border-left:4px solid #d1d5db; margin-bottom:10px; overflow:hidden; transition:border-color .15s;
+}
+.bmc-card.mgmt { border-left-color: var(--ks-red); }
+.bmc-card.compute { border-left-color: #1a1a2e; }
+.bmc-card.has-ip { border-left-color: #2e7d32; }
+.bmc-card.no-ip { border-left-color: #ef6c00; }
+.bmc-card .bc-header {
+    display:flex; align-items:center; justify-content:space-between; padding:10px 14px;
+    border-bottom:1px solid #f0f0f0; background:#fafafa; cursor:pointer;
+}
+.bmc-card .bc-header:hover { background:#f5f5f5; }
+.bmc-card .bc-body { padding:12px 14px; display:none; }
+.bmc-card.open .bc-body { display:block; }
+.bc-name { font-weight:700; font-size:.80rem; color:#1a1a2e; }
+.bc-ip { font-size:.70rem; color:#888; font-family:'SFMono-Regular',Consolas,monospace; }
+.bc-badges { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+.bc-badge { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:4px; font-size:.62rem; font-weight:600; }
+.bc-badge.role-mgmt { background:#fce4ec; color:#c62828; }
+.bc-badge.role-compute { background:#e8eaf6; color:#283593; }
+.bc-badge.status-ready { background:#e8f5e9; color:#2e7d32; }
+.bc-badge.status-notready { background:#fff3e0; color:#e65100; }
+.bc-badge.power-on { background:#e8f5e9; color:#2e7d32; }
+.bc-badge.power-off { background:#ffebee; color:#c62828; }
+.bc-badge.has-ip { background:#e8f5e9; color:#2e7d32; }
+.bc-badge.no-ip { background:#fff3e0; color:#ef6c00; }
+.bc-badge.mps { background:#e3f2fd; color:#1565c0; }
+.bc-badge.mh { background:#ede9fe; color:#5b21b6; }
+.bc-badge.ipmi-ok { background:#e8f5e9; color:#2e7d32; }
+.bc-badge.ipmi-err { background:#ffebee; color:#c62828; }
+
+.bc-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media(max-width:768px){ .bc-grid { grid-template-columns:1fr; } }
+.bc-section { border:1px solid #eee; border-radius:6px; overflow:hidden; }
+.bc-section-title {
+    background:#f8f9fa; padding:6px 10px; font-size:.68rem; font-weight:700;
+    text-transform:uppercase; letter-spacing:.3px; color:#555; border-bottom:1px solid #eee;
+}
+.bc-section-title i { margin-right:4px; color:var(--ks-red); }
+.bc-kv { padding:4px 10px; font-size:.72rem; display:flex; justify-content:space-between; border-bottom:1px solid #f5f5f5; }
+.bc-kv:last-child { border-bottom:none; }
+.bc-kv .k { color:#888; font-weight:600; }
+.bc-kv .v { color:#333; font-family:'SFMono-Regular',Consolas,monospace; text-align:right; max-width:60%; word-break:break-all; }
+
+.bc-toggle { transition:transform .15s; color:#ccc; font-size:.8rem; }
+.bmc-card.open .bc-toggle { transform:rotate(180deg); }
+
+.import-panel { background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.06); padding:16px; margin-bottom:20px; }
+.import-panel textarea { font-family:'SFMono-Regular',Consolas,monospace; font-size:.75rem; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Summary -->
+<div class="row g-3 mb-3">
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val">{{ total }}</div>
+            <div class="lbl">Total Nodes</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:var(--ks-red);">{{ total_mgmt_nodes }}</div>
+            <div class="lbl">Management</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#1a1a2e;">{{ total_compute }}</div>
+            <div class="lbl">Compute</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#2e7d32;">{{ with_bmc_ip }}</div>
+            <div class="lbl">BMC IP Found</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#555;">{{ powered_on }}</div>
+            <div class="lbl">Powered On</div>
+        </div>
+    </div>
+    {% if ipmi_enrich %}
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#1565c0;">{{ with_mgmt }}</div>
+            <div class="lbl">With Mgmt Info</div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Filters -->
+<div class="ni-filters">
+    <form method="get" class="row g-2 align-items-end">
+        {% if ipmi_enrich %}<input type="hidden" name="ipmi" value="1">{% endif %}
+        <div class="col-md-3">
+            <label class="form-label" style="font-size:.72rem;font-weight:600;">Search</label>
+            <input type="text" class="form-control form-control-sm" name="q" value="{{ search_q }}"
+                   placeholder="Node name, BMC hostname, IP, serial..." id="bmcSearch">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" style="font-size:.72rem;font-weight:600;">Chassis</label>
+            <select name="chassis" class="form-select form-select-sm">
+                <option value="">All Chassis</option>
+                {% for ch in all_chassis %}
+                <option value="{{ ch.id }}" {% if chassis_filter == ch.id|stringformat:"d" %}selected{% endif %}>
+                    {{ ch.hostname|default:ch.ip_address }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% if ipmi_enrich and mps_values %}
+        <div class="col-md-2">
+            <label class="form-label" style="font-size:.72rem;font-weight:600;">Mgmt System (mps)</label>
+            <select name="mps" class="form-select form-select-sm">
+                <option value="">All</option>
+                {% for m in mps_values %}
+                <option value="{{ m }}" {% if mps_filter == m %}selected{% endif %}>{{ m }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+        <div class="col-md-2">
+            <label class="form-label" style="font-size:.72rem;font-weight:600;">BMC Status</label>
+            <select name="status" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="reachable" {% if status_filter == 'reachable' %}selected{% endif %}>Has BMC IP</option>
+                <option value="unreachable" {% if status_filter == 'unreachable' %}selected{% endif %}>No BMC IP</option>
+            </select>
+        </div>
+        <div class="col-md-1">
+            <button type="submit" class="btn btn-sm w-100" style="background:var(--ks-red);color:#fff;font-size:.78rem;">
+                <i class="fas fa-filter me-1"></i>Filter
+            </button>
+        </div>
+        <div class="col-md-1">
+            <a href="{% url 'keysight_bmc_board' %}" class="btn btn-sm btn-outline-secondary w-100" style="font-size:.78rem;">
+                <i class="fas fa-times me-1"></i>Clear
+            </a>
+        </div>
+        <div class="col-md-1 text-end d-flex gap-1 justify-content-end">
+            <button type="button" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem;" onclick="toggleAll()" title="Expand/Collapse All">
+                <i class="fas fa-expand-arrows-alt"></i>
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-primary" style="font-size:.72rem;" onclick="document.getElementById('importPanel').classList.toggle('d-none')" title="Import BMCs">
+                <i class="fas fa-file-import"></i>
+            </button>
+        </div>
+    </form>
+</div>
+
+{% if chassis_errors %}
+<div class="alert alert-warning py-2" style="font-size:.75rem;">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    Failed to fetch from: {% for e in chassis_errors %}{{ e.chassis }}{% if not forloop.last %}, {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<!-- Import Panel (hidden by default) -->
+<div class="import-panel d-none" id="importPanel">
+    <h6 style="font-size:.82rem;font-weight:700;margin-bottom:8px;"><i class="fas fa-file-import me-1" style="color:var(--ks-red);"></i>Import BMC Endpoints</h6>
+    <p style="font-size:.7rem;color:#888;margin-bottom:8px;">
+        Paste <code>hostname:ip</code> lines (one per line) to add manually-tracked BMC endpoints.
+        Use output from <code>hosts.sh</code> or similar scripts. Chassis-derived BMCs are auto-populated.
+    </p>
+    <form method="post" action="{% url 'keysight_bmc_import' %}">
+        {% csrf_token %}
+        <textarea name="bmc_lines" rows="6" class="form-control form-control-sm mb-2"
+                  placeholder="bmc-01.example.com:192.0.2.10
+bmc-02.example.com:192.0.2.11"></textarea>
+        <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-sm" style="background:var(--ks-red);color:#fff;font-size:.78rem;">
+                <i class="fas fa-upload me-1"></i>Import
+            </button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" style="font-size:.78rem;"
+                    onclick="document.getElementById('importPanel').classList.add('d-none')">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<!-- BMC Cards -->
+<div id="bmcList">
+{% for c in combined %}
+<div class="bmc-card {% if c.role == 'Management' %}mgmt{% elif c.role == 'Compute' %}compute{% endif %} {% if c.bmc_ip %}has-ip{% else %}no-ip{% endif %}"
+     data-search="{{ c.node_name|lower }} {{ c.bmc_hostname|lower }} {{ c.bmc_ip|lower }} {{ c.serial_number|lower }} {{ c.chassis_hostname|lower }} {{ c.master_host|lower }} {{ c.mgmt_primary_system|lower }}">
+    <div class="bc-header" onclick="this.parentElement.classList.toggle('open')">
+        <div>
+            <span class="bc-name">{{ c.node_name }}</span>
+            {% if c.bmc_hostname %}
+            <span class="bc-ip ms-2">{{ c.bmc_hostname }}</span>
+            {% endif %}
+            {% if c.chassis_hostname %}
+            <span style="font-size:.64rem;color:#bbb;margin-left:6px;">
+                &middot; <a href="{% url 'keysight_chassis_detail' c.chassis_id %}" class="text-decoration-none" style="color:#aaa;" onclick="event.stopPropagation();">{% firstof c.chassis_fqdn c.chassis_hostname %}</a>
+                <span style="color:#ccc;">({{ c.chassis_type }}) · {{ c.chassis_ip }}</span>
+            </span>
+            {% endif %}
+        </div>
+        <div class="bc-badges">
+            <span class="bc-badge {% if c.role == 'Management' %}role-mgmt{% elif c.role == 'Standalone' %}role-standalone{% elif c.role == 'Compute' %}role-compute{% endif %}">{{ c.role }}</span>
+            {% if c.operating_mode == 'standalone_merged' %}
+            <span class="bc-badge" style="background:#ede9fe;color:#5b21b6;" title="Combined mgmt+CN on one box">mgmt+CN</span>
+            {% elif c.operating_mode == 'chassis_cn' %}
+            <span class="bc-badge" style="background:#e0f2fe;color:#0369a1;" title="Compute node in multi-CN chassis">chassis CN</span>
+            {% endif %}
+            {% if c.relocated_from %}
+            <span class="bc-badge" style="background:#fef3c7;color:#92400e;" title="BMC moved from {{ c.relocated_from }}{% if c.relocated_at %} at {{ c.relocated_at }}{% endif %}">
+                <i class="fas fa-exchange-alt" style="font-size:.5rem;"></i>moved
+            </span>
+            {% endif %}
+            {% if c.status %}
+            <span class="bc-badge {% if c.status == 'Ready' %}status-ready{% else %}status-notready{% endif %}">{{ c.status }}</span>
+            {% endif %}
+            {% if c.bmc_ip %}
+            <span class="bc-badge has-ip"><i class="fas fa-network-wired" style="font-size:.5rem;"></i>{{ c.bmc_ip }}</span>
+            {% else %}
+            <span class="bc-badge no-ip"><i class="fas fa-exclamation" style="font-size:.5rem;"></i>No BMC IP</span>
+            {% endif %}
+            {% if c.bmc_power and c.bmc_power != 'unknown' %}
+            <span class="bc-badge {% if c.bmc_power == 'on' %}power-on{% else %}power-off{% endif %}">
+                <i class="fas fa-plug" style="font-size:.5rem;"></i>{{ c.bmc_power }}
+            </span>
+            {% endif %}
+            {% if c.mgmt_primary_system %}
+            <span class="bc-badge mps" title="Mgmt Primary System (mps)">
+                <i class="fas fa-server" style="font-size:.5rem;"></i>{{ c.mgmt_primary_system }}
+            </span>
+            {% endif %}
+            {% if c.master_host %}
+            <span class="bc-badge mh" title="Master Host (mh)">
+                <i class="fas fa-crown" style="font-size:.5rem;"></i>{{ c.master_host }}
+            </span>
+            {% endif %}
+            {% if c.serial_number %}
+            <span style="font-size:.62rem;color:#999;font-family:monospace;">S/N: {{ c.serial_number }}</span>
+            {% endif %}
+            <i class="fas fa-chevron-down bc-toggle"></i>
+        </div>
+    </div>
+    <div class="bc-body">
+        <div class="bc-grid">
+            <!-- BMC / Network -->
+            <div class="bc-section">
+                <div class="bc-section-title"><i class="fas fa-microchip"></i>BMC / Network</div>
+                <div class="bc-kv"><span class="k">BMC Hostname</span><span class="v">{{ c.bmc_hostname|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">BMC IP</span>
+                    <span class="v">
+                        {% if c.bmc_ip %}
+                        <span style="color:var(--ks-red);font-weight:600;">{{ c.bmc_ip }}</span>
+                        {% else %}-{% endif %}
+                    </span>
+                </div>
+                <div class="bc-kv"><span class="k">BMC Name</span><span class="v">{{ c.bmc_name|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Power State</span><span class="v">{{ c.bmc_power|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Internal IP</span><span class="v">{{ c.internal_ip|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Serial Number</span><span class="v">{{ c.serial_number|default:"-" }}</span></div>
+            </div>
+
+            <!-- Firmware -->
+            <div class="bc-section">
+                <div class="bc-section-title"><i class="fas fa-cogs"></i>Firmware</div>
+                <div class="bc-kv"><span class="k">BMC Firmware</span><span class="v">{{ c.bmc_firmware_name }} {{ c.bmc_firmware|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">BIOS Version</span><span class="v">{{ c.bios_version|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Node Status</span><span class="v">{{ c.status|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Role</span><span class="v">{{ c.role|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Chassis</span><span class="v">{% firstof c.chassis_fqdn c.chassis_hostname "-" %} · {{ c.chassis_ip }}</span></div>
+                <div class="bc-kv"><span class="k">Source</span><span class="v">{{ c.source }}</span></div>
+            </div>
+
+            {% if c.primary_os_name_raw or c.fru_board_mfg or c.fru_product_name %}
+            <!-- IPMI Enrichment (primary_os_name + FRU) -->
+            <div class="bc-section">
+                <div class="bc-section-title"><i class="fas fa-sitemap"></i>Cluster Info (IPMI primary_os_name)</div>
+                <div class="bc-kv"><span class="k">Raw</span><span class="v">{{ c.primary_os_name_raw|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Master Host (mh)</span><span class="v" style="{% if c.master_host %}color:#5b21b6;font-weight:600;{% endif %}">{{ c.master_host|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Mgmt System (mps)</span><span class="v" style="{% if c.mgmt_primary_system %}color:#1565c0;font-weight:600;{% endif %}">{{ c.mgmt_primary_system|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Version</span><span class="v">{{ c.primary_os_version|default:"-" }}</span></div>
+            </div>
+
+            <div class="bc-section">
+                <div class="bc-section-title"><i class="fas fa-barcode"></i>FRU (via IPMI)</div>
+                <div class="bc-kv"><span class="k">Board Manufacturer</span><span class="v">{{ c.fru_board_mfg|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Board Product</span><span class="v">{{ c.fru_board_product|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Board Serial</span><span class="v">{{ c.fru_board_serial|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Product Name</span><span class="v">{{ c.fru_product_name|default:"-" }}</span></div>
+                <div class="bc-kv"><span class="k">Product Serial</span><span class="v">{{ c.fru_product_serial|default:"-" }}</span></div>
+            </div>
+            {% endif %}
+
+            {% if c.ipmi_error %}
+            <div class="bc-section">
+                <div class="bc-section-title"><i class="fas fa-exclamation-triangle"></i>IPMI Error</div>
+                <div class="bc-kv"><span class="k">Message</span><span class="v" style="color:#c62828;">{{ c.ipmi_error }}</span></div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% empty %}
+<div class="text-center text-muted py-5">
+    <i class="fas fa-satellite-dish" style="font-size:2.5rem;color:#ddd;"></i>
+    <div class="mt-2" style="font-size:.85rem;">No BMC data found.</div>
+    <div style="font-size:.75rem;color:#aaa;">Make sure at least one KCOS chassis (APS-M1010 / APS-M8400) is online, or import BMC endpoints manually.</div>
+</div>
+{% endfor %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allOpen = false;
+function toggleAll() {
+    allOpen = !allOpen;
+    document.querySelectorAll('.bmc-card').forEach(card => {
+        if (allOpen) card.classList.add('open');
+        else card.classList.remove('open');
+    });
+}
+
+document.getElementById('bmcSearch').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('.bmc-card').forEach(card => {
+        const searchData = card.dataset.search || card.textContent.toLowerCase();
+        card.style.display = !q || searchData.includes(q) ? '' : 'none';
+    });
+});
+</script>
+{% endblock %}

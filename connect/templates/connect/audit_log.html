@@ -1,0 +1,42 @@
+{% extends 'connect/base.html' %}
+{% block title %}Audit Log - LabVault{% endblock %}
+{% block page_title %}Audit Log{% endblock %}
+
+{% block content %}
+<div class="card-custom">
+    <div class="card-header d-flex align-items-center justify-content-between flex-wrap gap-2">
+        <span><i class="fas fa-clipboard-list me-2"></i> Audit Log</span>
+        <a href="{% url 'access_by_ip' %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-network-wired me-1"></i> Access by IP</a>
+    </div>
+    <div class="card-body p-0">
+        {% if ip_filter %}
+        <p class="small text-muted px-3 pt-2 mb-0">Filtered by IP: <strong>{{ ip_filter }}</strong> <a href="{% url 'audit_log' %}">Clear</a></p>
+        {% endif %}
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>Timestamp</th><th>User</th><th>Action</th><th>Device</th><th>Details</th><th>Source IP</th></tr></thead>
+                <tbody>
+                    {% for log in logs %}
+                    <tr>
+                        <td style="font-size:0.85rem;">{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        <td>{{ log.user|default:"system" }}</td>
+                        <td>
+                            {% if 'add' in log.action %}<span class="badge bg-success">{{ log.get_action_display }}</span>
+                            {% elif 'delete' in log.action %}<span class="badge bg-danger">{{ log.get_action_display }}</span>
+                            {% elif 'exec' in log.action %}<span class="badge bg-info">{{ log.get_action_display }}</span>
+                            {% elif 'login' in log.action or 'logout' in log.action %}<span class="badge bg-primary">{{ log.get_action_display }}</span>
+                            {% else %}<span class="badge bg-secondary">{{ log.get_action_display }}</span>{% endif %}
+                        </td>
+                        <td>{% if log.device %}<a href="{% url 'device_detail' log.device.id %}">{{ log.device }}</a>{% else %}-{% endif %}</td>
+                        <td style="font-size:0.85rem;">{{ log.details|truncatechars:60 }}</td>
+                        <td style="font-size:0.8rem;">{{ log.ip_address|default:"-" }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-3">No log entries</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

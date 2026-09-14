@@ -1,0 +1,51 @@
+{% extends "connect/base.html" %}
+{% block title %}Edit {{ chassis.ip_address }} - LabVault{% endblock %}
+
+{% block page_title %}Edit Chassis - {{ chassis.ip_address }}{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-server me-2"></i>Edit Chassis</div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    {% for field in form %}
+                    <div class="mb-3{% if field.field.widget.input_type == 'checkbox' %} form-check{% endif %}">
+                        {% if field.field.widget.input_type == 'checkbox' %}
+                        {{ field }}
+                        <label class="form-check-label" style="font-size:.85rem;font-weight:600;" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                        {% else %}
+                        <label class="form-label" style="font-size:.85rem;font-weight:600;">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                        {% endif %}
+                        {% for error in field.errors %}<div class="text-danger" style="font-size:.8rem;">{{ error }}</div>{% endfor %}
+                    </div>
+                    {% endfor %}
+                    <div class="mb-3">
+                        <label class="form-label text-muted small">Active connect target</label>
+                        <div class="form-control form-control-sm bg-light" style="font-family:monospace;">{{ chassis.connect_address|default:"—" }}</div>
+                        {% if chassis.connect_targets|length > 1 %}
+                        <div class="form-text">Failover: {{ chassis.connect_targets|join:" → " }}</div>
+                        {% endif %}
+                        {% if chassis.effective_mgmt_ipv6 and chassis.effective_mgmt_ipv6 != chassis.connect_address %}
+                        <div class="form-text">Display IPv6 (DHCPv6): {{ chassis.effective_mgmt_ipv6 }}</div>
+                        {% elif chassis.address_summary %}
+                        <div class="form-text">{{ chassis.address_summary }}</div>
+                        {% endif %}
+                    </div>
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary" style="background:var(--ks-blue);border-color:var(--ks-blue);">
+                            <i class="fas fa-save me-1"></i>Save
+                        </button>
+                        <a href="{% url 'keysight_chassis_detail' chassis.id %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

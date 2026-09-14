@@ -1,0 +1,32 @@
+name: security
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 7 * * 1'
+jobs:
+  scans:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Public source + docs gates
+        run: |
+          python tools/check_public_source.py --target .
+          python tools/check_docs.py
+      - name: pip-audit
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.lock || pip-audit -r requirements.txt
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+      - name: Note
+        run: echo "gitleaks-action may require org enablement; run tools/run_security_scans.sh locally if this step is skipped"

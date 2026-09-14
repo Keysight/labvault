@@ -1,0 +1,192 @@
+{% extends "connect/base.html" %}
+{% load ip_display %}
+{% block title %}BMC Associations - LabVault{% endblock %}
+{% block page_title %}BMC Associations{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'keysight_node_inventory' %}" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-microchip me-1"></i>Node &amp; BMC
+</a>
+<a href="{% url 'keysight_bmc_board' %}" class="btn btn-sm btn-outline-secondary ms-1">
+    <i class="fas fa-satellite-dish me-1"></i>BMC Board
+</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+:root { --ks-red: #E31937; }
+
+/* Compact stat bar */
+.stat-bar { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px; }
+.stat-bar .sb { font-size:.7rem; color:#666; }
+.stat-bar .sb b { font-weight:700; font-size:.82rem; margin-right:2px; }
+.stat-bar .sb b.green { color:#2e7d32; }
+.stat-bar .sb b.red { color:#c62828; }
+.stat-bar .sb b.dark { color:#1a1a2e; }
+
+/* Inline search */
+.search-row { display:flex; gap:8px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+.search-row input { max-width:260px; font-size:.75rem; padding:4px 10px; border:1px solid #ddd; border-radius:4px; }
+.search-row .hint { font-size:.62rem; color:#aaa; }
+
+/* Dense table layout */
+.assoc-table { width:100%; border-collapse:collapse; font-size:.72rem; }
+.assoc-table th {
+    background:#f5f5f5; font-weight:700; font-size:.62rem; text-transform:uppercase;
+    letter-spacing:.4px; color:#888; padding:5px 8px; border-bottom:2px solid #e0e0e0;
+    position:sticky; top:0; z-index:2;
+}
+.assoc-table td { padding:4px 8px; border-bottom:1px solid #f0f0f0; vertical-align:top; }
+.assoc-table tr:hover td { background:#fafafa; }
+.assoc-table tr.chassis-row td { background:#fff; }
+
+/* Status dot - tiny */
+.dot { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:3px; vertical-align:middle; }
+.dot.up { background:#2e7d32; }
+.dot.down { background:#c62828; }
+.dot.off { background:#bbb; }
+
+/* Chassis name column */
+.ch-name { font-weight:700; color:#1a1a2e; white-space:nowrap; }
+.ch-name a { color:inherit; text-decoration:none; }
+.ch-name a:hover { text-decoration:underline; }
+.ch-type { font-size:.6rem; color:#aaa; font-weight:400; }
+
+/* Mgmt cell */
+.mgmt-cell { display:flex; align-items:center; gap:4px; }
+.mgmt-label { font-weight:700; color:#b71c1c; font-size:.68rem; }
+
+/* Compute nodes inline */
+.cn-list { display:flex; flex-wrap:wrap; gap:3px; }
+.cn-tag {
+    display:inline-flex; align-items:center; gap:2px;
+    padding:1px 6px; border-radius:3px; font-size:.64rem; font-weight:500;
+    border:1px solid #e8e8e8; background:#f8f9fa; white-space:nowrap;
+}
+.cn-tag.up { border-left:2px solid #2e7d32; }
+.cn-tag.dn { border-left:2px solid #c62828; color:#c62828; }
+
+/* Power indicator */
+.pwr { font-size:.58rem; font-weight:600; }
+.pwr.on { color:#2e7d32; }
+.pwr.off { color:#c62828; }
+
+/* Error/offline row */
+.err-row td { color:#999; font-style:italic; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Compact stat bar + search -->
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+    <div class="stat-bar">
+        <span class="sb"><b class="dark">{{ total_chassis }}</b> chassis</span>
+        <span class="sb"><b class="green">{{ total_chassis_online }}</b> online</span>
+        <span class="sb"><b class="red">{{ total_mgmt }}</b> mgmt</span>
+        <span class="sb"><b class="dark">{{ total_compute }}</b> compute</span>
+        <span class="sb"><b class="green">{{ total_up }}</b> up</span>
+        <span class="sb"><b class="red">{{ total_down }}</b> down</span>
+    </div>
+    <div class="search-row">
+        <input type="text" id="assocSearch" placeholder="Filter chassis / nodes..." value="{{ search_q }}">
+    </div>
+</div>
+
+<!-- Dense association table -->
+<div style="background:#fff; border-radius:6px; box-shadow:0 1px 4px rgba(0,0,0,.06); overflow:auto;">
+<table class="assoc-table">
+<thead>
+    <tr>
+        <th style="width:18%;" data-sortable>Chassis</th>
+        <th style="width:12%;" data-sortable>Mgmt Node</th>
+        <th style="width:6%;" data-sortable>Status</th>
+        <th style="width:5%;" data-sortable>Power</th>
+        <th style="width:59%;">Compute Nodes</th>
+    </tr>
+</thead>
+<tbody>
+{% for a in associations %}
+<tr class="chassis-row {% if not a.chassis_online %}err-row{% endif %}"
+    data-search="{{ a.chassis.hostname|default:a.chassis.ip_address|lower }} {% if a.mgmt_node %}{{ a.mgmt_node.name|lower }}{% endif %} {% for cn in a.compute_nodes %}{{ cn.name|lower }} {% endfor %}">
+
+    <!-- Chassis -->
+    <td>
+        <span class="ch-name">
+            {% if a.chassis_online %}<span class="dot up"></span>{% else %}<span class="dot {% if a.chassis.status == 'offline' %}down{% else %}off{% endif %}"></span>{% endif %}
+            {% mgmt_address_links object=a.chassis label=a.fqdn|default:a.chassis.hostname|default:a.chassis.ip_address css_class="d-inline-block" %}
+        </span>
+        <span class="ch-type ms-1">{{ a.chassis.get_chassis_type_display }}</span>
+    </td>
+
+    <!-- Mgmt Node -->
+    <td>
+        {% if a.mgmt_node %}
+        <span class="mgmt-cell">
+            <span class="dot {% if a.mgmt_node.is_ready %}up{% else %}down{% endif %}"></span>
+            <span class="mgmt-label">{{ a.mgmt_node.name }}</span>
+        </span>
+        {% elif a.error %}
+        <span style="color:#bbb;">—</span>
+        {% else %}
+        <span style="color:#bbb;">—</span>
+        {% endif %}
+    </td>
+
+    <!-- Status -->
+    <td>
+        {% if a.mgmt_node %}
+        <span style="font-size:.64rem;font-weight:600;{% if a.mgmt_node.is_ready %}color:#2e7d32{% else %}color:#c62828{% endif %}">{{ a.mgmt_node.status|default:"?" }}</span>
+        {% elif a.error %}
+        <span style="font-size:.62rem;color:#ef6c00;">{{ a.error|truncatechars:20 }}</span>
+        {% else %}—{% endif %}
+    </td>
+
+    <!-- Power -->
+    <td>
+        {% if a.mgmt_node and a.mgmt_node.bmc_power and a.mgmt_node.bmc_power != 'unknown' %}
+        <span class="pwr {% if a.mgmt_node.bmc_power == 'on' %}on{% else %}off{% endif %}">{{ a.mgmt_node.bmc_power }}</span>
+        {% else %}—{% endif %}
+    </td>
+
+    <!-- Compute Nodes -->
+    <td>
+        {% if a.compute_nodes %}
+        <div class="cn-list">
+            {% for cn in a.compute_nodes %}
+            <span class="cn-tag {% if cn.is_ready %}up{% else %}dn{% endif %}" title="{{ cn.name }} — {{ cn.status }} | BMC: {{ cn.bmc_ip|default:'?' }} | Pwr: {{ cn.bmc_power|default:'?' }}">
+                <span class="dot {% if cn.is_ready %}up{% else %}down{% endif %}"></span>
+                {{ cn.name }}
+            </span>
+            {% endfor %}
+        </div>
+        {% elif a.error %}
+        <span style="font-size:.62rem;color:#bbb;">unavailable</span>
+        {% else %}
+        <span style="font-size:.62rem;color:#bbb;">none</span>
+        {% endif %}
+    </td>
+</tr>
+{% empty %}
+<tr><td colspan="5" class="text-center text-muted" style="padding:30px;">
+    <i class="fas fa-project-diagram" style="font-size:1.5rem;color:#ddd;"></i>
+    <div class="mt-1" style="font-size:.78rem;">No KCOS chassis found.</div>
+</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('assocSearch').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('.chassis-row').forEach(row => {
+        const data = row.dataset.search || row.textContent.toLowerCase();
+        row.style.display = !q || data.includes(q) ? '' : 'none';
+    });
+});
+</script>
+{% endblock %}

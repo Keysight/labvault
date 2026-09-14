@@ -1,0 +1,161 @@
+{% extends "connect/base.html" %}
+{% block title %}Change Log{% endblock %}
+{% block page_title %}Lab Change Log{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <form method="get" class="d-flex flex-wrap gap-2 align-items-center">
+        <select name="event_type" class="form-select form-select-sm" style="width:auto;min-width:11rem;">
+            <option value="">All event types</option>
+            {% for val, label in event_type_choices %}
+            <option value="{{ val }}" {% if event_type == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <select name="device_id" class="form-select form-select-sm" style="width:auto;min-width:10rem;">
+            <option value="">All devices</option>
+            {% for d in devices %}
+            <option value="{{ d.id }}" {% if device_id == d.id|stringformat:"s" %}selected{% endif %}>{{ d.hostname|default:d.ip_address }}</option>
+            {% endfor %}
+        </select>
+        <select name="chassis_id" class="form-select form-select-sm" style="width:auto;min-width:10rem;">
+            <option value="">All chassis</option>
+            {% for ch in chassis_list %}
+            <option value="{{ ch.id }}" {% if chassis_id == ch.id|stringformat:"s" %}selected{% endif %}>{{ ch.hostname|default:ch.ip_address }}</option>
+            {% endfor %}
+        </select>
+        <select name="target_kind" class="form-select form-select-sm" style="width:auto;min-width:8rem;">
+            <option value="">All targets</option>
+            {% for val, label in target_kind_choices %}
+            <option value="{{ val }}" {% if target_kind == val %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+        <select name="bmc_id" class="form-select form-select-sm" style="width:auto;min-width:11rem;">
+            <option value="">All BMCs</option>
+            {% for b in bmc_list %}
+            <option value="{{ b.id }}" {% if bmc_id == b.id|stringformat:"s" %}selected{% endif %}>{{ b.hostname }}{% if b.ip_address %} · {{ b.ip_address }}{% endif %}</option>
+            {% endfor %}
+        </select>
+        <select name="days" class="form-select form-select-sm" style="width:auto;">
+            <option value="7" {% if days == 7 %}selected{% endif %}>7 days</option>
+            <option value="30" {% if days == 30 %}selected{% endif %}>30 days</option>
+            <option value="90" {% if days == 90 %}selected{% endif %}>90 days</option>
+        </select>
+        <button type="submit" class="btn btn-sm btn-nc">Filter</button>
+    </form>
+    <p class="text-muted small mt-2 mb-0">
+        Showing up to 500 events in the last {{ days }} days
+        {% if total_events > 500 %} ({{ total_events }} total match){% endif %}.
+        Chassis/device down/up come from API probes. BMC unreachable/reachable comes from IPMI checks in <code>changelog_scan</code> (include <code>--bmc-only</code> for a quick BMC pass). Moves and long offline thresholds also use <code>changelog_scan</code>.
+        APS/XGS deploy, upgrade, and downgrade actions from the <a href="{% url 'keysight_deploy_page' %}">KCOS Deploy / Upgrade</a> console (and <code>POST /keysight/api/changelog/record-operation/</code> for scripts) appear here with the user, IP, and browser/OS when available.
+    </p>
+</div>
+
+<div class="card card-custom mb-3">
+    <div class="card-header"><i class="fas fa-stream me-2"></i>Status, moves, and operations</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0" style="font-size:.8rem;">
+            <thead>
+                <tr>
+                    <th>When</th>
+                    <th>Event</th>
+                    <th>Target</th>
+                    <th>From</th>
+                    <th>To</th>
+                    <th>Detail</th>
+                    <th>Source</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for e in events %}
+            <tr>
+                <td class="text-nowrap">{{ e.created_at|date:"Y-m-d H:i:s" }}</td>
+                <td>
+                    {% if e.event_type == 'status_down' or e.event_type == 'extended_down' or e.event_type == 'bmc_down' %}
+                    <span class="badge bg-danger">{{ e.get_event_type_display }}</span>
+                    {% elif e.event_type == 'status_up' or e.event_type == 'bmc_up' %}
+                    <span class="badge bg-success">{{ e.get_event_type_display }}</span>
+                    {% elif e.event_type == 'temporarily_down' %}
+                    <span class="badge bg-warning text-dark">{{ e.get_event_type_display }}</span>
+                    {% elif 'moved' in e.event_type %}
+                    <span class="badge bg-info text-dark">{{ e.get_event_type_display }}</span>
+                    {% elif e.event_type == 'upgrade' or e.event_type == 'deploy_done' %}
+                    <span class="badge bg-primary">{{ e.get_event_type_display }}</span>
+                    {% elif e.event_type == 'downgrade' or e.event_type == 'deploy_failed' %}
+                    <span class="badge bg-danger">{{ e.get_event_type_display }}</span>
+                    {% elif e.event_type == 'deploy_start' %}
+                    <span class="badge bg-dark">{{ e.get_event_type_display }}</span>
+                    {% else %}
+                    <span class="badge bg-secondary">{{ e.get_event_type_display }}</span>
+                    {% endif %}
+                </td>
+                <td>
+                    <span class="badge {% if e.target_kind == 'bmc' %}bg-dark{% else %}bg-light text-dark{% endif %}" style="font-size:.6rem;">{{ e.target_kind }}</span>
+                    {{ e.target_repr|default:"—" }}
+                </td>
+                <td style="max-width:14rem;overflow:hidden;text-overflow:ellipsis;" title="{{ e.old_value }}">{{ e.old_value|default:"—" }}</td>
+                <td style="max-width:14rem;overflow:hidden;text-overflow:ellipsis;" title="{{ e.new_value }}">{{ e.new_value|default:"—" }}</td>
+                <td style="max-width:16rem;overflow:hidden;text-overflow:ellipsis;" title="{{ e.detail }}">{{ e.detail|default:"—" }}</td>
+                <td class="text-nowrap" style="font-size:.7rem;">
+                    {{ e.actor_username|default:e.source }}
+                    {% if e.ip_address %}<br><span class="text-muted">{{ e.ip_address }}</span>{% endif %}
+                    {% if e.extra_json.browser or e.extra_json.os %}
+                    <br><span class="text-muted">{{ e.extra_json.browser }}{% if e.extra_json.os %} · {{ e.extra_json.os }}{% endif %}</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" class="text-center text-muted py-4">No change-log events in this window. Run <code>python manage.py changelog_scan</code> for moves and BMC IPMI checks, or wait for chassis/device probes for API down/up.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if config_rows %}
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-file-code me-2"></i>Configuration backups</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0">
+            <thead><tr><th>When</th><th>Device</th><th>By</th><th>Status</th><th></th></tr></thead>
+            <tbody>
+            {% for c in config_rows %}
+            <tr>
+                <td>{{ c.created_at|date:"Y-m-d H:i:s" }}</td>
+                <td>{{ c.target_repr }}</td>
+                <td>{{ c.actor_username|default:"System" }}</td>
+                <td>{% if c.has_diff %}<span class="badge bg-warning text-dark">Changed</span>{% else %}<span class="badge bg-secondary">Snapshot</span>{% endif %}</td>
+                <td>{% if c.has_diff %}<button class="btn btn-sm btn-outline-primary" onclick="showDiff({{ c.backup_id }})"><i class="fas fa-code-branch"></i></button>{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div id="diff-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Config Diff</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body"><pre id="diff-content" class="terminal-output" style="background:#fff;color:#333;"></pre></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function showDiff(backupId) {
+    fetch(`/config/diff/${backupId}/`).then(r=>r.json()).then(data=>{
+        let html = '';
+        data.diff.split('\n').forEach(line => {
+            if (line.startsWith('+') && !line.startsWith('+++')) html += `<span class="diff-add">${escHtml(line)}</span>\n`;
+            else if (line.startsWith('-') && !line.startsWith('---')) html += `<span class="diff-remove">${escHtml(line)}</span>\n`;
+            else if (line.startsWith('@@')) html += `<span class="diff-header">${escHtml(line)}</span>\n`;
+            else html += escHtml(line) + '\n';
+        });
+        document.getElementById('diff-content').innerHTML = html || 'No differences';
+        new bootstrap.Modal(document.getElementById('diff-modal')).show();
+    });
+}
+function escHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+</script>
+{% endblock %}

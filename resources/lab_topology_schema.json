@@ -1,0 +1,52 @@
+{
+  "_comment": "Example DC layout using RFC 5737 TEST-NET-1 addresses. Replace with your site.",
+  "version": 1,
+  "label": "Example DC topology",
+  "description": "Minimal OCS + spine + chassis layout for first-run onboarding.",
+  "site_json": "ocs_photonic_site.json",
+  "layout": {
+    "nodes": [
+      {
+        "id": "ocs",
+        "label": "OCS",
+        "node_type": "ocs",
+        "device_ip": "192.0.2.10",
+        "x": 400,
+        "y": 200,
+        "ports": ["shelf-1"],
+        "extra": {"model": "S320", "port_count": 320}
+      },
+      {
+        "id": "spine1",
+        "label": "Spine-1",
+        "node_type": "switch",
+        "device_ip": "192.0.2.20",
+        "x": 200,
+        "y": 80,
+        "ports": ["port_9"],
+        "extra": {}
+      },
+      {
+        "id": "chassis1",
+        "label": "AresONE-1",
+        "node_type": "chassis",
+        "device_ip": "192.0.2.31",
+        "x": 200,
+        "y": 320,
+        "ports": ["port_1"],
+        "extra": {}
+      }
+    ],
+    "links": [
+      {
+        "from": "spine1",
+        "to": "ocs",
+        "cable_type": "optic",
+        "count": 1,
+        "port_range_a": "port_9",
+        "port_range_b": "1.1.1",
+        "label": "optic"
+      }
+    ]
+  }
+}

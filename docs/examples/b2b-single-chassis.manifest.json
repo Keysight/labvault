@@ -1,0 +1,32 @@
+{
+  "logical_topology_id": "labvault-example",
+  "lte_id": null,
+  "chassis_family": "xgs12",
+  "requires_dut": false,
+  "requires_calient_ocs": false,
+  "dut_vendor": "none",
+  "traffic_generator_binding": {},
+  "extensions": {
+    "labvault_topology_id": 0,
+    "labvault_topology_name": "example-lab",
+    "labname": "example-lab",
+    "ocs_required": 0,
+    "topology_kind": "b2b_only",
+    "resource_request": {
+      "labname": "example-lab",
+      "pair_count": 2,
+      "card_family": "CS",
+      "line_rate": "100G",
+      "topology_kind": "b2b",
+      "ocs_required": 0,
+      "require_link_up": true
+    },
+    "b2b_inventory": {
+      "chassis_count": 1,
+      "pair_count": 0,
+      "pairs": []
+    },
+    "lldp_adjacency": [],
+    "planned_links": []
+  }
+}

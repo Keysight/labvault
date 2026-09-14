@@ -1,0 +1,218 @@
+{% extends "connect/base.html" %}
+{% block title %}{% if editing %}Edit{% else %}Create{% endif %} Reservation - LabVault{% endblock %}
+{% block page_title %}{% if editing %}Edit{% else %}Create{% endif %} Reservation{% endblock %}
+
+{% block content %}
+<style>
+    .item-row { background: #f8f9fa; border-radius: 10px; padding: 14px; margin-bottom: 10px; position: relative; }
+    .item-row .remove-btn {
+        position: absolute; top: 8px; right: 8px; background: none; border: none;
+        color: #ef4444; cursor: pointer; font-size: 1rem;
+    }
+    .item-row .remove-btn:hover { color: #dc2626; }
+    .form-card { background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); padding: 24px; }
+    .granularity-hint { font-size: 0.72rem; color: #888; margin-top: 2px; }
+</style>
+
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="form-card">
+            <form method="post" id="reservationForm">
+                {% csrf_token %}
+
+                <h5 class="mb-3"><i class="fas fa-info-circle me-2"></i>Reservation Details</h5>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label class="form-label">Title <span class="text-danger">*</span></label>
+                        <input type="text" name="title" class="form-control" required
+                               value="{% if editing %}{{ reservation.title }}{% endif %}"
+                               placeholder="e.g. L47 Regression Test - Sprint 42">
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-12">
+                        <label class="form-label">Description</label>
+                        <textarea name="description" class="form-control" rows="2"
+                                  placeholder="Optional details about what this reservation is for">{% if editing %}{{ reservation.description }}{% endif %}</textarea>
+                    </div>
+                </div>
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <label class="form-label">Start Time <span class="text-danger">*</span></label>
+                        <input type="datetime-local" name="start_time" class="form-control" required
+                               value="{% if editing %}{{ reservation.start_time|date:'Y-m-d\TH:i' }}{% endif %}">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">End Time <span class="text-danger">*</span></label>
+                        <input type="datetime-local" name="end_time" class="form-control" required
+                               value="{% if editing %}{{ reservation.end_time|date:'Y-m-d\TH:i' }}{% endif %}">
+                    </div>
+                </div>
+
+                <div class="row mb-4">
+                    <div class="col-md-12">
+                        <label class="form-label">Notification Email(s)</label>
+                        <input type="text" name="notification_emails" class="form-control"
+                               placeholder="Comma-separated emails"
+                               value="{% if editing %}{{ reservation.notification_emails }}{% else %}{{ default_email }}{% endif %}">
+                        <div class="form-text">Email addresses to notify about this reservation. Separate multiple addresses with commas.</div>
+                    </div>
+                </div>
+
+                <h5 class="mb-3"><i class="fas fa-server me-2"></i>Hardware Items</h5>
+                <p class="text-muted" style="font-size:.85rem;">
+                    Reserve at chassis, slot, or port level. Leave slot blank to reserve entire chassis; leave port blank to reserve entire slot.
+                </p>
+
+                <div id="items-container">
+                    {% if editing %}
+                    {% for item in reservation.items.all %}
+                    <div class="item-row" data-idx="{{ forloop.counter0 }}">
+                        <button type="button" class="remove-btn" onclick="removeItem(this)"><i class="fas fa-times-circle"></i></button>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label" style="font-size:.8rem;">Chassis <span class="text-danger">*</span></label>
+                                <select name="chassis_{{ forloop.counter0 }}" class="form-select form-select-sm" required>
+                                    <option value="">-- Select --</option>
+                                    {% for ch in all_chassis %}
+                                    <option value="{{ ch.id }}" {% if item.chassis_id == ch.id %}selected{% endif %}>{{ ch.hostname|default:ch.ip_address }} ({{ ch.get_chassis_type_display }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label" style="font-size:.8rem;">Slot</label>
+                                <input type="number" name="slot_{{ forloop.counter0 }}" class="form-control form-control-sm" min="0"
+                                       value="{{ item.slot_number|default_if_none:'' }}" placeholder="All">
+                                <div class="granularity-hint">Blank = whole chassis</div>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label" style="font-size:.8rem;">Port</label>
+                                <input type="number" name="port_{{ forloop.counter0 }}" class="form-control form-control-sm" min="0"
+                                       value="{{ item.port_number|default_if_none:'' }}" placeholder="All">
+                                <div class="granularity-hint">Blank = whole slot</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" style="font-size:.8rem;">Notes</label>
+                                <input type="text" name="notes_{{ forloop.counter0 }}" class="form-control form-control-sm"
+                                       value="{{ item.notes }}" placeholder="Optional note">
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <!-- Default first item -->
+                    <div class="item-row" data-idx="0">
+                        <button type="button" class="remove-btn" onclick="removeItem(this)" style="display:none;"><i class="fas fa-times-circle"></i></button>
+                        <div class="row g-2">
+                            <div class="col-md-4">
+                                <label class="form-label" style="font-size:.8rem;">Chassis <span class="text-danger">*</span></label>
+                                <select name="chassis_0" class="form-select form-select-sm" required>
+                                    <option value="">-- Select Chassis --</option>
+                                    {% for ch in all_chassis %}
+                                    <option value="{{ ch.id }}">{{ ch.hostname|default:ch.ip_address }} ({{ ch.get_chassis_type_display }})</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label" style="font-size:.8rem;">Slot</label>
+                                <input type="number" name="slot_0" class="form-control form-control-sm" min="0" placeholder="All">
+                                <div class="granularity-hint">Blank = whole chassis</div>
+                            </div>
+                            <div class="col-md-2">
+                                <label class="form-label" style="font-size:.8rem;">Port</label>
+                                <input type="number" name="port_0" class="form-control form-control-sm" min="0" placeholder="All">
+                                <div class="granularity-hint">Blank = whole slot</div>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label" style="font-size:.8rem;">Notes</label>
+                                <input type="text" name="notes_0" class="form-control form-control-sm" placeholder="Optional note">
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <button type="button" class="btn btn-sm btn-outline-secondary mt-2 mb-4" onclick="addItem()">
+                    <i class="fas fa-plus me-1"></i> Add Another Item
+                </button>
+
+                <hr>
+                <div class="d-flex justify-content-between">
+                    <a href="{% url 'keysight_reservations' %}" class="btn btn-outline-secondary">
+                        <i class="fas fa-arrow-left me-1"></i> Back
+                    </a>
+                    <button type="submit" class="btn btn-nc">
+                        <i class="fas fa-save me-1"></i> {% if editing %}Update{% else %}Create{% endif %} Reservation
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+var itemIdx = {{ editing|yesno:"reservation.items.count,1" }};
+{% if editing %}
+itemIdx = {{ reservation.items.count }};
+{% else %}
+itemIdx = 1;
+{% endif %}
+
+var chassisOptions = '';
+{% for ch in all_chassis %}
+chassisOptions += '<option value="{{ ch.id }}">{{ ch.hostname|default:ch.ip_address|escapejs }} ({{ ch.get_chassis_type_display|escapejs }})</option>';
+{% endfor %}
+
+function addItem() {
+    var container = document.getElementById('items-container');
+    var idx = itemIdx++;
+    var div = document.createElement('div');
+    div.className = 'item-row';
+    div.setAttribute('data-idx', idx);
+    div.innerHTML = `
+        <button type="button" class="remove-btn" onclick="removeItem(this)"><i class="fas fa-times-circle"></i></button>
+        <div class="row g-2">
+            <div class="col-md-4">
+                <label class="form-label" style="font-size:.8rem;">Chassis <span class="text-danger">*</span></label>
+                <select name="chassis_${idx}" class="form-select form-select-sm" required>
+                    <option value="">-- Select Chassis --</option>
+                    ${chassisOptions}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" style="font-size:.8rem;">Slot</label>
+                <input type="number" name="slot_${idx}" class="form-control form-control-sm" min="0" placeholder="All">
+                <div class="granularity-hint">Blank = whole chassis</div>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" style="font-size:.8rem;">Port</label>
+                <input type="number" name="port_${idx}" class="form-control form-control-sm" min="0" placeholder="All">
+                <div class="granularity-hint">Blank = whole slot</div>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label" style="font-size:.8rem;">Notes</label>
+                <input type="text" name="notes_${idx}" class="form-control form-control-sm" placeholder="Optional note">
+            </div>
+        </div>
+    `;
+    container.appendChild(div);
+    // Show remove buttons on all rows when there's more than one
+    updateRemoveButtons();
+}
+
+function removeItem(btn) {
+    var row = btn.closest('.item-row');
+    row.remove();
+    updateRemoveButtons();
+}
+
+function updateRemoveButtons() {
+    var rows = document.querySelectorAll('.item-row');
+    rows.forEach(function(row) {
+        var btn = row.querySelector('.remove-btn');
+        btn.style.display = rows.length > 1 ? '' : 'none';
+    });
+}
+updateRemoveButtons();
+</script>
+{% endblock %}

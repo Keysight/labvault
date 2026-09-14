@@ -1,0 +1,28 @@
+# Compatibility stub. Prefer labvault-opsd.service (Alias covers this name when enabled).
+# Oneshot-compose migrates to labvault-opsd.service; this file remains for older docs/scripts.
+[Unit]
+Description=LabVault opsd (compat alias — use labvault-opsd.service)
+After=network.target docker.service
+Wants=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/opt/labvault/current
+EnvironmentFile=-/etc/labvault/labvault.env
+Environment=LABVAULT_OPS_SOCK=/run/labvault/ops.sock
+Environment=LABVAULT_OPS_ADAPTER=compose
+Environment=LABVAULT_COMPOSE_PROJECT_DIR=/opt/labvault/current
+Environment=LABVAULT_COMPOSE_FILE=deploy/compose/docker-compose.yml
+Environment=LABVAULT_COMPOSE_PROJECT_NAME=compose
+RuntimeDirectory=labvault
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=3
+ExecStart=/bin/bash -c 'ROOT=/opt/labvault/current; if [ -x "$ROOT/.venv/bin/python" ]; then exec "$ROOT/.venv/bin/python" "$ROOT/opsd/opsd.py" --sock /run/labvault/ops.sock; else exec /usr/bin/python3 "$ROOT/opsd/opsd.py" --sock /run/labvault/ops.sock; fi'
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

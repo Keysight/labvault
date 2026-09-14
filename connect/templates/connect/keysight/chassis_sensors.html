@@ -1,0 +1,42 @@
+{% extends "connect/base.html" %}
+{% block title %}Sensors - {{ chassis.ip_address }} - LabVault{% endblock %}
+
+{% block page_title %}Sensors - {{ chassis.hostname|default:chassis.ip_address }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'keysight_chassis_detail' chassis.id %}" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-arrow-left me-1"></i>Back to Chassis
+</a>
+{% endblock %}
+
+{% block content %}
+
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-thermometer-half me-2"></i>Sensor Readings</div>
+    <div class="card-body p-0">
+        {% if sensors %}
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+            <thead class="table-light">
+                <tr><th>Name</th><th>Value</th><th>Unit</th><th>Type</th><th>Card</th></tr>
+            </thead>
+            <tbody>
+                {% for s in sensors %}
+                <tr>
+                    <td class="fw-semibold">{{ s.name }}</td>
+                    <td>{{ s.value }}</td>
+                    <td>{{ s.unit }}</td>
+                    <td>{{ s.type }}</td>
+                    <td>{{ s.card_number|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+            <i class="fas fa-ban" style="font-size:2rem;"></i>
+            <div class="mt-2">No sensor data available (Windows chassis may not expose sensor API).</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

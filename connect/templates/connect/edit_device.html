@@ -1,0 +1,215 @@
+{% extends 'connect/base.html' %}
+{% block title %}Edit {{ device.hostname|default:device.ip_address }} - LabVault{% endblock %}
+{% block page_title %}Edit Device{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        {% if device.status == 'auth_failed' %}
+        <div class="alert alert-danger">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <strong>Authentication Failed!</strong> Check username/password below. The password is shown in plain text so you can verify it.
+        </div>
+        {% endif %}
+        <div class="card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="fas fa-edit me-2"></i> Edit: {{ device.hostname|default:device.ip_address }}</span>
+                <span class="badge badge-{{ device.vendor_type }}">{{ device.vendor_display }}</span>
+            </div>
+            <div class="card-body p-4">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">IPv4 / hostname</label>
+                            {{ form.ip_address }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Hostname (FQDN)</label>
+                            {{ form.hostname }}
+                            <div class="form-text">Used first for connect when DNS resolves.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">IPv6 (observed)</label>
+                            {{ form.mgmt_ipv6 }}
+                            <div class="form-text">Leave blank for DHCPv6 — do not paste derived addresses.</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">{{ form.mgmt_ipv6_source.label }}</label>
+                            {{ form.mgmt_ipv6_source }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">{{ form.preferred_ip_version.label }}</label>
+                            {{ form.preferred_ip_version }}
+                            {% if form.preferred_ip_version.help_text %}<div class="form-text">{{ form.preferred_ip_version.help_text }}</div>{% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Vendor Type</label>
+                            {{ form.vendor_type }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label text-muted small">Active connect target</label>
+                            <div class="form-control form-control-sm bg-light mono">{{ device.connect_address|default:"—" }}</div>
+                            {% if device.effective_mgmt_ipv6 and device.effective_mgmt_ipv6 != device.connect_address %}
+                            <div class="form-text">Display IPv6: {{ device.effective_mgmt_ipv6 }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Username</label>
+                            {{ form.username }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Password <span class="text-muted">(visible for verification)</span></label>
+                            {{ form.password }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Transport</label>
+                            {{ form.transport }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">API Port</label>
+                            {{ form.api_port }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">API Key</label>
+                            {{ form.api_key }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Enable Password</label>
+                            {{ form.enable_password }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Site</label>
+                            {{ form.site }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Group</label>
+                            {{ form.group_name }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Contact</label>
+                            {{ form.contact }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Rack</label>
+                            {{ form.rack }}
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label fw-bold">CPU Threshold %</label>
+                            {{ form.cpu_threshold }}
+                        </div>
+                        <div class="col-md-2">
+                            <label class="form-label fw-bold">Mem Threshold %</label>
+                            {{ form.memory_threshold }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Tags</label>
+                            {{ form.tags }}
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check form-switch mt-4">
+                                {{ form.maintenance_mode }}
+                                <label class="form-check-label">Maintenance Mode</label>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="form-check form-switch mt-4">
+                                {{ form.dual_os_mode }}
+                                <label class="form-check-label fw-bold" style="color:#f59e0b;">
+                                    <i class="fas fa-exchange-alt me-1"></i>EOS ↔ SONiC Auto-Switch
+                                </label>
+                            </div>
+                        </div>
+                        <!-- Dual-OS section: only shown when dual_os_mode is toggled on -->
+                        <div class="col-12" id="dual-os-section" style="display:{% if form.instance.dual_os_mode %}block{% else %}none{% endif %};">
+                            <div style="background:#1a0e00;border:1px solid #854d0e;border-radius:6px;padding:14px 16px;">
+                                <div class="mb-2 fw-bold" style="color:#fb923c;font-size:.82rem;">
+                                    <i class="fas fa-exchange-alt me-1"></i>
+                                    Dual-OS Credentials — LabVault will auto-detect which OS is active and use the matching credentials
+                                </div>
+                                <div class="row g-2">
+                                    <div class="col-md-3">
+                                        <label class="form-label" style="font-size:.75rem;color:#94a3b8;">Secondary OS</label>
+                                        {{ form.vendor_type_secondary }}
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label" style="font-size:.75rem;color:#60a5fa;">EOS Username</label>
+                                        {{ form.arista_username }}
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label" style="font-size:.75rem;color:#60a5fa;">EOS Password</label>
+                                        {{ form.arista_password }}
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-muted" style="font-size:.7rem;padding-top:24px;">
+                                            e.g. admin / admin
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 offset-md-3">
+                                        <label class="form-label" style="font-size:.75rem;color:#22c55e;">SONiC Username</label>
+                                        {{ form.sonic_username }}
+                                    </div>
+                                    <div class="col-md-3">
+                                        <label class="form-label" style="font-size:.75rem;color:#22c55e;">SONiC Password</label>
+                                        {{ form.sonic_password }}
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="text-muted" style="font-size:.7rem;padding-top:24px;">
+                                            e.g. admin / password
+                                        </div>
+                                    </div>
+                                </div>
+                                {% if form.instance.api_key %}
+                                <div class="mt-2" style="font-size:.7rem;color:#475569;">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Last detected OS:
+                                    <strong style="color:#f59e0b;">
+                                        {% with form.instance.api_key as ak %}
+                                            {{ ak|default:'{}' }}
+                                        {% endwith %}
+                                    </strong>
+                                    — run <code>python manage.py refresh_lldp --ip {{ form.instance.ip_address }}</code> to refresh
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Notes</label>
+                            {{ form.notes }}
+                        </div>
+                    </div>
+                    {% if form.errors %}
+                    <div class="alert alert-danger mt-3">
+                        {% for field, errors in form.errors.items %}
+                            {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="mt-4 d-flex gap-2">
+                        <button type="submit" class="btn btn-nc"><i class="fas fa-save me-1"></i> Save Changes</button>
+                        <a href="{% url 'device_detail' device.id %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+                <!-- Delete form must be OUTSIDE the edit form (HTML forbids nested forms) -->
+                <form method="post" action="{% url 'delete_device' device.id %}" class="mt-2 text-end">
+                    {% csrf_token %}
+                    <button type="submit" class="btn btn-outline-danger" onclick="return confirm('Are you sure you want to permanently delete this device?')">
+                        <i class="fas fa-trash me-1"></i> Delete Device
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+(function(){
+  var toggle = document.getElementById('id_dual_os_mode');
+  var section = document.getElementById('dual-os-section');
+  if(toggle && section){
+    toggle.addEventListener('change', function(){
+      section.style.display = this.checked ? 'block' : 'none';
+    });
+  }
+})();
+</script>
+{% endblock %}

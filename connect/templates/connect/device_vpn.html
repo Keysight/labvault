@@ -1,0 +1,27 @@
+{% extends 'connect/base.html' %}
+{% block title %}VPN Tunnels - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}VPN: {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a></div>
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-lock me-2"></i> VPN/IPSec Tunnels ({{ tunnels|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>Name</th><th>Type</th><th>Remote GW</th><th>Status</th><th>IN Bytes</th><th>OUT Bytes</th></tr></thead>
+                <tbody>
+                    {% for t in tunnels %}
+                    <tr>
+                        <td class="fw-bold">{{ t.name }}</td><td>{{ t.type }}</td><td>{{ t.remote_gw }}</td>
+                        <td><span class="badge {% if t.status == 'up' %}bg-success{% else %}bg-danger{% endif %}">{{ t.status }}</span></td>
+                        <td>{{ t.incoming_bytes }}</td><td>{{ t.outgoing_bytes }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-3">No VPN tunnels found</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

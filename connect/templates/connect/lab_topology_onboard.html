@@ -1,0 +1,125 @@
+{% extends 'connect/base.html' %}
+{% block title %}Topology Onboarding{% endblock %}
+{% block page_title %}Topology Onboarding Wizard{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'lab_topology_list' %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> All topologies</a>
+{% endblock %}
+
+{% block content %}
+<div class="card border-0 shadow-sm">
+  <div class="card-body">
+    <p class="text-muted">Build a lab topology with minimal JSON. Existing import/export paths remain available for power users.</p>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <label class="form-label">Topology name</label>
+        <input type="text" id="ob-name" class="form-control" value="My Lab Topology">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Build mode</label>
+        <select id="ob-mode" class="form-select">
+          {% for p in presets %}
+          <option value="{{ p.id }}">{{ p.label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4 d-flex align-items-end gap-2">
+        <button type="button" class="btn btn-outline-primary" id="ob-preview">Preview</button>
+        <button type="button" class="btn btn-nc" id="ob-build">Build topology</button>
+      </div>
+    </div>
+
+    <div id="ob-panel-site" class="mb-3" style="display:none;">
+      <label class="form-label">Site JSON (ocs photonic)</label>
+      <textarea id="ob-site-json" class="form-control font-monospace" rows="8" placeholder='{"version":3,"ocs_controller":{...}}'></textarea>
+    </div>
+
+    <div id="ob-panel-v1" class="mb-3" style="display:none;">
+      <label class="form-label">LabVault Site v1 (YAML or JSON)</label>
+      <textarea id="ob-site-v1" class="form-control font-monospace" rows="10" placeholder="version: 1&#10;name: My-Lab&#10;site_tags: [ocs-lab]&#10;ocs: { ip: 192.0.2.10 }&#10;switches: [...]&#10;chassis: [...]"></textarea>
+      <div class="form-text">OCS port mappings merged from <code>{{ mapping_site }}</code> when switches use <code>mapping: site</code>.</div>
+    </div>
+
+    <div id="ob-panel-inv" class="mb-3" style="display:none;">
+      <div class="row">
+        <div class="col-md-6">
+          <label class="form-label">Devices</label>
+          <select id="ob-devices" class="form-select" multiple size="8">
+            {% for d in devices %}<option value="{{ d.id }}">{{ d.hostname|default:d.ip_address }} ({{ d.vendor_type }})</option>{% endfor %}
+          </select>
+        </div>
+        <div class="col-md-6">
+          <label class="form-label">Chassis</label>
+          <select id="ob-chassis" class="form-select" multiple size="8">
+            {% for c in chassis %}<option value="{{ c.id }}">{{ c.hostname|default:c.ip_address }}</option>{% endfor %}
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <pre id="ob-status" class="bg-dark text-light p-3 rounded small" style="min-height:120px;">Select a mode and click Preview.</pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const modeEl = document.getElementById('ob-mode');
+  const panels = {
+    ocs_only: document.getElementById('ob-panel-site'),
+    site_v1: document.getElementById('ob-panel-v1'),
+    inventory: document.getElementById('ob-panel-inv'),
+  };
+  function syncPanels() {
+    Object.values(panels).forEach(p => p.style.display = 'none');
+    const m = modeEl.value;
+    if (panels[m]) panels[m].style.display = 'block';
+  }
+  modeEl.addEventListener('change', syncPanels);
+  syncPanels();
+
+  function payload() {
+    const mode = modeEl.value;
+    const body = {
+      mode,
+      name: document.getElementById('ob-name').value,
+      site_json_text: document.getElementById('ob-site-json').value,
+      site_v1_text: document.getElementById('ob-site-v1').value,
+      device_ids: Array.from(document.getElementById('ob-devices').selectedOptions).map(o => parseInt(o.value, 10)),
+      chassis_ids: Array.from(document.getElementById('ob-chassis').selectedOptions).map(o => parseInt(o.value, 10)),
+      auto_lldp: true,
+      auto_serial: true,
+    };
+    return body;
+  }
+
+  function csrf() {
+    const m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
+
+  document.getElementById('ob-preview').addEventListener('click', async () => {
+    const res = await fetch('{% url "lab_topology_onboard_preview" %}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()},
+      body: JSON.stringify(payload()),
+    });
+    const data = await res.json();
+    document.getElementById('ob-status').textContent = JSON.stringify(data, null, 2);
+  });
+
+  document.getElementById('ob-build').addEventListener('click', async () => {
+    const res = await fetch('{% url "lab_topology_onboard_build" %}', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': csrf()},
+      body: JSON.stringify(payload()),
+    });
+    const data = await res.json();
+    document.getElementById('ob-status').textContent = JSON.stringify(data, null, 2);
+    if (data.redirect) window.location.href = data.redirect;
+  });
+})();
+</script>
+{% endblock %}

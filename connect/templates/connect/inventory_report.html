@@ -1,0 +1,37 @@
+{% extends "connect/base.html" %}
+{% block title %}Inventory Report{% endblock %}
+{% block page_title %}Inventory Report{% endblock %}
+{% block topbar_actions %}
+<a href="{% url 'inventory_report' %}?format=csv" class="btn btn-sm btn-nc"><i class="fas fa-download me-1"></i>Export CSV</a>
+{% endblock %}
+{% block content %}
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-server me-2"></i>Complete Device Inventory ({{ devices|length }} devices)</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+        <table class="table table-devices table-hover table-sm mb-0">
+            <thead>
+                <tr><th>Hostname</th><th>IP</th><th>Vendor</th><th>Model</th><th>Version</th><th>Serial</th><th>Status</th><th>Site</th><th>Group</th><th>Uptime</th><th>Last Seen</th></tr>
+            </thead>
+            <tbody>
+            {% for d in devices %}
+            <tr>
+                <td><a href="{% url 'device_detail' d.id %}">{{ d.hostname|default:"-" }}</a></td>
+                <td><code>{{ d.ip_address }}</code></td>
+                <td><span class="badge badge-{{ d.vendor_type }}">{{ d.vendor_type }}</span></td>
+                <td>{{ d.model_name|default:"-" }}</td>
+                <td><code>{{ d.version|default:"-" }}</code></td>
+                <td>{{ d.serial_number|default:"-" }}</td>
+                <td><span class="badge badge-{{ d.status }}">{{ d.status }}</span></td>
+                <td>{{ d.site|default:"-" }}</td>
+                <td>{{ d.group_name|default:"-" }}</td>
+                <td>{{ d.uptime_display }}</td>
+                <td>{% if d.last_seen %}{{ d.last_seen|date:"m/d H:i" }}{% else %}-{% endif %}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "topology_id": 0,
+  "meta": {
+    "generated_at": "2026-05-24T12:00:00+00:00",
+    "cache_hit": false,
+    "sources": {
+      "planned": {"ok": true, "at": null, "error": null},
+      "lldp_db": {"ok": true, "at": null, "error": null},
+      "lldp_cache": {"ok": true, "at": null, "error": null},
+      "ocs_live": {"ok": false, "at": null, "error": "skipped"},
+      "chassis_links": {"ok": true, "at": null, "error": null},
+      "switch_files": {"ok": true, "at": null, "error": null},
+      "reservations": {"ok": true, "at": null, "error": null}
+    },
+    "stats": {
+      "nodes_total": 2,
+      "nodes_online": 0,
+      "nodes_offline": 0,
+      "nodes_maintenance": 0,
+      "links_total": 1,
+      "links_live": 0,
+      "links_stale": 0,
+      "links_planned_only": 1,
+      "links_down": 0,
+      "conflicts": 0
+    }
+  },
+  "nodes": [
+    {
+      "id": "node_1",
+      "db_pk": 1,
+      "kind": "switch",
+      "label": "Arista1",
+      "mgmt_ipv4": "10.36.84.21",
+      "mgmt_ipv6": "",
+      "device_id": 1,
+      "chassis_id": null,
+      "status": "unknown",
+      "vendor": "sonic",
+      "vendor_secondary": "",
+      "dual_os": false,
+      "model": "",
+      "serial": "",
+      "site": "",
+      "rack": "",
+      "uptime_s": null,
+      "x": 0,
+      "y": 0,
+      "ports": [],
+      "reservation": null,
+      "team_tags": [],
+      "badges": [],
+      "detail_url": ""
+    }
+  ],
+  "links": [
+    {
+      "id": "plan_1",
+      "type": "planned",
+      "source": "node_1",
+      "target": "node_2",
+      "port_a": "Ethernet9",
+      "port_b": "Ethernet0",
+      "health": "planned",
+      "provenance": ["planned"],
+      "last_seen": null,
+      "cable_type": "dac",
+      "ocs_triplets": [],
+      "color": "#64748b",
+      "aggregate_key": "node_1|node_2",
+      "parallel_count": 1,
+      "label": ""
+    }
+  ],
+  "conflicts": []
+}

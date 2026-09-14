@@ -1,0 +1,38 @@
+{% extends "connect/base.html" %}
+{% block title %}OSPF - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}{{ device.hostname|default:device.ip_address }} - OSPF Neighbors{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Device</a>
+    <a href="{% url 'device_bgp' device.id %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-network-wired"></i> BGP</a>
+    <a href="{% url 'device_routing' device.id %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-directions"></i> Routes</a>
+</div>
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-route me-2"></i>OSPF Neighbor Table</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0">
+            <thead><tr><th>Neighbor ID</th><th>Address</th><th>State</th><th>Interface</th><th>Area</th><th>Priority</th></tr></thead>
+            <tbody>
+            {% for n in neighbors %}
+            <tr>
+                <td><code>{{ n.neighbor_id }}</code></td>
+                <td>{{ n.address }}</td>
+                <td>
+                    {% if 'Full' in n.state or 'full' in n.state %}
+                    <span class="badge bg-success">{{ n.state }}</span>
+                    {% else %}
+                    <span class="badge bg-warning">{{ n.state }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ n.interface }}</td>
+                <td>{{ n.area }}</td>
+                <td>{{ n.priority }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-center text-muted py-4">No OSPF neighbors found</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

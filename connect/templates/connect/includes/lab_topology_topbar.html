@@ -1,0 +1,410 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'css/topo-topbar.css' %}?v=20260526">
+<link rel="stylesheet" href="{% static 'css/usage-page-theme.css' %}?v=20260626">
+
+<div class="lv-topo-toolbar" id="lv-topo-toolbar" data-active-view="{{ active_view|default:'designer' }}">
+
+  {# ── Row 1: navigation ───────────────────────────────────────────────────── #}
+  <div class="lv-tb-row lv-tb-row--primary">
+    <button type="button" class="lv-tb-icon-btn" onclick="toggleSidebar()" title="Toggle sidebar" aria-label="Toggle sidebar">
+      <i class="fas fa-bars"></i>
+    </button>
+    <a href="{% url 'lab_topology_list' %}" class="lv-tb-icon-btn" title="All topologies">
+      <i class="fas fa-th-large"></i>
+    </a>
+
+    <div class="lv-topo-name-wrap">
+      <input type="text" id="lv-topo-name-input" class="lv-topo-name-input"
+             value="{{ topo.name }}" maxlength="200"
+             title="Topology name (Enter or blur to save)"
+             aria-label="Topology name">
+      <button type="button" id="lv-topo-name-save" class="lv-tb-btn lv-tb-btn--ghost lv-topo-name-save">
+        <i class="fas fa-check"></i> Save
+      </button>
+    </div>
+
+    {% if sub_nav.parent_topology or sub_nav.sub_topologies %}
+    <nav class="lv-topo-subnav" aria-label="Sub-topologies" style="display:flex;gap:4px;align-items:center;flex-wrap:wrap;margin-left:8px;font-size:.72rem;">
+      {% if sub_nav.parent_topology %}
+      <a href="{% url 'lab_topology_detail' sub_nav.parent_topology.id %}" class="lv-tb-btn lv-tb-btn--ghost" title="Parent topology">
+        <i class="fas fa-level-up-alt"></i> {{ sub_nav.parent_topology.name|truncatechars:28 }}
+      </a>
+      {% endif %}
+      {% for s in sub_nav.sub_topologies %}
+      {% if active_view == 'usage' or active_view == 'usage_insights' %}
+      <a href="{% if active_view == 'usage_insights' %}{% url 'lab_topology_usage_insights' s.id %}{% else %}{% url 'lab_topology_usage' s.id %}{% endif %}"
+         class="lv-tb-btn lv-tb-btn--ghost{% if s.active and active_view == 'usage' %} lv-active-usage{% endif %}{% if s.active and active_view == 'usage_insights' %} lv-active-insights{% endif %}"
+         title="{{ s.label }} usage">
+      {% else %}
+      <a href="{% url 'lab_topology_detail' s.id %}"
+         class="lv-tb-btn lv-tb-btn--ghost{% if s.active %} lv-active-designer{% endif %}"
+         title="{{ s.label }}">
+      {% endif %}
+        {% if s.role == 'without_ocs_patch' %}<i class="fas fa-ethernet"></i>{% else %}<i class="fas fa-random"></i>{% endif %}
+        {{ s.label|truncatechars:24 }}
+      </a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+
+    <nav class="lv-topo-views" aria-label="Topology views">
+      <a href="{% url 'lab_topology_detail' topo.id %}"
+         class="{% if active_view == 'designer' %}lv-active-designer{% endif %}"
+         title="Designer">
+        <i class="fas fa-draw-polygon"></i><span>Designer</span>
+      </a>
+      <a href="{% url 'lab_fabric_map' topo.id %}"
+         class="{% if active_view == 'fabric' %}lv-active-fabric{% endif %}"
+         title="Fabric Map">
+        <i class="fas fa-project-diagram"></i><span>Fabric</span>
+      </a>
+      <a href="{% url 'lab_port_fabric' topo.id %}"
+         class="{% if active_view == 'port_fabric' %}lv-active-port{% endif %}"
+         title="Port Fabric">
+        <i class="fas fa-ethernet"></i><span>Port Fabric</span>
+      </a>
+      <a href="{% url 'lab_topology_usage' topo.id %}"
+         class="{% if active_view == 'usage' %}lv-active-usage{% endif %}"
+         title="Topology &amp; Utilization">
+        <i class="fas fa-chart-area"></i><span>Usage</span>
+      </a>
+      <a href="{% url 'lab_topology_usage_insights' topo.id %}"
+         class="{% if active_view == 'usage_insights' %}lv-active-insights{% endif %}"
+         title="Lab Pulse — usage insights">
+        <i class="fas fa-heart-pulse"></i><span>Lab Pulse</span>
+      </a>
+    </nav>
+
+    <span class="lv-tb-vsep"></span>
+    <span class="d-none" aria-hidden="true">{% csrf_token %}</span>
+    <button type="button" id="lv-metrics-collect-btn" class="lv-tb-btn lv-tb-btn--toggle lv-metrics-collect-btn"
+            data-enabled="{% if topo.metrics_collection_enabled|default:True %}1{% else %}0{% endif %}"
+            data-active="{% if topo.metrics_collection_enabled|default:True %}1{% else %}0{% endif %}"
+            aria-pressed="{% if topo.metrics_collection_enabled|default:True %}true{% else %}false{% endif %}"
+            title="Pause or resume traffic/status metrics collection for this topology.">
+      <i class="fas fa-chart-line" id="lv-metrics-collect-icon"></i>
+      <span id="lv-metrics-collect-lbl">{% if topo.metrics_collection_enabled|default:True %}Collecting{% else %}Paused{% endif %}</span>
+    </button>
+
+    <span class="lv-tb-vsep"></span>
+    <div class="lv-tb-usage-themes">
+      <span class="lv-tb-label">Theme</span>
+      <div class="ug-theme-picker" id="lv-usage-theme-picker" role="group" aria-label="Page theme (getdesign.md)"></div>
+    </div>
+
+    <div class="lv-tb-spacer"></div>
+
+    <div class="lv-tb-utils">
+      <button type="button" id="lv-fullscreen-btn" class="lv-tb-icon-btn" title="Fullscreen">
+        <i class="fas fa-expand" id="lv-fs-icon"></i>
+      </button>
+      <button type="button" id="lv-snapshot-btn" class="lv-tb-icon-btn" title="Download 8K PNG snapshot">
+        <i class="fas fa-camera"></i>
+      </button>
+      {% if active_view == 'port_fabric' %}
+      <button type="button" id="pf-export-btn" class="lv-tb-icon-btn" title="Export JSON / CSV / manifest">
+        <i class="fas fa-file-export"></i>
+      </button>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Row 2: view tools ───────────────────────────────────────────────────── #}
+  <div class="lv-tb-row lv-tb-row--secondary">
+
+    {% if active_view == 'designer' %}
+      <button type="button" id="lt-save" class="lv-tb-btn lv-tb-btn--primary">
+        <i class="fas fa-save"></i> Save layout
+      </button>
+      <button type="button" id="lt-undo" class="lv-tb-icon-btn" title="Undo" disabled><i class="fas fa-undo"></i></button>
+      <button type="button" id="lt-redo" class="lv-tb-icon-btn" title="Redo" disabled><i class="fas fa-redo"></i></button>
+      <span class="lv-tb-vsep"></span>
+      <button type="button" id="lt-show-live" class="lv-tb-btn lv-tb-btn--toggle" data-active="0">
+        <i class="fas fa-broadcast-tower"></i> Live
+      </button>
+      <button type="button" id="lt-discover-dac-btn" class="lv-tb-btn lv-tb-btn--accent">
+        <i class="fas fa-link"></i> Find DAC/B2B
+      </button>
+      <button type="button" id="lt-wire-link-btn" class="lv-tb-btn lv-tb-btn--ghost">
+        <i class="fas fa-plug"></i> Wire
+      </button>
+      <button type="button" id="lt-add-node-btn" class="lv-tb-icon-btn" title="Add node"><i class="fas fa-plus"></i></button>
+      <span class="lv-tb-vsep"></span>
+      <a href="/lab-topology/{{ topo.id }}/port-fabric/summary.json" class="lv-tb-btn lv-tb-btn--ghost" title="Download port-fabric summary JSON">
+        <i class="fas fa-sitemap"></i> Manifest
+      </a>
+      <a href="{% url 'test_setup_list' topo.id %}" class="lv-tb-btn lv-tb-btn--ghost" title="Test setups">
+        <i class="fas fa-flask"></i> Tests
+      </a>
+      <button type="button" id="lt-prepare-btn" class="lv-tb-btn lv-tb-btn--ghost" title="Prepare devices">
+        <i class="fas fa-rocket"></i> Prepare
+      </button>
+      <button type="button" class="lv-tb-btn lv-tb-btn--ghost" onclick="showOcsSnapshotPanel()" title="OCS snapshots">
+        <i class="fas fa-camera-retro"></i> OCS snap
+      </button>
+      <div class="lv-tb-spacer"></div>
+      <button type="button" class="lv-tb-btn lv-tb-btn--ghost lv-tb-btn--danger" onclick="confirmDeleteTopology({{ topo.id }})" title="Delete topology">
+        <i class="fas fa-trash"></i> Delete
+      </button>
+
+    {% elif active_view == 'fabric' %}
+      <button type="button" id="fm-refresh" class="lv-tb-btn lv-tb-btn--success">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+      <button type="button" id="fm-save-layout" class="lv-tb-btn lv-tb-btn--primary">
+        <i class="fas fa-save"></i> Save layout
+      </button>
+      <button type="button" id="fm-fit" class="lv-tb-icon-btn" title="Fit view"><i class="fas fa-compress-alt"></i></button>
+      <button type="button" id="fm-auto-layout" class="lv-tb-icon-btn" title="Auto layout"><i class="fas fa-sitemap"></i></button>
+      <span class="lv-tb-vsep"></span>
+      <button type="button" id="fm-validate-link" class="lv-tb-btn lv-tb-btn--ghost">
+        <i class="fas fa-check-circle"></i> Validate
+      </button>
+      <button type="button" id="fm-discover-dac" class="lv-tb-btn lv-tb-btn--accent">
+        <i class="fas fa-link"></i> Find DAC/B2B
+      </button>
+      <span class="lv-tb-vsep"></span>
+      <span class="lv-tb-label">Show</span>
+      <button type="button" id="fm-toggle-lldp" class="lv-tb-btn lv-tb-btn--toggle" data-active="1"><i class="fas fa-ethernet"></i> LLDP</button>
+      <button type="button" id="fm-toggle-planned" class="lv-tb-btn lv-tb-btn--toggle" data-active="1"><i class="fas fa-route"></i> Planned</button>
+      <button type="button" id="fm-toggle-ocs" class="lv-tb-btn lv-tb-btn--toggle" data-active="1"><i class="fas fa-exchange-alt"></i> OCS</button>
+      <div class="lv-tb-spacer"></div>
+      <button type="button" id="fm-validate-graph" class="lv-tb-icon-btn" title="Graph vs legacy"><i class="fas fa-code-branch"></i></button>
+      <span id="fm-validate-badge" class="badge d-none lv-tb-badge"></span>
+      <button type="button" id="fm-edit-panel-btn" class="lv-tb-icon-btn" title="Edit JSON"><i class="fas fa-code"></i></button>
+
+    {% elif active_view == 'port_fabric' %}
+      <button type="button" id="pf-refresh" class="lv-tb-btn lv-tb-btn--success">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+      <button type="button" id="pf-save-layout" class="lv-tb-btn lv-tb-btn--primary">
+        <i class="fas fa-save"></i> Save layout
+      </button>
+      <button type="button" id="pf-fit" class="lv-tb-icon-btn" title="Fit view (F)"><i class="fas fa-compress-alt"></i></button>
+      <span class="lv-tb-vsep"></span>
+      <button type="button" id="pf-validate-link" class="lv-tb-btn lv-tb-btn--ghost">
+        <i class="fas fa-check-circle"></i> Validate
+      </button>
+      <button type="button" id="pf-discover-dac" class="lv-tb-btn lv-tb-btn--accent">
+        <i class="fas fa-link"></i> Find DAC/B2B
+      </button>
+      <button type="button" id="pf-bundle-toggle" class="lv-tb-btn lv-tb-btn--ghost" title="Bundle connections (B)">
+        <i class="fas fa-compress-arrows-alt"></i> <span id="pf-bundle-lbl">Bundle</span>
+      </button>
+      <button type="button" id="pf-mode-edit" class="lv-tb-btn lv-tb-btn--toggle" data-active="0" title="Wire mode">
+        <i class="fas fa-pencil-alt"></i> Wire
+      </button>
+      <span class="lv-tb-vsep"></span>
+      <span class="lv-tb-label">Show</span>
+      <button type="button" id="pf-lldp-view-toggle" class="lv-tb-btn lv-tb-btn--toggle" data-active="0">
+        <i class="fas fa-network-wired"></i> LLDP panel
+      </button>
+      <button type="button" id="pf-b2b-labels-toggle" class="lv-tb-btn lv-tb-btn--toggle" data-active="1">
+        <i class="fas fa-tags"></i> B2B labels
+      </button>
+      <span class="lv-tb-vsep"></span>
+      <div class="lv-tb-themes" role="group" aria-label="Theme">
+        <button type="button" class="pf-theme-btn lv-tb-theme-swatch" data-theme="dark" title="Dark"></button>
+        <button type="button" class="pf-theme-btn lv-tb-theme-swatch" data-theme="grey" title="Grey"></button>
+        <button type="button" class="pf-theme-btn lv-tb-theme-swatch" data-theme="light" title="Light"></button>
+      </div>
+    {% endif %}
+
+    <span class="lv-tb-vsep"></span>
+    <span class="lv-tb-label">Layout</span>
+    <div class="lv-tb-seg" role="group" aria-label="Layout mode">
+      <button type="button" id="lv-layout-tier" class="lv-tb-seg-btn" title="Tier layout (horizontal bands)">
+        <i class="fas fa-layer-group"></i> Tier
+      </button>
+      <button type="button" id="lv-layout-rack" class="lv-tb-seg-btn" title="DC rack columns">
+        <i class="fas fa-server"></i> Rack
+      </button>
+      <button type="button" id="lv-layout-free" class="lv-tb-seg-btn" title="Free placement (saved positions)">
+        <i class="fas fa-arrows-alt"></i> Free
+      </button>
+    </div>
+    <span class="lv-tb-vsep"></span>
+    <a href="{% url 'lab_topology_export' topo.id %}" class="lv-tb-btn lv-tb-btn--ghost" title="Export .labtopo.json">
+      <i class="fas fa-download"></i> Export
+    </a>
+    <button type="button" id="lv-import-btn" class="lv-tb-btn lv-tb-btn--ghost" title="Import topology JSON (.labtopo / v3)">
+      <i class="fas fa-upload"></i> Import
+    </button>
+    <input type="file" id="lv-import-file" accept=".json,application/json" class="d-none">
+
+  </div>
+</div>
+
+<div id="lv-snapshot-toast" aria-live="polite"></div>
+
+<script>
+/* Inline fallback — full module in topo-layout-modes.js (required for layout toolbar). */
+window.TopoLayoutModes = window.TopoLayoutModes || {
+  DEFAULT_TIER_Y: { chassis: 180, ocs: 480, switch: 780, server: 1080 },
+  tierOf: function (d) {
+    var t = (d && (d.node_type || d.type)) || 'generic';
+    if (t === 'chassis' || t === 'ocs' || t === 'switch') return t;
+    return 'server';
+  },
+  computeTierLayout: function () { return {}; },
+  computeDCLayout: function () { return {}; },
+  mergeSavedPos: function (items, computed) { return computed || {}; },
+  setSegActive: function () {},
+  loadMode: function (topoId, view, fb) { return fb || 'rack'; },
+  saveMode: function () {},
+  bindLayoutToolbar: function () {},
+};
+</script>
+<script src="{% static 'js/topo-topo-name.js' %}"></script>
+<script src="{% static 'js/topo-metrics-toggle.js' %}?v=20260612b"></script>
+<script src="{% static 'js/topo-layout-modes.js' %}?v=20260528"></script>
+<script src="{% static 'js/topo-import.js' %}?v=20260528"></script>
+<script>
+(function(){
+  'use strict';
+
+  document.addEventListener('DOMContentLoaded', function(){
+    if(window.initTopoNameEdit){
+      initTopoNameEdit({
+        topoId: {{ topo.id }},
+        dataUrl: '/lab-topology/{{ topo.id }}/data/',
+        initialName: "{{ topo.name|escapejs }}"
+      });
+    }
+    if(window.initTopoImport){
+      initTopoImport({
+        importUrl: "{% url 'lab_topology_import' topo.id %}",
+        topoName: "{{ topo.name|escapejs }}",
+        csrfToken: "{{ csrf_token }}",
+        onStatus: function(msg){
+          const el = document.getElementById('lt-status') ||
+            document.getElementById('fm-status') ||
+            document.getElementById('pf-status');
+          if(el) el.textContent = msg;
+        }
+      });
+    }
+    if(window.initMetricsCollectionToggle){
+      initMetricsCollectionToggle({
+        toggleUrl: "{% url 'lab_topology_metrics_collection' topo.id %}",
+        csrfToken: "{{ csrf_token }}",
+        initialEnabled: {% if topo.metrics_collection_enabled|default:True %}true{% else %}false{% endif %}
+      });
+    }
+    document.body.classList.add('lv-topology-page');
+    const tb = document.getElementById('lv-topo-toolbar');
+    if(tb){
+      const h = tb.offsetHeight;
+      document.documentElement.style.setProperty('--lv-topbar-h', h + 'px');
+    }
+  });
+
+  function toggleFullscreen(){
+    if(!document.fullscreenElement){
+      (document.documentElement.requestFullscreen||
+       document.documentElement.webkitRequestFullscreen||function(){}).call(document.documentElement);
+    } else {
+      (document.exitFullscreen||document.webkitExitFullscreen||function(){}).call(document);
+    }
+  }
+  document.addEventListener('fullscreenchange',function(){
+    const icon=document.getElementById('lv-fs-icon');
+    if(icon) icon.className=document.fullscreenElement?'fas fa-compress':'fas fa-expand';
+    document.body.classList.toggle('lv-topology-fullscreen', !!document.fullscreenElement);
+  });
+  document.getElementById('lv-fullscreen-btn')?.addEventListener('click', toggleFullscreen);
+
+  function showSnapshotToast(msg){
+    const t=document.getElementById('lv-snapshot-toast');
+    if(!t) return;
+    t.textContent=msg; t.classList.add('show');
+  }
+  function hideSnapshotToast(){
+    document.getElementById('lv-snapshot-toast')?.classList.remove('show');
+  }
+
+  function downloadSvgAs8k(svgEl, filename){
+    if(!svgEl){ alert('No SVG canvas found.'); return; }
+    showSnapshotToast('Rendering 8K snapshot…');
+    let svgW, svgH;
+    try{ const cr=svgEl.getBoundingClientRect(); svgW=cr.width||1200; svgH=cr.height||800; }
+    catch(e){ svgW=1200; svgH=800; }
+    const SCALE = Math.min(Math.max(Math.floor(7680/svgW), 2), 8);
+    const W = Math.round(svgW * SCALE);
+    const H = Math.round(svgH * SCALE);
+    const clone = svgEl.cloneNode(true);
+    clone.setAttribute('width', svgW);
+    clone.setAttribute('height', svgH);
+    clone.style.background = getComputedStyle(svgEl.parentElement||svgEl).background || '#060e1c';
+    let svgStr = '<?xml version="1.0" encoding="UTF-8"?>\n' + new XMLSerializer().serializeToString(clone);
+    const blob = new Blob([svgStr], {type:'image/svg+xml'});
+    const url  = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = function(){
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      const bg = getComputedStyle(svgEl.parentElement||document.body).getPropertyValue('--pf-bg') || '#060e1c';
+      ctx.fillStyle = bg.trim() || '#060e1c';
+      ctx.fillRect(0,0,W,H);
+      ctx.scale(SCALE, SCALE);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(function(b){
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(b);
+        a.download = filename || 'topology-snapshot.png';
+        a.click();
+        setTimeout(()=>URL.revokeObjectURL(a.href), 3000);
+        hideSnapshotToast();
+      }, 'image/png');
+    };
+    img.onerror = function(){
+      hideSnapshotToast();
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download=(filename||'topology').replace('.png','.svg');
+      a.click();
+    };
+    img.src = url;
+  }
+
+  document.getElementById('lv-snapshot-btn')?.addEventListener('click', function(){
+    const pfSvg  = document.getElementById('pf-svg');
+    const fmSvg  = document.getElementById('fm-svg');
+    const ltSvg  = document.getElementById('lt-links-svg');
+    const active = '{{ active_view }}';
+    const name   = (document.getElementById('lv-topo-name-input')?.value||'topology')
+                     .replace(/[^a-z0-9_\-]+/gi,'_').slice(0,50);
+    if(active==='port_fabric' && pfSvg){
+      downloadSvgAs8k(pfSvg, `pf_${name}.png`);
+    } else if(active==='fabric' && fmSvg){
+      downloadSvgAs8k(fmSvg, `fabric_${name}.png`);
+    } else if(active==='designer' && ltSvg){
+      showSnapshotToast('Capturing designer…');
+      const wrap = document.getElementById('lt-canvas-wrap');
+      if(wrap && window.html2canvas){
+        html2canvas(wrap, {scale:4, useCORS:true, backgroundColor:'#0a0a1a'}).then(c=>{
+          const a=document.createElement('a');
+          a.href=c.toDataURL('image/png');
+          a.download=`designer_${name}.png`;
+          a.click();
+          hideSnapshotToast();
+        });
+      } else {
+        downloadSvgAs8k(ltSvg, `designer_${name}.png`);
+      }
+    } else {
+      showSnapshotToast('No canvas found.');
+      setTimeout(hideSnapshotToast, 2500);
+    }
+  });
+})();
+</script>
+<script type="module">
+import { applyUsageTheme, mountUsageThemePicker, readUsageTheme } from '{% static "js/lab-graph/usage-page-theme.js" %}?v=20260626';
+applyUsageTheme(readUsageTheme());
+document.addEventListener('DOMContentLoaded', () => {
+  mountUsageThemePicker(document.getElementById('lv-usage-theme-picker'));
+});
+</script>

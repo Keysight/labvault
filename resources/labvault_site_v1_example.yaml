@@ -1,0 +1,14 @@
+version: 1
+name: Example-Photonic-Lab
+site_tags: [ocs-lab]
+ocs:
+  ip: 192.0.2.10
+  user: user
+switches:
+  - ip: 192.0.2.20
+    role: arista
+    mapping: site
+chassis:
+  - ip: 192.0.2.31
+    type: aresone
+preset: v6

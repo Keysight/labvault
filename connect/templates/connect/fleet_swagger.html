@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LabVault Fleet API — Swagger</title>
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui.css">
+  <style>
+    body { margin: 0; background: #fafafa; }
+    .topbar { display: none; }
+    .lv-banner {
+      background: #1a1a2e; color: #e2e8f0; padding: 14px 24px;
+      font-family: system-ui, sans-serif; font-size: 14px;
+      border-bottom: 3px solid #E31937;
+    }
+    .lv-banner strong { color: #fff; }
+    .lv-banner code { background: rgba(255,255,255,0.1); padding: 2px 6px; border-radius: 4px; }
+    .lv-banner a { color: #fca5a5; }
+  </style>
+</head>
+<body>
+  <div class="lv-banner">
+    <strong>LabVault Fleet API</strong> —
+    Auth: <code>Authorization: Bearer &lt;token&gt;</code>
+    · Spec: <a href="{{ openapi_url }}">{{ openapi_url }}</a>
+    · Index: <a href="/api/fleet/">/api/fleet/</a>
+    · Use <em>Authorize</em> in Swagger with the demo-api token.
+  </div>
+  <div id="swagger-ui"></div>
+  <script src="https://unpkg.com/swagger-ui-dist@5.11.0/swagger-ui-bundle.js"></script>
+  <script>
+    window.ui = SwaggerUIBundle({
+      url: "{{ openapi_url }}",
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      persistAuthorization: true,
+      tryItOutEnabled: true,
+      // Force same-origin so Try-it-out keeps host:port (e.g. :18001)
+      servers: [{ url: window.location.origin, description: 'This browser origin' }],
+      requestInterceptor: (req) => {
+        req.credentials = 'same-origin';
+        try {
+          const u = new URL(req.url, window.location.origin);
+          // Rewrite absolute URLs that dropped the non-default port
+          if (u.hostname === window.location.hostname && u.port !== window.location.port) {
+            u.port = window.location.port;
+            u.protocol = window.location.protocol;
+            req.url = u.toString();
+          }
+        } catch (e) { /* leave url unchanged */ }
+        return req;
+      },
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,2089 @@
+{% extends 'connect/base.html' %}
+{% load ip_display %}
+{% block title %}{{ topo.name }} — Lab Topology Designer{% endblock %}
+{% block body_attrs %}class="lv-topology-page lv-topology-page--designer"{% endblock %}
+{% block content_area_class %}content-area--topology{% endblock %}
+{% block topbar %}
+{% include "connect/includes/lab_topology_topbar.html" with active_view="designer" sub_nav=sub_nav %}
+{% endblock %}
+
+{% block extra_css %}
+<style>
+#lt-wrap { display: flex; flex: 1; min-height: 0; gap: 0; }
+#lt-canvas-wrap {
+  flex: 1 1 auto; overflow: hidden; position: relative;
+  background: linear-gradient(135deg, #0a0a1a 0%, #12122a 100%);
+  border: none;
+  border-radius: 0;
+}
+#lt-canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  user-select: none; cursor: grab;
+}
+#lt-canvas.grabbing { cursor: grabbing; }
+.lt-node {
+  position: absolute; border-radius: 8px; border: 2px solid #4a4a7a;
+  min-width: 140px; font-size: 0.72rem; color: #e2e8f0;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  cursor: move; user-select: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.lt-node:hover { border-color: #6b7ff8; box-shadow: 0 4px 20px rgba(107,127,248,0.3); }
+.lt-node.selected { border-color: #818cf8; box-shadow: 0 0 0 2px #818cf880; }
+.lt-node-header {
+  padding: 5px 8px; border-radius: 6px 6px 0 0;
+  font-weight: 700; font-size: 0.7rem; white-space: nowrap; overflow: hidden;
+  display: flex; align-items: center; gap: 5px;
+}
+.lt-node-icon { font-size: 0.9rem; opacity: 0.8; }
+.lt-node-ports {
+  display: flex; flex-wrap: wrap; gap: 2px; padding: 4px 5px 5px;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+.lt-port {
+  padding: 1px 5px; border-radius: 3px; font-size: 0.55rem;
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.12);
+  cursor: pointer; white-space: nowrap; color: #94a3b8;
+  transition: background 0.1s, border-color 0.1s;
+}
+.lt-port:hover { background: rgba(107,127,248,0.25); border-color: #6b7ff8; color: #e2e8f0; }
+.lt-port.linked { background: rgba(34,197,94,0.15); border-color: #22c55e; color: #bbf7d0; }
+.lt-port.staging { background: rgba(234,179,8,0.2); border-color: #eab308; color: #fef08a; }
+.lt-port.pending-src { background: rgba(245,158,11,0.35); border-color: #f59e0b; color: #fff; box-shadow: 0 0 6px #f59e0b; }
+.lt-node.lt-chassis-node { min-width: 200px; max-width: 420px; }
+.lt-slot-view { padding: 4px 6px 6px; border-top: 1px solid rgba(255,255,255,0.08); }
+.lt-slot-row { margin-bottom: 5px; padding: 4px 5px; border-radius: 5px; background: rgba(0,0,0,0.25); border-left: 3px solid #6b7280; }
+.lt-slot-row.mgmt { border-left-color: #f59e0b; }
+.lt-slot-hdr { font-size: 0.58rem; font-weight: 700; color: #9ca3af; margin-bottom: 3px; display: flex; justify-content: space-between; }
+.lt-slot-hdr span.type { color: #f59e0b; font-weight: 600; }
+.lt-rg-label { font-size: 0.5rem; color: #6b7280; margin: 2px 0 1px; }
+.lt-port-grid { display: flex; flex-wrap: wrap; gap: 3px; }
+.lt-port-grid.ocs-bank { display: grid; grid-template-columns: repeat(8, 26px); gap: 3px; max-width: 100%; }
+.lt-slot-row.ocs-shelf { border-left-color: #fb923c; }
+.lt-slot-row.switch-ocs { border-left-color: #38bdf8; }
+.lt-slot-row.switch-dac { border-left-color: #a78bfa; }
+.lt-port-cell {
+  width: 26px; height: 24px; border-radius: 3px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; cursor: pointer;
+  font-size: 0.48rem; font-weight: 600; border: 1.5px solid #4b5563;
+  background: #1f2937; position: relative;
+}
+.lt-port-cell:hover { border-color: #818cf8; z-index: 2; }
+.lt-port-cell.linked { border-color: #22c55e; background: rgba(34,197,94,0.2); }
+.lt-port-cell.pending-src { border-color: #f59e0b; box-shadow: 0 0 5px #f59e0b; }
+.lt-port-cell .p-num { line-height: 1; color: #d1d5db; }
+.lt-port-cell .p-led { width: 5px; height: 5px; border-radius: 50%; margin-top: 1px; }
+.lt-port-cell .p-led.green { background: #16a34a; }
+.lt-port-cell .p-led.red { background: #dc2626; }
+.lt-port-cell .p-led.yellow, .lt-port-cell .p-led.amber { background: #ca8a04; }
+.lt-port-cell .p-led.off { background: #6b7280; }
+.lt-port-cell.type-dac { border-color: #5b21b6; background: rgba(91,33,182,0.12); }
+.lt-port-cell.type-lldp { border-color: #c2410c; background: rgba(194,65,12,0.12); }
+.lt-port-cell.type-ocs { border-color: #854d0e; }
+.lt-port-cell .p-disp { font-size: 0.42rem; color: #9ca3af; line-height: 1; }
+.lt-wire-active #lt-canvas-wrap { outline: 2px dashed #f59e0b; outline-offset: -2px; }
+.lt-node-ports { max-height: 120px; overflow-y: auto; }
+#lt-sidebar {
+  flex: 0 0 280px; overflow-y: auto; border-radius: 12px;
+  background: #0f0f23; border: 1px solid #2a2a4a; margin-left: 8px;
+  font-size: 0.8rem; color: #c8d0e7;
+}
+#lt-sidebar-inner { padding: 12px; }
+.lt-sidebar-section { margin-bottom: 16px; }
+.lt-sidebar-title {
+  font-size: 0.65rem; color: #6b7a8f; text-transform: uppercase;
+  letter-spacing: 0.08em; font-weight: 700; margin-bottom: 6px;
+  padding-bottom: 4px; border-bottom: 1px solid #2a2a3a;
+}
+.lt-form-group { margin-bottom: 8px; }
+.lt-form-group label { display: block; font-size: 0.65rem; color: #94a3b8; margin-bottom: 2px; }
+.lt-form-group input, .lt-form-group select, .lt-form-group textarea {
+  width: 100%; background: #1a1a2e; border: 1px solid #3a3a5a; color: #e2e8f0;
+  border-radius: 4px; padding: 4px 8px; font-size: 0.72rem;
+}
+.lt-form-group textarea { resize: vertical; min-height: 48px; }
+.lt-cmd-list { font-family: monospace; font-size: 0.65rem; }
+#lt-status { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+  background: #1a1a2e; border: 1px solid #3a3a5a; color: #94a3b8; font-size: 0.65rem;
+  padding: 2px 10px; border-radius: 12px; pointer-events: none; opacity: 0.9; }
+#lt-links-svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+  pointer-events: none; overflow: visible; }
+.sc-chip {
+  display:inline-flex; align-items:center; gap:4px;
+  background:#1c2a3a; border:1px solid #1f6feb; border-radius:5px;
+  padding:2px 7px; font-size:.6rem; color:#58a6ff; cursor:pointer;
+}
+.sc-chip.chassis { border-color:#f0a500; background:#2a1f00; color:#f0a500; }
+.sc-chip.switch  { border-color:#1f6feb; background:#001f3a; color:#58a6ff; }
+.sc-chip .sc-rm  { margin-left:3px; opacity:.6; font-size:.55rem; }
+.sc-chip:hover .sc-rm { opacity:1; }
+.sc-tab.active   { border-bottom:2px solid #f0a500 !important; color:#f0a500 !important; }
+.sc-patch-row    { display:grid; grid-template-columns:1fr auto 1fr auto; gap:3px; align-items:center; padding:3px 0; border-bottom:1px solid #21262d; font-size:.6rem; }
+.sc-patch-row:hover { background:#161b22; }
+.sc-triplet      { font-family:monospace; font-size:.62rem; }
+.sc-badge        { border-radius:3px; padding:1px 5px; font-size:.58rem; }
+.sc-badge.exists { background:#2ea04322; color:#7ee787; border:1px solid #2ea04388; }
+.sc-badge.missing{ background:#da363322; color:#f85149; border:1px solid #da363388; }
+.sc-badge.extra  { background:#d2992222; color:#d29922; border:1px solid #d2992288; }
+.sc-stat         { text-align:center; background:#161b22; border:1px solid #30363d; border-radius:5px; padding:5px 8px; }
+.sc-stat .sv     { font-size:1.1rem; font-weight:700; }
+.sc-stat .sl     { font-size:.58rem; color:#6e7681; }
+.sc-pm-row       { display:grid; grid-template-columns:80px 1fr 1fr; gap:4px; font-size:.6rem; padding:2px 0; border-bottom:1px solid #1a1f28; }
+.sc-pm-row:hover { background:#161b22; }
+.lt-node.sc-selected-chassis { border-color:#f0a500 !important; box-shadow:0 0 0 3px #f0a50044 !important; }
+.lt-node.sc-selected-switch  { border-color:#1f6feb !important; box-shadow:0 0 0 3px #1f6feb44 !important; }
+.lt-node.sc-active { animation: sc-pulse 1.5s ease-in-out infinite; }
+@keyframes sc-pulse { 0%,100%{opacity:1} 50%{opacity:.75} }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- OCS Snapshot Modal + Delete Topology JS (designer) -->
+<div id="ocs-snapshot-modal" style="display:none;position:fixed;inset:0;z-index:9990;background:rgba(0,0,0,.6);overflow-y:auto;">
+  <div style="background:#1a1a2e;border:1px solid #3a3a5c;border-radius:8px;max-width:680px;margin:60px auto;padding:0;box-shadow:0 8px 32px rgba(0,0,0,.5);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1px solid #2a2a4a;">
+      <span style="color:#e2e8f0;font-weight:600;"><i class="fas fa-camera" style="color:#fb923c;margin-right:8px;"></i>OCS Patch Snapshots</span>
+      <div style="display:flex;gap:8px;">
+        <button onclick="ocsTopoSnapshotCreate()" class="btn btn-sm btn-outline-warning"><i class="fas fa-download me-1"></i>Save Current State</button>
+        <button onclick="document.getElementById('ocs-snapshot-modal').style.display='none'" style="background:none;border:none;color:#6b7a8f;font-size:1.2rem;cursor:pointer;">&times;</button>
+      </div>
+    </div>
+    <div id="ocs-snapshot-modal-body" style="padding:16px;min-height:120px;">
+      <div class="text-muted" style="font-size:0.82rem;">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  function getCsrf(){
+    var m = document.cookie.match('(^|;)\\s*csrftoken\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+  function showToast(msg, type){
+    var t = document.createElement('div');
+    t.className = 'alert alert-'+type+' position-fixed bottom-0 end-0 m-3 shadow';
+    t.style.cssText = 'z-index:9999;max-width:380px;font-size:0.82rem';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(function(){ t.remove(); }, 4000);
+  }
+  function fmtDate(iso){ return iso ? new Date(iso).toLocaleString() : '—'; }
+
+  // Find OCS device ID from the portmap (first OCS node in topology)
+  var _ocsDeviceId = null;
+
+  async function getOcsDeviceId(){
+    if(_ocsDeviceId) return _ocsDeviceId;
+    try {
+      var r = await fetch('{{ topo.id }}' ? '/lab-topology/{{ topo.id }}/portmap/' : '', {credentials:'same-origin'});
+      var d = await r.json();
+      var ocsNode = (d.nodes||[]).find(function(n){ return n.vendor_type==='ocs' || n.node_type==='ocs'; });
+      if(ocsNode){
+        // Look for device_id in state
+        var st = window._ltState;
+        if(st && st.nodes){
+          for(var k in st.nodes){
+            if(st.nodes[k].node_type==='ocs' && st.nodes[k].device_id){
+              _ocsDeviceId = st.nodes[k].device_id;
+              return _ocsDeviceId;
+            }
+          }
+        }
+      }
+    } catch(e){}
+    return null;
+  }
+
+  async function loadOcsSnapshots(deviceId){
+    var el = document.getElementById('ocs-snapshot-modal-body');
+    if(!deviceId){
+      el.innerHTML = '<div style="color:#9ca3af;font-size:0.82rem;padding:12px">No OCS device linked to this topology. Open the OCS device page to manage snapshots.</div>';
+      return;
+    }
+    try {
+      var r = await fetch('/api/ocs/'+deviceId+'/snapshots/', {credentials:'same-origin'});
+      var d = await r.json();
+      if(!d.snapshots||!d.snapshots.length){
+        el.innerHTML='<div style="color:#9ca3af;font-size:0.82rem;padding:12px">No snapshots yet. Click "Save Current State" to create one.</div>';
+        return;
+      }
+      var html='<table class="table table-sm mb-0" style="font-size:0.75rem;color:#e2e8f0;"><thead style="background:#1e1e3a"><tr><th>Name</th><th>Patches</th><th>Created</th><th>Actions</th></tr></thead><tbody>';
+      d.snapshots.forEach(function(s){
+        html+='<tr><td><strong>'+s.name+'</strong>'+
+          (s.description?'<br><small style="color:#9ca3af">'+s.description+'</small>':'')+'</td>'+
+          '<td><span style="background:#374151;color:#e2e8f0;padding:1px 6px;border-radius:4px;font-size:0.7rem">'+s.patch_count+'</span></td>'+
+          '<td style="color:#9ca3af;white-space:nowrap;font-size:0.7rem">'+fmtDate(s.created_at)+'</td>'+
+          '<td class="text-nowrap"><a href="/api/ocs/snapshots/'+s.id+'/download/" download style="font-size:0.7rem;padding:2px 7px" class="btn btn-xs btn-outline-info me-1" title="Download JSON"><i class="fas fa-file-download"></i></a>'+
+          '<button style="font-size:0.7rem;padding:2px 7px" class="btn btn-xs btn-outline-success me-1" onclick="ocsTopoRestore('+s.id+',\''+s.name.replace(/'/g,"\\'")+'\','+s.patch_count+')">Restore</button>'+
+          '<button style="font-size:0.7rem;padding:2px 6px" class="btn btn-xs btn-outline-danger" onclick="ocsTopoSnapDelete('+s.id+',\''+s.name.replace(/'/g,"\\'")+'\')"><i class=\"fas fa-trash\"></i></button></td></tr>';
+      });
+      html+='</tbody></table>';
+      el.innerHTML=html;
+    } catch(e){ el.innerHTML='<div style="color:#f87171">Error: '+e+'</div>'; }
+  }
+
+  window.showOcsSnapshotPanel = async function(){
+    document.getElementById('ocs-snapshot-modal').style.display='block';
+    var devId = await getOcsDeviceId();
+    loadOcsSnapshots(devId);
+  };
+
+  window.ocsTopoSnapshotCreate = async function(){
+    var devId = await getOcsDeviceId();
+    if(!devId){ showToast('No OCS device found in this topology','warning'); return; }
+    var name = prompt('Snapshot name (leave blank for auto-timestamp):') || '';
+    if(name === null) return;
+    var r = await fetch('/api/ocs/'+devId+'/snapshots/', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':getCsrf()},
+      body: JSON.stringify({name:name})
+    });
+    var d = await r.json();
+    if(d.ok){ showToast('Saved: '+d.name+' ('+d.patch_count+' patches)','success'); loadOcsSnapshots(devId); }
+    else { showToast('Error: '+(d.error||'unknown'),'danger'); }
+  };
+
+  window.ocsTopoRestore = async function(snapId, snapName, patchCount){
+    var devId = await getOcsDeviceId();
+    if(!confirm('Restore "'+snapName+'" ('+patchCount+' patches)?\n\nThis will CLEAR all current patches then replay the snapshot.')) return;
+    var r = await fetch('/api/ocs/snapshots/'+snapId+'/restore/', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':getCsrf()},
+      body: JSON.stringify({clear_first:true})
+    });
+    var d = await r.json().catch(function(){ return {}; });
+    if(r.ok && d.ok){
+      var via = d.method ? (' via '+String(d.method).toUpperCase()) : '';
+      showToast('Restored "'+snapName+'" — '+d.patch_count+' patches applied'+via,'success');
+    }
+    else { showToast('Restore failed: '+((d.errors||[]).join('; ')||d.error||('HTTP '+r.status)),'danger'); }
+  };
+
+  window.ocsTopoSnapDelete = async function(snapId, snapName){
+    var devId = await getOcsDeviceId();
+    if(!confirm('Delete snapshot "'+snapName+'"?')) return;
+    var r = await fetch('/api/ocs/snapshots/'+snapId+'/', {
+      method:'DELETE', credentials:'same-origin',
+      headers:{'X-CSRFToken':getCsrf()}
+    });
+    var d = await r.json();
+    if(d.ok){ showToast('Snapshot deleted','secondary'); loadOcsSnapshots(devId); }
+  };
+
+  window.confirmDeleteTopology = async function(topoId){
+    if(!confirm('Permanently delete this topology?\n\nAll nodes, links, and test setups will be removed.')) return;
+    var r = await fetch('/lab-topology/'+topoId+'/delete/', {
+      method:'POST', credentials:'same-origin',
+      headers:{'X-Requested-With':'XMLHttpRequest','X-CSRFToken':getCsrf()}
+    });
+    var d = await r.json();
+    if(d.ok){ window.location.href = '/lab-topology/'; }
+    else { showToast('Delete failed','danger'); }
+  };
+
+  // Close modal on backdrop click
+  document.getElementById('ocs-snapshot-modal').addEventListener('click', function(e){
+    if(e.target === this) this.style.display='none';
+  });
+})();
+</script>
+
+<div class="lv-topo-workspace">
+<div id="lt-wrap">
+  <!-- SVG + node canvas -->
+  <div id="lt-canvas-wrap">
+    <div id="lt-canvas">
+      <svg id="lt-links-svg"></svg>
+      <!-- nodes injected here by JS -->
+    </div>
+    <div id="lt-status">Loading…</div>
+  </div>
+
+  <!-- Right sidebar -->
+  <div id="lt-sidebar">
+    <div id="lt-sidebar-inner">
+      {% if sub_nav.is_parent_with_subs or sub_nav.is_sub_topology %}
+      <div class="lt-sidebar-section" id="lt-subtopo-section">
+        <div class="lt-sidebar-title"><i class="fas fa-code-branch me-1" style="color:#4ade80;"></i> Staged sub-topologies</div>
+        {% if sub_nav.is_parent_with_subs %}
+        <p class="text-muted small mb-2">Split chassis into DAC-only staging (M01–M04) vs live OCS patch (M05–M08).</p>
+        <div class="d-flex flex-column gap-1 mb-2">
+          {% for s in sub_nav.sub_topologies %}
+          <a class="btn btn-xs btn-outline-info text-start" href="{% url 'lab_topology_detail' s.id %}">
+            {% if s.role == 'without_ocs_patch' %}<i class="fas fa-ethernet me-1"></i>{% else %}<i class="fas fa-random me-1"></i>{% endif %}
+            {{ s.label }}
+          </a>
+          {% endfor %}
+        </div>
+        <button type="button" class="btn btn-xs btn-outline-warning w-100" id="lt-split-subtopo-btn" data-topo-id="{{ topo.id }}">
+          <i class="fas fa-code-branch me-1"></i> Rebuild sub-topologies
+        </button>
+        {% elif sub_nav.parent_topology %}
+        <p class="text-muted small mb-2">
+          Part of <a href="{% url 'lab_topology_detail' sub_nav.parent_topology.id %}">{{ sub_nav.parent_topology.name }}</a>.
+          {% if sub_nav.sub_topology_role == 'without_ocs_patch' %}
+          DAC / B2B staging — no OCS cross-connects.
+          {% elif sub_nav.sub_topology_role == 'with_ocs_patch' %}
+          OCS-patched stage — M05–M08 and OCS S-320.
+          {% endif %}
+        </p>
+        {% endif %}
+      </div>
+      {% elif not sub_nav.is_sub_topology %}
+      <div class="lt-sidebar-section" id="lt-split-offer-section">
+        <div class="lt-sidebar-title"><i class="fas fa-code-branch me-1" style="color:#94a3b8;"></i> OCS stage split</div>
+        <p class="text-muted small mb-2">Create two sub-topologies: without OCS patch (M01–M04 DAC) and with OCS patch (M05–M08 + OCS).</p>
+        <button type="button" class="btn btn-xs btn-nc w-100" id="lt-split-subtopo-btn" data-topo-id="{{ topo.id }}">
+          <i class="fas fa-code-branch me-1"></i> Split into sub-topologies
+        </button>
+      </div>
+      {% endif %}
+      <div class="lt-sidebar-section" id="lt-sel-section" style="display:none;">
+        <div class="lt-sidebar-title" id="lt-sel-title">Selected</div>
+        <div class="lt-form-group">
+          <label>Label</label>
+          <input type="text" id="lt-node-label" placeholder="Device name">
+        </div>
+        <div class="lt-form-group">
+          <label>Type</label>
+          <select id="lt-node-type">
+            <option value="switch">Switch</option>
+            <option value="server">Server</option>
+            <option value="ocs">OCS Photonic</option>
+            <option value="chassis">Chassis</option>
+            <option value="firewall">Firewall</option>
+            <option value="generic">Generic</option>
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Bind Device</label>
+          <select id="lt-node-device">
+            <option value="">— none —</option>
+            {% for d in devices %}
+            <option value="{{ d.id }}" data-ip="{{ d|mgmt_display }}" data-ip-v4="{{ d.ip_address }}" data-ip-v6="{{ d.mgmt_ipv6 }}" data-vendor="{{ d.vendor_type }}">
+              {{ d|mgmt_label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Port list (one per line)</label>
+          <textarea id="lt-node-ports" rows="4" placeholder="Ethernet1&#10;Ethernet2"></textarea>
+        </div>
+        <button class="btn btn-sm btn-nc w-100 mb-2" id="lt-apply-node">Save Node</button>
+        <button class="btn btn-sm btn-outline-danger w-100 mb-1" id="lt-del-node">Delete Node</button>
+        <button class="btn btn-sm btn-outline-warning w-100 mb-2" id="lt-refresh-chassis-ports" style="display:none;" title="Reload slot/port grid from live inventory">
+          <i class="fas fa-sync me-1"></i> Refresh Ports
+        </button>
+        <hr style="border-color:#2a2a4a;">
+      </div>
+
+      <div class="lt-sidebar-section" id="lt-link-section" style="display:none;">
+        <div class="lt-sidebar-title">Connection</div>
+        <div id="lt-link-summary" class="small text-muted mb-2"></div>
+        <div class="lt-form-group">
+          <label>Cable type</label>
+          <select id="lt-link-cable">
+            <option value="dac">DAC</option>
+            <option value="optic">Optic</option>
+            <option value="direct">B2B / Direct</option>
+            <option value="ocs">OCS</option>
+          </select>
+        </div>
+        <button class="btn btn-sm btn-outline-success w-100 mb-1" id="lt-validate-link">
+          <i class="fas fa-check-double me-1"></i> Validate (link flap)
+        </button>
+        <button class="btn btn-sm btn-outline-danger w-100 mb-2" id="lt-del-link">Delete Link</button>
+      </div>
+
+      <div class="lt-sidebar-section" id="lt-port-section" style="display:none;">
+        <div class="lt-sidebar-title" id="lt-port-title">Port Config</div>
+        <div class="lt-form-group">
+          <label>Description</label>
+          <input type="text" id="lt-port-desc" placeholder="Link to server1">
+        </div>
+        <div class="lt-form-group">
+          <label>VLAN</label>
+          <input type="text" id="lt-port-vlan" placeholder="100">
+        </div>
+        <div class="lt-form-group">
+          <label>Speed</label>
+          <select id="lt-port-speed">
+            <option value="">auto</option>
+            <option value="100G">100G</option>
+            <option value="40G">40G</option>
+            <option value="25G">25G</option>
+            <option value="10G">10G</option>
+            <option value="1G">1G</option>
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Admin state</label>
+          <select id="lt-port-admin">
+            <option value="no shutdown">no shutdown</option>
+            <option value="shutdown">shutdown</option>
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Generated commands</label>
+          <textarea id="lt-port-cmds" class="lt-cmd-list" rows="4" readonly></textarea>
+        </div>
+        <button class="btn btn-sm btn-outline-warning w-100 mb-1" id="lt-stage-port">Stage</button>
+        <button class="btn btn-sm btn-outline-success w-100" id="lt-push-port">Push Now</button>
+        <div id="lt-push-result" class="mt-2 small" style="font-family:monospace;"></div>
+      </div>
+
+      <div class="lt-sidebar-section" id="lt-add-section" style="display:none;">
+        <div class="lt-sidebar-title">Add Hardware</div>
+        <div class="lt-form-group">
+          <label>Label</label>
+          <input type="text" id="lt-new-label" placeholder="Arista_1 / AresONE-M05">
+        </div>
+        <div class="lt-form-group">
+          <label>Type</label>
+          <select id="lt-new-type">
+            <option value="switch">Switch</option>
+            <option value="server">Server</option>
+            <option value="ocs">OCS Photonic</option>
+            <option value="chassis">Chassis</option>
+            <option value="generic">Generic</option>
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Bind Device (switch / OCS / firewall)</label>
+          <select id="lt-new-device">
+            <option value="">— none —</option>
+            {% for d in devices %}
+            <option value="{{ d.id }}" data-ip="{{ d|mgmt_display }}" data-ip-v4="{{ d.ip_address }}" data-ip-v6="{{ d.mgmt_ipv6 }}" data-vendor="{{ d.vendor_type }}">
+              {{ d|mgmt_label }} ({{ d.vendor_type }})
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Bind Keysight Chassis</label>
+          <select id="lt-new-chassis">
+            <option value="">— none —</option>
+            {% for ch in chassis_list %}
+            <option value="{{ ch.id }}" data-ip="{{ ch|mgmt_display }}" data-ip-v4="{{ ch.ip_address }}" data-ip-v6="{{ ch.mgmt_ipv6 }}" data-type="{{ ch.chassis_type }}">
+              {{ ch|mgmt_label }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="lt-form-group">
+          <label>Or IP / placeholder</label>
+          <input type="text" id="lt-new-ip" placeholder="192.0.2.35 (no inventory record yet)">
+        </div>
+        <div class="lt-form-group">
+          <label>Port count (auto labels)</label>
+          <input type="number" id="lt-new-port-count" min="0" max="256" placeholder="32 for chassis, 64 for switch">
+        </div>
+        <button class="btn btn-sm btn-nc w-100" id="lt-create-node">Add to Topology</button>
+      </div>
+
+      <!-- OCS Port Mapping panel — shown when an OCS node or a node with ocs_mapping is selected -->
+      <div class="lt-sidebar-section" id="lt-ocs-section" style="display:none;">
+        <div class="lt-sidebar-title"><i class="fas fa-random me-1" style="color:#fb923c;"></i> OCS Port Mapping</div>
+        <div id="lt-ocs-device-label" style="font-size:0.7rem; color:#fb923c; font-weight:700; margin-bottom:6px;"></div>
+        <div id="lt-ocs-table-wrap" style="max-height:260px; overflow-y:auto;">
+          <table id="lt-ocs-table" style="width:100%;font-size:0.62rem;border-collapse:collapse;">
+            <thead>
+              <tr style="color:#6b7a8f;">
+                <th style="padding:2px 4px; border-bottom:1px solid #2a2a4a;">Port</th>
+                <th style="padding:2px 4px; border-bottom:1px solid #2a2a4a;">OCS Triplets</th>
+                <th style="padding:2px 4px; border-bottom:1px solid #2a2a4a;">Status</th>
+              </tr>
+            </thead>
+            <tbody id="lt-ocs-tbody"></tbody>
+          </table>
+        </div>
+        <div id="lt-ocs-link-wrap" class="mt-2" style="font-size:0.62rem;">
+          <a id="lt-ocs-device-link" href="#" target="_blank" style="color:#fb923c;">
+            <i class="fas fa-external-link-alt me-1"></i>Open OCS Device Page
+          </a>
+        </div>
+      </div>
+
+      <!-- Dual-OS status panel — shown when an arista/sonic dual-OS node is selected -->
+      <div class="lt-sidebar-section" id="lt-dual-os-section" style="display:none;">
+        <div class="lt-sidebar-title"><i class="fas fa-sync-alt me-1" style="color:#818cf8;"></i> Dual-OS Rotation</div>
+        <div id="lt-dual-os-body" style="font-size:0.68rem; color:#c8d0e7;"></div>
+      </div>
+
+
+
+      <!-- Scenario Planner Panel -->
+      <div class="lt-sidebar-section" id="lt-scenario-section">
+        <div class="lt-sidebar-title" style="color:#f0a500;">
+          <i class="fas fa-flask me-1"></i>Scenario Planner
+          <button onclick="toggleScenarioPanel()" id="lt-scenario-toggle" style="float:right;background:none;border:none;color:#6b7a8f;font-size:.7rem;cursor:pointer;">▼</button>
+        </div>
+        <div id="lt-scenario-body">
+          <div style="font-size:.65rem;color:#6b7a8f;margin-bottom:6px;">
+            Click chassis/switch nodes to select for a test scenario, then hit Analyze.
+          </div>
+          <!-- Selection chips -->
+          <div style="margin-bottom:6px;">
+            <div style="font-size:.6rem;color:#94a3b8;margin-bottom:3px;">Selected Chassis <span id="sc-chassis-count" style="color:#f0a500;">(0)</span></div>
+            <div id="sc-chassis-chips" style="display:flex;flex-wrap:wrap;gap:3px;min-height:18px;"></div>
+          </div>
+          <div style="margin-bottom:8px;">
+            <div style="font-size:.6rem;color:#94a3b8;margin-bottom:3px;">Selected Switches <span id="sc-switch-count" style="color:#58a6ff;">(0)</span></div>
+            <div id="sc-switch-chips" style="display:flex;flex-wrap:wrap;gap:3px;min-height:18px;"></div>
+          </div>
+          <div style="display:flex;gap:4px;margin-bottom:8px;">
+            <button onclick="runScenarioAnalysis()" style="flex:1;background:#f0a50022;border:1px solid #f0a500;color:#f0a500;border-radius:5px;padding:4px 0;font-size:.68rem;cursor:pointer;">
+              <i class="fas fa-search me-1"></i>Analyze
+            </button>
+            <button onclick="clearScenario()" style="background:#30363d;border:1px solid #444;color:#6e7681;border-radius:5px;padding:4px 8px;font-size:.68rem;cursor:pointer;">Clear</button>
+          </div>
+          <div id="sc-result" style="display:none;">
+            <!-- Summary bar -->
+            <div id="sc-summary" style="margin-bottom:8px;"></div>
+            <!-- Tabs -->
+            <div style="display:flex;gap:0;margin-bottom:6px;border-bottom:1px solid #30363d;">
+              <button onclick="showScTab('patches')" class="sc-tab active" data-tab="patches" style="flex:1;padding:3px;font-size:.62rem;background:none;border:none;border-bottom:2px solid #f0a500;color:#f0a500;cursor:pointer;">Patches</button>
+              <button onclick="showScTab('ports')" class="sc-tab" data-tab="ports" style="flex:1;padding:3px;font-size:.62rem;background:none;border:none;color:#6e7681;cursor:pointer;">Port Map</button>
+              <button onclick="showScTab('switch')" class="sc-tab" data-tab="switch" style="flex:1;padding:3px;font-size:.62rem;background:none;border:none;color:#6e7681;cursor:pointer;">Switch</button>
+            </div>
+            <div id="sc-tab-patches" class="sc-tab-content"></div>
+            <div id="sc-tab-ports" class="sc-tab-content" style="display:none;"></div>
+            <div id="sc-tab-switch" class="sc-tab-content" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
+      <div class="lt-sidebar-section" id="lt-legend">
+        <div class="lt-sidebar-title">Legend</div>
+        <div style="font-size:0.65rem; color:#6b7a8f;">
+          <div><span style="display:inline-block;width:18px;height:3px;background:#ef4444;vertical-align:middle;margin-right:4px;"></span>DAC cable</div>
+          <div><span style="display:inline-block;width:18px;height:3px;background:#22c55e;vertical-align:middle;margin-right:4px;"></span>Optic</div>
+          <div><span style="display:inline-block;width:18px;height:3px;background:#3b82f6;vertical-align:middle;margin-right:4px;"></span>Direct</div>
+          <div><span style="display:inline-block;width:18px;height:3px;background:#fb923c;vertical-align:middle;margin-right:4px;"></span>OCS Patch</div>
+          <div class="mt-1">Click port to configure. Drag nodes to arrange.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+(function() {
+var TOPO_ID = {{ topo.id }};
+var DATA_URL = "{% url 'lab_topology_data_v2' topo.id %}";
+var FABRIC_API = "{% url 'lab_fabric_map_api' topo.id %}?live=0&lldp=1";
+var FABRIC_API_LIVE = "{% url 'lab_fabric_map_api' topo.id %}?live=1&lldp=1";
+var NODE_ADD_URL = "/lab-topology/{{ topo.id }}/nodes/";
+var NODE_DEL_URL_BASE = "/lab-topology/{{ topo.id }}/nodes/";
+var LINK_ADD_URL = "/lab-topology/{{ topo.id }}/links/";
+var LINK_DEL_URL_BASE = "/lab-topology/{{ topo.id }}/links/";
+var VALIDATE_LINK_URL = "/lab-topology/{{ topo.id }}/validate-link/";
+var NODE_PORTS_URL_BASE = "/lab-topology/{{ topo.id }}/nodes/";
+var PUSH_URL = "{% url 'lab_topology_push_port_config' topo.id %}";
+var CSRFTOKEN = '{{ csrf_token }}';
+
+var NODE_COLORS = {
+  switch: '#1e3a5f', server: '#1a3a1a', ocs: '#3a1a4a',
+  chassis: '#3a2a1a', aresone: '#2a1a3a', firewall: '#3a1a1a', generic: '#1a1a2e'
+};
+var NODE_ICONS = {
+  switch: 'fa-network-wired', server: 'fa-server', ocs: 'fa-random',
+  chassis: 'fa-microchip', aresone: 'fa-th', firewall: 'fa-shield-alt', generic: 'fa-cube'
+};
+var CABLE_COLORS = {
+  dac: '#ef4444', optic: '#22c55e', direct: '#3b82f6', ocs: '#fb923c'
+};
+// Map chassis_type -> icon/color keys
+function nodeVisualType(n) {
+  var ct = (n.extra && n.extra.chassis_type) ? n.extra.chassis_type.toLowerCase() : '';
+  if (n.node_type === 'chassis' && ct === 'aresone') return 'aresone';
+  return n.node_type;
+}
+
+var canvas = document.getElementById('lt-canvas');
+var svg = document.getElementById('lt-links-svg');
+var status = document.getElementById('lt-status');
+
+var state = { nodes: {}, links: [], pan: {x: 0, y: 0}, zoom: 1, dragging: null, selectedNode: null, selectedPort: null, pendingLink: null, wireMode: false, selectedLinkId: null };
+window._ltState = state; // expose for scenario planner
+var staged = {}; // node_id -> {port -> commands[]}
+
+function setStatus(msg) { status.textContent = msg; }
+function csrfHeaders() { return { 'Content-Type': 'application/json', 'X-CSRFToken': CSRFTOKEN }; }
+
+// --- Render ---
+function renderAll() {
+  canvas.querySelectorAll('.lt-node').forEach(function(el) { el.remove(); });
+  Object.values(state.nodes).forEach(renderNode);
+  renderLinks();
+}
+
+function applyTransform() {
+  var t = 'translate(' + state.pan.x + 'px,' + state.pan.y + 'px) scale(' + state.zoom + ')';
+  canvas.style.transformOrigin = '0 0';
+  canvas.style.transform = t;
+}
+
+function portLabel(p) {
+  return (typeof p === 'string') ? p : (p && (p.name || p.port_number != null ? 'port_' + p.port_number : '')) || '';
+}
+
+function findLinkForPort(nid, port) {
+  return state.links.find(function(lk) {
+    return (lk.node_a === nid && lk.port_a === port) || (lk.node_b === nid && lk.port_b === port);
+  });
+}
+
+function isPortLinked(nid, port) {
+  return !!findLinkForPort(nid, port);
+}
+
+function nodeUsesSlotView(n) {
+  if (!n) return false;
+  if (n._slotLayout && n._slotLayout.length) return true;
+  if ((n.extra || {}).slot_layout && (n.extra.slot_layout).length) return true;
+  return ['chassis', 'ocs', 'switch', 'firewall', 'server'].indexOf(n.node_type) >= 0;
+}
+
+function renderDeviceSlots(n) {
+  var slots = n._slotLayout || (n.extra || {}).slot_layout || [];
+  if (!slots.length) {
+    var flat = dedupePorts(n.ports || []);
+    if (flat.length) {
+      return '<div class="lt-node-ports">' + renderFlatPorts(n) + '</div>';
+    }
+    return '<div class="lt-slot-view text-muted" style="font-size:.55rem;padding:6px;">Select node → Refresh ports</div>';
+  }
+  var html = '<div class="lt-slot-view">';
+  slots.forEach(function(sl) {
+    var layout = sl.layout || '';
+    var rowCls = 'lt-slot-row' + (sl.is_mgmt ? ' mgmt' : '');
+    if (layout === 'ocs_shelf') rowCls += ' ocs-shelf';
+    else if (layout === 'switch_ocs') rowCls += ' switch-ocs';
+    else if (layout === 'switch_dac') rowCls += ' switch-dac';
+    var hdrLabel = sl.label || ('Slot ' + sl.slot);
+    if (layout !== 'ocs_shelf' && sl.slot != null && !sl.label) hdrLabel = 'Slot ' + sl.slot;
+    html += '<div class="' + rowCls + '"><div class="lt-slot-hdr"><span>' + escHtml(String(hdrLabel)) + '</span>';
+    if (sl.card_type) html += '<span class="type">' + escHtml(sl.card_type) + '</span>';
+    html += '</div>';
+    if (sl.resource_groups && sl.resource_groups.length) {
+      sl.resource_groups.forEach(function(rg) {
+        if (rg.label) html += '<div class="lt-rg-label">' + escHtml(rg.label) + '</div>';
+        var gridCls = 'lt-port-grid' + ((rg.layout === 'ocs_bank' || layout === 'ocs_shelf') ? ' ocs-bank' : '');
+        html += '<div class="' + gridCls + '">' + renderPortCells(n, rg.ports || []) + '</div>';
+      });
+    } else {
+      html += '<div class="lt-port-grid">' + renderPortCells(n, sl.ports || []) + '</div>';
+    }
+    html += '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+function portOperLed(p) {
+  var op = p.oper_state;
+  if (!op) {
+    if (p.link_up || p.health === 'active' || p.health === 'lldp_only') op = 'up';
+    else if (p.health === 'alarm' || p.health === 'down') op = 'down';
+    else if ((p.link_state || '').toLowerCase().indexOf('admin') >= 0) op = 'admin_down';
+    else op = 'idle';
+  }
+  return { up: 'green', admin_down: 'amber', down: 'red', idle: 'off' }[op] || 'off';
+}
+function portTypeClass(p) {
+  var lt = p.link_type || (p.health === 'lldp_only' ? 'lldp' : p.role === 'ocs' ? 'ocs' : p.role === 'dac' ? 'dac' : '');
+  return lt ? ' type-' + lt : '';
+}
+function renderPortCells(n, ports) {
+  return ports.map(function(p) {
+    var pname = p.name || portLabel(p);
+    var linked = isPortLinked(n.id, pname);
+    var pending = state.pendingLink && state.pendingLink.nodeId === n.id && state.pendingLink.port === pname;
+    var cls = 'lt-port-cell' + portTypeClass(p) + (linked ? ' linked' : '') + (pending ? ' pending-src' : '');
+    var led = portOperLed(p);
+    var disp = p.port_display || (p.port_number != null ? String(p.port_number) : pname.replace(/^port_/, ''));
+    return '<div class="' + cls + '" data-port="' + escHtml(pname) + '" title="' + escHtml(pname) + ' · ' + escHtml(p.oper_state || p.link_state || p.health || '') + '">' +
+      '<span class="p-num">' + escHtml(disp) + '</span>' +
+      '<span class="p-led ' + escHtml(led) + '"></span></div>';
+  }).join('');
+}
+
+function dedupePorts(ports) {
+  var seen = {}, out = [];
+  (ports || []).forEach(function(p) {
+    var k = portLabel(p);
+    if (!k || seen[k]) return;
+    seen[k] = true;
+    out.push(typeof p === 'string' ? p : p);
+  });
+  return out;
+}
+
+function renderFlatPorts(n) {
+  var ports = dedupePorts(n.ports || []);
+  return ports.map(function(p) {
+    var pname = portLabel(p);
+    var linked = isPortLinked(n.id, pname);
+    var isStaged = staged[n.id] && staged[n.id][pname];
+    var pending = state.pendingLink && state.pendingLink.nodeId === n.id && state.pendingLink.port === pname;
+    var cls = 'lt-port' + (linked ? ' linked' : '') + (isStaged ? ' staging' : '') + (pending ? ' pending-src' : '');
+    return '<span class="' + cls + '" data-port="' + escHtml(pname) + '">' + escHtml(pname) + '</span>';
+  }).join('');
+}
+
+function renderNode(n) {
+  var el = document.createElement('div');
+  var useSlots = nodeUsesSlotView(n);
+  var isWide = useSlots || n.node_type === 'chassis' || nodeVisualType(n) === 'aresone';
+  el.className = 'lt-node' + (state.selectedNode === n.id ? ' selected' : '') + (isWide ? ' lt-chassis-node' : '');
+  el.dataset.nid = n.id;
+  var vtype = nodeVisualType(n);
+  var bg = NODE_COLORS[vtype] || NODE_COLORS[n.node_type] || '#1a1a2e';
+  var icon = NODE_ICONS[vtype] || NODE_ICONS[n.node_type] || 'fa-cube';
+  el.style.cssText = 'left:' + n.x + 'px;top:' + n.y + 'px;background:' + bg + ';';
+  var body = useSlots ? renderDeviceSlots(n) : ('<div class="lt-node-ports">' + renderFlatPorts(n) + '</div>');
+  el.innerHTML = '<div class="lt-node-header" style="background:rgba(0,0,0,0.35);">' +
+    '<i class="fas ' + icon + ' lt-node-icon"></i>' +
+    '<span>' + escHtml(n.label) + '</span></div>' + body;
+  canvas.appendChild(el);
+  makeDraggable(el, n);
+}
+
+function applySlotLayoutToNode(n, d) {
+  n._slotLayout = d.slots || [];
+  n._slotSource = d.source || '';
+  if (d.flat_ports && d.flat_ports.length) {
+    n.ports = d.flat_ports.map(function(p) { return p.name; }).filter(Boolean);
+    n.extra = Object.assign({}, n.extra || {}, {
+      port_details: d.flat_ports,
+      slot_layout: d.slots,
+      ports: n.ports,
+    });
+  }
+  if (d.chassis_id && !(n.extra || {}).chassis_id) {
+    n.extra = Object.assign({}, n.extra || {}, { chassis_id: d.chassis_id });
+  }
+}
+
+function rerenderNode(n) {
+  var old = canvas.querySelector('[data-nid="' + n.id + '"]');
+  if (old) old.remove();
+  renderNode(n);
+  renderLinks();
+}
+
+function fetchWithTimeout(url, opts, ms) {
+  var ctrl = new AbortController();
+  var timer = setTimeout(function(){ ctrl.abort(); }, ms || 20000);
+  return fetch(url, Object.assign({}, opts || {}, { signal: ctrl.signal }))
+    .finally(function(){ clearTimeout(timer); });
+}
+
+function loadNodeSlots(n, refresh) {
+  if (!refresh && n._slotLayout && n._slotLayout.length) {
+    rerenderNode(n);
+    return Promise.resolve();
+  }
+  var url = NODE_PORTS_URL_BASE + n.id + '/ports/' + (refresh ? '?refresh=1' : '');
+  return fetchWithTimeout(url, {credentials: 'same-origin'}, 25000)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) {
+        setStatus((d.error || 'Port load failed') + ' — ' + n.label);
+        return;
+      }
+      applySlotLayoutToNode(n, d);
+      rerenderNode(n);
+      if (d.warning) setStatus(n.label + ': ' + d.warning);
+      if (state.selectedNode === n.id) selectNode(n.id);
+    })
+    .catch(function(e) {
+      var msg = (e && e.name === 'AbortError') ? 'timed out' : String(e);
+      setStatus('Port load failed for ' + n.label + ': ' + msg);
+    });
+}
+
+function loadAllNodeSlots(opts) {
+  opts = opts || {};
+  var slotNodes = Object.values(state.nodes).filter(nodeUsesSlotView);
+  slotNodes.forEach(function(n) {
+    var saved = (n.extra || {}).slot_layout;
+    if (saved && saved.length) {
+      n._slotLayout = saved;
+      if ((n.extra || {}).port_details) {
+        n.ports = (n.extra.port_details || []).map(function(p) { return p.name || p; }).filter(Boolean);
+      }
+    }
+  });
+  renderAll();
+  if (opts.backgroundOnly) return;
+  var pending = slotNodes.filter(function(n) {
+    return (!n._slotLayout || !n._slotLayout.length) &&
+      ['chassis', 'ocs'].indexOf(n.node_type) >= 0;
+  });
+  if (!pending.length) return;
+  setStatus('Loading ' + pending.length + ' chassis/OCS port map(s)…');
+  var concurrency = 3;
+  var idx = 0;
+  var active = 0;
+  function pump() {
+    while (active < concurrency && idx < pending.length) {
+      var n = pending[idx++];
+      active++;
+      loadNodeSlots(n, false).finally(function() {
+        active--;
+        if (idx >= pending.length && active === 0) {
+          renderAll();
+          setStatus('Ready (' + Object.keys(state.nodes).length + ' nodes).');
+        } else {
+          pump();
+        }
+      });
+    }
+  }
+  pump();
+}
+
+function renderLinks() {
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  // cable-type → stroke width + dash
+  var CABLE_WIDTH = { dac: 2.8, optic: 2.0, ocs: 2.5, direct: 1.8 };
+  var CABLE_DASH  = { dac: '',  optic: '4 3', ocs: '',  direct: '6 3' };
+
+  state.links.forEach(function(lk) {
+    var na = state.nodes[lk.node_a], nb = state.nodes[lk.node_b];
+    if (!na || !nb) return;
+    var elA = canvas.querySelector('[data-nid="' + lk.node_a + '"]');
+    var elB = canvas.querySelector('[data-nid="' + lk.node_b + '"]');
+    if (!elA || !elB) return;
+    var rA = elA.getBoundingClientRect(), rB = elB.getBoundingClientRect();
+    var cw = canvas.getBoundingClientRect();
+    var ax = (rA.left + rA.right) / 2 - cw.left, ay = (rA.top + rA.bottom) / 2 - cw.top;
+    var bx = (rB.left + rB.right) / 2 - cw.left, by = (rB.top + rB.bottom) / 2 - cw.top;
+    var color = lk.color || CABLE_COLORS[lk.cable_type] || '#888';
+    var sw = CABLE_WIDTH[lk.cable_type] || 2.2;
+    var dash = CABLE_DASH[lk.cable_type] || '';
+
+    // Cubic bezier with slight arc
+    var dx = bx - ax, dy = by - ay;
+    var arc = Math.min(Math.abs(dy) * 0.4 + 30, 80);
+    var cx1, cy1, cx2, cy2;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      cx1 = ax + dx * 0.4; cy1 = ay - arc;
+      cx2 = ax + dx * 0.6; cy2 = by - arc;
+    } else {
+      cx1 = ax + arc; cy1 = ay + dy * 0.4;
+      cx2 = bx + arc; cy2 = ay + dy * 0.6;
+    }
+
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M ' + ax + ' ' + ay + ' C ' + cx1 + ' ' + cy1 + ' ' + cx2 + ' ' + cy2 + ' ' + bx + ' ' + by);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', color);
+    path.setAttribute('stroke-width', sw);
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('opacity', '0.82');
+    if (dash) path.setAttribute('stroke-dasharray', dash);
+    svg.appendChild(path);
+
+    // Labels: main label + port-range sub-label
+    var mx = (ax + bx) / 2, my = (ay + by) / 2;
+    // Offset label perpendicular to the line slightly
+    var len = Math.sqrt(dx*dx + dy*dy) || 1;
+    var nx2 = -dy / len, ny2 = dx / len;
+    var lx = mx + nx2 * 12, ly = my + ny2 * 12;
+
+    if (lk.label) {
+      var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      text.setAttribute('x', lx); text.setAttribute('y', ly);
+      text.setAttribute('text-anchor', 'middle');
+      text.setAttribute('fill', color);
+      text.setAttribute('font-size', '9');
+      text.setAttribute('font-weight', '600');
+      text.setAttribute('paint-order', 'stroke');
+      text.setAttribute('stroke', '#0a0a1a');
+      text.setAttribute('stroke-width', '3');
+      text.textContent = lk.label;
+      svg.appendChild(text);
+    }
+
+    // Port-range sub-label from link.extra
+    var extra = lk.extra || {};
+    var prA = extra.port_range_a || '';
+    var prB = extra.port_range_b || '';
+    if (prA || prB) {
+      var subLabel = prA && prB ? prA + ' ↔ ' + prB : (prA || prB);
+      var subText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      subText.setAttribute('x', lx); subText.setAttribute('y', ly + 11);
+      subText.setAttribute('text-anchor', 'middle');
+      subText.setAttribute('fill', '#6e7681');
+      subText.setAttribute('font-size', '7.5');
+      subText.setAttribute('paint-order', 'stroke');
+      subText.setAttribute('stroke', '#0a0a1a');
+      subText.setAttribute('stroke-width', '3');
+      subText.textContent = subLabel;
+      svg.appendChild(subText);
+    }
+  });
+}
+
+// --- Drag ---
+function makeDraggable(el, n) {
+  var ox = 0, oy = 0, moved = false;
+  el.addEventListener('mousedown', function(e) {
+    if (e.target.classList.contains('lt-port')) return;
+    e.preventDefault();
+    ox = e.clientX - n.x * state.zoom; oy = e.clientY - n.y * state.zoom;
+    moved = false;
+    state.dragging = n.id;
+    function onMove(ev) {
+      n.x = (ev.clientX - ox) / state.zoom;
+      n.y = (ev.clientY - oy) / state.zoom;
+      moved = true;
+      el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+      renderLinks();
+    }
+    function onUp(ev) {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      state.dragging = null;
+      if (!moved) selectNode(n.id);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  el.addEventListener('click', function(e) {
+    var portEl = e.target.closest('.lt-port, .lt-port-cell');
+    if (portEl) { onPortClick(n.id, portEl.dataset.port); }
+  });
+}
+
+function onPortClick(nid, port) {
+  if (state.wireMode) {
+    if (!state.pendingLink) {
+      state.pendingLink = { nodeId: nid, port: port };
+      setStatus('Wire: pick second port on another node…');
+      renderAll();
+      return;
+    }
+    if (state.pendingLink.nodeId === nid && state.pendingLink.port === port) {
+      state.pendingLink = null;
+      renderAll();
+      return;
+    }
+    createLink(state.pendingLink.nodeId, state.pendingLink.port, nid, port);
+    state.pendingLink = null;
+    state.wireMode = false;
+    document.getElementById('lt-wrap').classList.remove('lt-wire-active');
+    document.getElementById('lt-wire-link-btn').classList.remove('active');
+    return;
+  }
+  selectPort(nid, port);
+}
+
+function createLink(na, pa, nb, pb) {
+  var cable = document.getElementById('lt-link-cable').value || 'dac';
+  fetch(LINK_ADD_URL, {
+    method: 'POST', headers: csrfHeaders(),
+    body: JSON.stringify({ node_a: na, port_a: pa, node_b: nb, port_b: pb, cable_type: cable }),
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok && d.link) {
+        state.links.push(d.link);
+        markDirty();
+        renderAll();
+        setStatus('Link created: ' + pa + ' ↔ ' + pb);
+        selectPort(na, pa);
+      } else {
+        setStatus('Link failed: ' + (d.error || ''));
+      }
+    })
+    .catch(function(e) { setStatus('Link error: ' + e); });
+}
+
+// --- Pan/Zoom ---
+var panStart = null;
+document.getElementById('lt-canvas-wrap').addEventListener('mousedown', function(e) {
+  if (e.target === canvas || e.target === svg) {
+    panStart = { x: e.clientX - state.pan.x, y: e.clientY - state.pan.y };
+    canvas.classList.add('grabbing');
+    function onMove(ev) {
+      state.pan.x = ev.clientX - panStart.x;
+      state.pan.y = ev.clientY - panStart.y;
+      applyTransform();
+    }
+    function onUp() {
+      panStart = null; canvas.classList.remove('grabbing');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+});
+document.getElementById('lt-canvas-wrap').addEventListener('wheel', function(e) {
+  e.preventDefault();
+  var factor = e.deltaY < 0 ? 1.1 : 0.9;
+  state.zoom = Math.max(0.3, Math.min(3, state.zoom * factor));
+  applyTransform();
+}, { passive: false });
+
+// --- OCS Mapping Panel ---
+var _ocsCache = {}; // device_id -> mapping data
+
+function showOcsPanel(n) {
+  var ocsSec = document.getElementById('lt-ocs-section');
+  var dualOsSec = document.getElementById('lt-dual-os-section');
+  ocsSec.style.display = 'none';
+  dualOsSec.style.display = 'none';
+  if (!n || !n.device_id) return;
+
+  // Dual-OS panel
+  var extra = n.extra || {};
+  var secondary = extra.vendor_type_secondary || '';
+  if (secondary) {
+    var body = document.getElementById('lt-dual-os-body');
+    var osHours = extra.os_switch_hours || 12;
+    body.innerHTML =
+      '<div style="margin-bottom:4px;"><span style="color:#818cf8;font-weight:700;">Primary OS:</span> ' + escHtml((n.vendor_type || 'arista').toUpperCase()) + '</div>' +
+      '<div style="margin-bottom:4px;"><span style="color:#a78bfa;font-weight:700;">Secondary OS:</span> ' + escHtml(secondary.toUpperCase()) + '</div>' +
+      '<div style="color:#6b7a8f;">Rotates every ~' + osHours + 'h. Driver auto-detects active OS via SSH banner and uses per-OS credentials.</div>' +
+      '<div class="mt-2" style="color:#fbbf24;font-size:0.6rem;"><i class="fas fa-info-circle me-1"></i>Login fails? Box may have switched OS since last probe.</div>';
+    dualOsSec.style.display = '';
+  }
+
+  // OCS mapping panel — fetch from server
+  var devId = n.device_id;
+  if (_ocsCache[devId]) {
+    _renderOcsPanel(n, _ocsCache[devId]);
+    return;
+  }
+  fetch('/connect/api/device-ocs-mapping/' + devId + '/')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      _ocsCache[devId] = d;
+      _renderOcsPanel(n, d);
+    })
+    .catch(function() {});
+}
+
+function _renderOcsPanel(n, d) {
+  var ocsSec = document.getElementById('lt-ocs-section');
+  var mapping = d.port_to_ocs_triplets || {};
+  if (!d.to_ocs && Object.keys(mapping).length === 0) return;
+
+  document.getElementById('lt-ocs-device-label').textContent =
+    (d.to_ocs_name || d.to_ocs || '') ? ('→ OCS: ' + (d.to_ocs_name || d.to_ocs)) : '';
+
+  var tbody = document.getElementById('lt-ocs-tbody');
+  tbody.innerHTML = '';
+  var portKeys = Object.keys(mapping).sort(function(a, b) {
+    var na = parseInt((a.match(/\d+/) || [999])[0]);
+    var nb = parseInt((b.match(/\d+/) || [999])[0]);
+    return na - nb;
+  });
+  portKeys.forEach(function(port) {
+    var triplets = mapping[port] || [];
+    var crossRows = d.active_xconns || {};
+    var statuses = triplets.map(function(t) {
+      var xc = crossRows[t];
+      if (!xc) return '<span style="color:#6b7a8f;">—</span>';
+      var state_val = xc.state || xc.os || '';
+      var color = (state_val === 'IS' || state_val === 'active') ? '#22c55e' :
+                  (state_val === 'OOS' || state_val === 'inactive') ? '#ef4444' : '#94a3b8';
+      return '<span style="color:' + color + ';">' + escHtml(state_val || '?') + '</span>';
+    });
+    var tr = document.createElement('tr');
+    tr.style.cssText = 'border-bottom:1px solid #1a1a2e;';
+    tr.innerHTML =
+      '<td style="padding:2px 4px;color:#e2e8f0;">' + escHtml(port) + '</td>' +
+      '<td style="padding:2px 4px;color:#fb923c;">' + escHtml(triplets.join(', ')) + '</td>' +
+      '<td style="padding:2px 4px;">' + statuses.join(' ') + '</td>';
+    tbody.appendChild(tr);
+  });
+
+  var ocsDeviceId = d.ocs_device_id;
+  var ocsLink = document.getElementById('lt-ocs-device-link');
+  if (ocsDeviceId) {
+    ocsLink.href = '/connect/device/' + ocsDeviceId + '/';
+    document.getElementById('lt-ocs-link-wrap').style.display = '';
+  } else {
+    document.getElementById('lt-ocs-link-wrap').style.display = 'none';
+  }
+  ocsSec.style.display = '';
+}
+
+// --- Selection ---
+function selectNode(nid) {
+  state.selectedNode = nid;
+  state.selectedPort = null;
+  state.selectedLinkId = null;
+  var n = state.nodes[nid];
+  if (!n) return;
+  canvas.querySelectorAll('.lt-node').forEach(function(el) {
+    el.classList.toggle('selected', el.dataset.nid == nid);
+  });
+  document.getElementById('lt-sel-section').style.display = '';
+  document.getElementById('lt-port-section').style.display = 'none';
+  document.getElementById('lt-link-section').style.display = 'none';
+  document.getElementById('lt-add-section').style.display = 'none';
+  document.getElementById('lt-sel-title').textContent = 'Node: ' + n.label;
+  document.getElementById('lt-node-label').value = n.label;
+  document.getElementById('lt-node-type').value = n.node_type || 'switch';
+  document.getElementById('lt-node-device').value = n.device_id || '';
+  document.getElementById('lt-node-ports').value = (n.ports || []).map(portLabel).join('\n');
+  var showRefresh = nodeUsesSlotView(n);
+  document.getElementById('lt-refresh-chassis-ports').style.display = showRefresh ? '' : 'none';
+  if (showRefresh && !n._slotLayout) loadNodeSlots(n);
+  showOcsPanel(n);
+}
+
+function selectPort(nid, port) {
+  state.selectedNode = nid;
+  state.selectedPort = port;
+  var n = state.nodes[nid];
+  var lk = findLinkForPort(nid, port);
+  state.selectedLinkId = lk ? lk.id : null;
+  document.getElementById('lt-sel-section').style.display = 'none';
+  document.getElementById('lt-add-section').style.display = 'none';
+  document.getElementById('lt-port-section').style.display = '';
+  document.getElementById('lt-link-section').style.display = lk ? '' : 'none';
+  document.getElementById('lt-port-title').textContent = n.label + ' : ' + port;
+  if (lk) {
+    var peerId = lk.node_a === nid ? lk.node_b : lk.node_a;
+    var peerPort = lk.node_a === nid ? lk.port_b : lk.port_a;
+    var peer = state.nodes[peerId];
+    document.getElementById('lt-link-summary').textContent =
+      (peer ? peer.label : '?') + ' : ' + (peerPort || '?') + ' [' + (lk.cable_type || '') + ']';
+    document.getElementById('lt-link-cable').value = lk.cable_type || 'dac';
+  }
+  document.getElementById('lt-port-desc').value = '';
+  document.getElementById('lt-port-vlan').value = '';
+  document.getElementById('lt-push-result').textContent = '';
+  updatePortCmds();
+}
+
+function updatePortCmds() {
+  var port = document.getElementById('lt-port-section').style.display !== 'none' && state.selectedPort;
+  if (!port) return;
+  var n = state.nodes[state.selectedNode] || {};
+  var vendor = n.vendor_type || 'arista';
+  var desc = document.getElementById('lt-port-desc').value;
+  var vlan = document.getElementById('lt-port-vlan').value;
+  var speed = document.getElementById('lt-port-speed').value;
+  var admin = document.getElementById('lt-port-admin').value;
+  var cmds = [];
+  if (vendor === 'arista' || vendor === 'sonic') {
+    cmds.push('interface ' + port);
+    if (desc) cmds.push(' description ' + desc);
+    if (vlan) cmds.push(' switchport access vlan ' + vlan);
+    if (speed) cmds.push(' speed ' + speed.toLowerCase().replace('g', '000'));
+    cmds.push(' ' + admin);
+  } else {
+    cmds.push('# configure ' + port);
+    if (desc) cmds.push('# description: ' + desc);
+    if (vlan) cmds.push('# vlan: ' + vlan);
+    cmds.push('# ' + admin);
+  }
+  document.getElementById('lt-port-cmds').value = cmds.join('\n');
+}
+
+['lt-port-desc','lt-port-vlan','lt-port-speed','lt-port-admin'].forEach(function(id) {
+  var el = document.getElementById(id);
+  if (el) el.addEventListener('input', updatePortCmds);
+});
+
+// --- Apply node properties ---
+document.getElementById('lt-apply-node').addEventListener('click', function() {
+  if (!state.selectedNode) return;
+  var nid = state.selectedNode;
+  var n = state.nodes[nid];
+  n.label = document.getElementById('lt-node-label').value || n.label;
+  n.node_type = document.getElementById('lt-node-type').value;
+  var devSel = document.getElementById('lt-node-device');
+  n.device_id = devSel.value ? parseInt(devSel.value) : null;
+  n.vendor_type = devSel.selectedOptions[0] ? devSel.selectedOptions[0].dataset.vendor : '';
+  n.ports = document.getElementById('lt-node-ports').value.split('\n').map(function(s) { return s.trim(); }).filter(Boolean);
+  var extra = Object.assign({}, n.extra || {}, { ports: dedupePorts(n.ports) });
+  if (n._slotLayout) extra.slot_layout = n._slotLayout;
+  setStatus('Saving node…');
+  fetch(NODE_DEL_URL_BASE + nid + '/', {
+    method: 'PATCH', headers: csrfHeaders(),
+    body: JSON.stringify({ label: n.label, node_type: n.node_type, device_id: n.device_id || null, ports: extra.ports, extra: extra }),
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        if (d.node) Object.assign(n, d.node);
+        if (nodeUsesSlotView(n)) { n._slotLayout = null; loadNodeSlots(n); }
+        renderAll();
+        selectNode(nid);
+        setStatus('Node saved.');
+        markDirty();
+      } else {
+        setStatus('Save failed: ' + (d.error || ''));
+      }
+    })
+    .catch(function(e) { setStatus('Save error: ' + e); });
+});
+
+document.getElementById('lt-refresh-chassis-ports').addEventListener('click', function() {
+  if (!state.selectedNode) return;
+  var n = state.nodes[state.selectedNode];
+  if (!nodeUsesSlotView(n)) return;
+  n._slotLayout = null;
+  loadNodeSlots(n, true);
+  setStatus('Refreshing port layout…');
+});
+
+document.getElementById('lt-del-node').addEventListener('click', function() {
+  if (!state.selectedNode) return;
+  if (!confirm('Delete this node and all its links from the topology?')) return;
+  var nid = state.selectedNode;
+  setStatus('Deleting node…');
+  fetch(NODE_DEL_URL_BASE + nid + '/', { method: 'DELETE', headers: csrfHeaders() })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        state.links = state.links.filter(function(lk) { return lk.node_a !== nid && lk.node_b !== nid; });
+        delete state.nodes[nid];
+        state.selectedNode = null;
+        document.getElementById('lt-sel-section').style.display = 'none';
+        renderAll();
+        setStatus('Node deleted.');
+        markDirty();
+      } else {
+        setStatus('Delete failed: ' + (d.error || ''));
+      }
+    })
+    .catch(function(e) { setStatus('Delete error: ' + e); });
+});
+
+document.getElementById('lt-del-link').addEventListener('click', function() {
+  if (!state.selectedLinkId) return;
+  if (!confirm('Delete this link?')) return;
+  var lid = state.selectedLinkId;
+  fetch(LINK_DEL_URL_BASE + lid + '/', { method: 'DELETE', headers: csrfHeaders() })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) {
+        state.links = state.links.filter(function(lk) { return lk.id !== lid; });
+        state.selectedLinkId = null;
+        document.getElementById('lt-link-section').style.display = 'none';
+        renderAll();
+        setStatus('Link deleted.');
+        markDirty();
+      }
+    });
+});
+
+document.getElementById('lt-validate-link').addEventListener('click', function() {
+  if (!state.selectedLinkId) { alert('Select a linked port first.'); return; }
+  if (!confirm('Validate link by shutting down one switch port and checking the peer follows?\n\nPorts will be brought back up after the test.')) return;
+  setStatus('Validating link (flap test)…');
+  fetch(VALIDATE_LINK_URL, {
+    method: 'POST', headers: csrfHeaders(),
+    body: JSON.stringify({ link_id: state.selectedLinkId, refresh_peer: true }),
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      var msg = d.message || d.error || (d.validated ? 'Validated' : 'Not validated');
+      setStatus(msg);
+      alert(msg + (d.timeline ? '\n\nSee status bar; flap_down=' + d.flap_went_down + ' peer_followed=' + d.peer_followed : ''));
+      if (state.selectedNode) {
+        var n = state.nodes[state.selectedNode];
+        if (n && nodeUsesSlotView(n)) { n._slotLayout = null; loadNodeSlots(n, true); }
+      }
+    })
+    .catch(function(e) { setStatus('Validate error: ' + e); });
+});
+
+document.getElementById('lt-wire-link-btn').addEventListener('click', function() {
+  state.wireMode = !state.wireMode;
+  state.pendingLink = null;
+  var btn = document.getElementById('lt-wire-link-btn');
+  var wrap = document.getElementById('lt-wrap');
+  if (state.wireMode) {
+    btn.classList.add('active');
+    wrap.classList.add('lt-wire-active');
+    setStatus('Wire mode: click port A, then port B on another node. Click Wire Link again to cancel.');
+  } else {
+    btn.classList.remove('active');
+    wrap.classList.remove('lt-wire-active');
+    setStatus('Wire mode off.');
+  }
+  renderAll();
+});
+
+// --- Stage / Push ---
+document.getElementById('lt-stage-port').addEventListener('click', function() {
+  if (!state.selectedNode || !state.selectedPort) return;
+  var cmds = document.getElementById('lt-port-cmds').value.split('\n').filter(Boolean);
+  if (!staged[state.selectedNode]) staged[state.selectedNode] = {};
+  staged[state.selectedNode][state.selectedPort] = cmds;
+  setStatus('Commands staged for ' + state.selectedPort + '. Use "Prepare Testbed" to push all.');
+  renderAll();
+  selectPort(state.selectedNode, state.selectedPort);
+});
+
+document.getElementById('lt-push-port').addEventListener('click', function() {
+  if (!state.selectedNode || !state.selectedPort) return;
+  var cmds = document.getElementById('lt-port-cmds').value.split('\n').filter(Boolean);
+  pushCommands(state.selectedNode, cmds, function(ok, out) {
+    document.getElementById('lt-push-result').textContent = ok ? ('OK: ' + (out || '')) : ('ERR: ' + out);
+  });
+});
+
+function pushCommands(nid, cmds, cb) {
+  fetch(PUSH_URL, {
+    method: 'POST', headers: csrfHeaders(),
+    body: JSON.stringify({ node_id: nid, commands: cmds })
+  }).then(function(r) { return r.json(); })
+    .then(function(j) { cb(j.ok, j.output || j.error || ''); })
+    .catch(function(e) { cb(false, String(e)); });
+}
+
+document.getElementById('lt-prepare-btn').addEventListener('click', function() {
+  var tasks = [];
+  Object.keys(staged).forEach(function(nid) {
+    var ports = staged[nid];
+    Object.keys(ports).forEach(function(port) {
+      var cmds = ports[port];
+      if (cmds && cmds.length) tasks.push({ nid: parseInt(nid), port: port, cmds: cmds });
+    });
+  });
+  if (!tasks.length) { alert('No staged commands. Configure ports first.'); return; }
+  if (!confirm('Push ' + tasks.length + ' staged port config(s)?')) return;
+  var done = 0, errors = [];
+  tasks.forEach(function(t) {
+    pushCommands(t.nid, t.cmds, function(ok, out) {
+      done++;
+      if (!ok) errors.push(t.port + ': ' + out);
+      if (done === tasks.length) {
+        setStatus(errors.length ? ('Errors: ' + errors.join('; ')) : 'Testbed prepared — all configs pushed.');
+        staged = {};
+        renderAll();
+      }
+    });
+  });
+});
+
+// --- DAC/B2B serial discovery ---
+document.getElementById('lt-discover-dac-btn').addEventListener('click', async function() {
+  if (!confirm('Scan chassis/switch transceiver serials and add DAC (cross-device) and B2B (same-chassis) links?\n\nExisting links on the same port pair are skipped.')) return;
+  setStatus('Scanning transceiver serials…');
+  try {
+    var preview = await fetch('/lab-topology/' + TOPO_ID + '/discover-dac/', {credentials: 'same-origin'});
+    var prev = await preview.json();
+    if (!prev.ok) { setStatus('Serial scan failed'); return; }
+    var n = (prev.pairs || []).length;
+    if (!n) {
+      setStatus('No serial-matched port pairs found. Refresh IxOS/Keysight cache on chassis pages first.');
+      alert('No matching serials found. Open the chassis in Keysight and refresh cache, then retry.');
+      return;
+    }
+    if (!confirm('Found ' + n + ' pair(s) (' + (prev.b2b_count||0) + ' B2B, ' + (prev.dac_count||0) + ' DAC). Apply as topology links?')) {
+      setStatus('Preview: ' + n + ' serial pair(s), not applied.');
+      return;
+    }
+    var r = await fetch('/lab-topology/' + TOPO_ID + '/discover-dac/', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRFTOKEN},
+      body: JSON.stringify({apply: true}),
+    });
+    var d = await r.json();
+    if (d.ok) {
+      setStatus('Applied ' + (d.created||0) + ' serial link(s), skipped ' + (d.skipped||0));
+      await loadState();
+      renderAll();
+    } else {
+      setStatus('Apply failed');
+    }
+  } catch (e) {
+    setStatus('Serial discovery error: ' + e);
+  }
+});
+
+// --- Add node ---
+document.getElementById('lt-add-node-btn').addEventListener('click', function() {
+  document.getElementById('lt-sel-section').style.display = 'none';
+  document.getElementById('lt-port-section').style.display = 'none';
+  document.getElementById('lt-add-section').style.display = '';
+  state.selectedNode = null;
+  canvas.querySelectorAll('.lt-node').forEach(function(el) { el.classList.remove('selected'); });
+});
+
+document.getElementById('lt-create-node').addEventListener('click', function() {
+  var label = document.getElementById('lt-new-label').value.trim() || 'Node';
+  var type = document.getElementById('lt-new-type').value;
+  var devSel = document.getElementById('lt-new-device');
+  var chSel = document.getElementById('lt-new-chassis');
+  var devId = devSel.value ? parseInt(devSel.value, 10) : null;
+  var chassisId = chSel.value ? parseInt(chSel.value, 10) : null;
+  var deviceIp = (document.getElementById('lt-new-ip').value || '').trim();
+  if (!deviceIp && devSel.selectedOptions[0] && devSel.selectedOptions[0].dataset.ip) {
+    deviceIp = devSel.selectedOptions[0].dataset.ip;
+  }
+  if (!deviceIp && chSel.selectedOptions[0] && chSel.selectedOptions[0].dataset.ip) {
+    deviceIp = chSel.selectedOptions[0].dataset.ip;
+    if (!label || label === 'Node') {
+      label = chSel.selectedOptions[0].textContent.trim().split('(')[0].trim() || label;
+    }
+    if (type === 'switch' || type === 'generic') type = 'chassis';
+  }
+  var portCount = document.getElementById('lt-new-port-count').value;
+  var payload = {
+    label: label,
+    node_type: type,
+    x: 80 + Math.random() * 300,
+    y: 80 + Math.random() * 200,
+  };
+  if (devId) payload.device_id = devId;
+  if (chassisId) payload.chassis_id = chassisId;
+  if (deviceIp) payload.device_ip = deviceIp;
+  if (portCount) payload.port_count = parseInt(portCount, 10);
+
+  setStatus('Adding node…');
+  fetch(NODE_ADD_URL, {
+    method: 'POST',
+    headers: csrfHeaders(),
+    body: JSON.stringify(payload),
+  }).then(function(r) { return r.json().then(function(j) { return { ok: r.ok, j: j }; }); })
+    .then(function(res) {
+      if (!res.ok || !res.j.ok) {
+        setStatus('Add failed: ' + (res.j.error || 'unknown'));
+        return;
+      }
+      var n = res.j.node;
+      state.nodes[n.id] = n;
+      if (!state.nodes[n.id].ports && n.ports) state.nodes[n.id].ports = n.ports;
+      renderAll();
+      selectNode(n.id);
+      document.getElementById('lt-add-section').style.display = 'none';
+      setStatus('Added ' + n.label + ' to topology.');
+    })
+    .catch(function(e) { setStatus('Add error: ' + e); });
+});
+
+// --- Dirty state + undo/redo ─────────────────────────────────────────────────
+var _dirty = false;
+var _undoStack = [], _redoStack = [];
+
+function markDirty() {
+  _dirty = true;
+  document.getElementById('lt-save-label').textContent = 'Save Layout *';
+}
+function markClean() {
+  _dirty = false;
+  document.getElementById('lt-save-label').textContent = 'Save Layout';
+}
+function updateUndoButtons() {
+  document.getElementById('lt-undo').disabled = _undoStack.length === 0;
+  document.getElementById('lt-redo').disabled = _redoStack.length === 0;
+}
+function pushUndo(action) {
+  _undoStack.push(action);
+  if (_undoStack.length > 20) _undoStack.shift();
+  _redoStack = [];
+  updateUndoButtons();
+  markDirty();
+}
+document.getElementById('lt-undo').addEventListener('click', function() {
+  var a = _undoStack.pop();
+  if (a) { _redoStack.push(a); if (a.undo) a.undo(); updateUndoButtons(); }
+});
+document.getElementById('lt-redo').addEventListener('click', function() {
+  var a = _redoStack.pop();
+  if (a) { _undoStack.push(a); if (a.redo) a.redo(); updateUndoButtons(); }
+});
+document.addEventListener('keydown', function(e) {
+  if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { document.getElementById('lt-undo').click(); e.preventDefault(); }
+  if (e.ctrlKey && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) { document.getElementById('lt-redo').click(); e.preventDefault(); }
+});
+window.addEventListener('beforeunload', function(e) {
+  if (_dirty) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// --- Save ---
+document.getElementById('lt-save').addEventListener('click', function() {
+  var nodes = Object.values(state.nodes).map(function(n) {
+    var extra = Object.assign({}, n.extra || {}, {
+      ports: dedupePorts(n.ports || []).map(portLabel),
+    });
+    if (n._slotLayout && n._slotLayout.length) {
+      extra.slot_layout = n._slotLayout;
+    }
+    if (extra.port_details) {
+      extra.port_details = extra.port_details;
+    }
+    return {
+      id: typeof n.id === 'number' ? n.id : null,
+      x: n.x, y: n.y, label: n.label,
+      extra: extra,
+    };
+  });
+  var links = state.links.filter(function(lk) {
+    return lk.id && typeof lk.id === 'number' && !lk._live;
+  }).map(function(lk) {
+    return {
+      id: lk.id,
+      node_a: lk.node_a, port_a: lk.port_a,
+      node_b: lk.node_b, port_b: lk.port_b,
+      cable_type: lk.cable_type, label: lk.label, color: lk.color,
+      extra: lk.extra || {},
+    };
+  });
+  setStatus('Saving layout…');
+  var viewLayouts = {
+    designer: {
+      pan: state.pan,
+      zoom: state.zoom,
+      layout_mode: _ltLayoutMode,
+      saved_at: new Date().toISOString(),
+    },
+  };
+  fetch(DATA_URL, {
+    method: 'POST', headers: csrfHeaders(),
+    body: JSON.stringify({ nodes: nodes, links: links, view_layouts: viewLayouts }),
+  }).then(function(r) { return r.json(); })
+    .then(function(j) {
+      if (j.ok) {
+        markClean();
+        try {
+          localStorage.setItem('lt_topo_{{ topo.id }}_pan', JSON.stringify({ pan: state.pan, zoom: state.zoom }));
+        } catch (e) {}
+        setStatus('Saved layout (' + nodes.length + ' nodes, ' + links.length + ' links).');
+      } else {
+        setStatus('Save failed: ' + (j.error || ''));
+      }
+    })
+    .catch(function(e) { setStatus('Save error: ' + e); });
+});
+
+function mergeFabricLinks(fabric) {
+  if (!fabric || !fabric.links) return;
+  var seen = {};
+  state.links.forEach(function(lk) {
+    seen[lk.node_a + ':' + lk.node_b] = true;
+    seen[lk.node_b + ':' + lk.node_a] = true;
+  });
+  (fabric.links || []).forEach(function(fl) {
+    var na = parseInt(String(fl.source || '').replace('node_', ''), 10);
+    var nb = parseInt(String(fl.target || '').replace('node_', ''), 10);
+    if (!na || !nb || !state.nodes[na] || !state.nodes[nb]) return;
+    var key = na + ':' + nb;
+    if (seen[key]) return;
+    seen[key] = true;
+    seen[nb + ':' + na] = true;
+    state.links.push({
+      id: fl.id || ('live_' + na + '_' + nb),
+      node_a: na,
+      node_b: nb,
+      port_a: fl.port_a || '',
+      port_b: fl.port_b || '',
+      cable_type: fl.cable_type || (fl.type === 'ocs_active' ? 'ocs' : 'direct'),
+      color: fl.color || '#f59e0b',
+      label: fl.label || fl.type || '',
+      _live: true,
+    });
+  });
+  renderLinks();
+  var liveN = state.links.filter(function(lk) { return lk._live; }).length;
+  setStatus(Object.keys(state.nodes).length + ' nodes, ' + state.links.length + ' links (' + liveN + ' live OCS/LLDP).');
+}
+
+// --- Load data ---
+function loadTopo() {
+  setStatus('Loading topology…');
+  fetchWithTimeout(DATA_URL, { headers: { 'Accept': 'application/json' } }, 20000)
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(d) {
+    state.nodes = {};
+    (d.nodes || []).forEach(function(n) {
+      if (n.extra && n.extra.slot_layout) {
+        n._slotLayout = n.extra.slot_layout;
+      }
+      if (n.extra && n.extra.port_details && !n.ports) {
+        n.ports = n.extra.port_details.map(function(p) { return (p && p.name) || p; }).filter(Boolean);
+      }
+      n.ports = dedupePorts(n.ports || []);
+      state.nodes[n.id] = n;
+    });
+    try {
+      var pv = JSON.parse(localStorage.getItem('lt_topo_{{ topo.id }}_pan') || 'null');
+      if (pv && pv.pan) { state.pan = pv.pan; state.zoom = pv.zoom || 1; applyTransform(); }
+    } catch (e) {}
+    state.links = d.links || [];
+    renderAll();
+    var nCount = Object.keys(state.nodes).length;
+    setStatus(nCount + ' nodes, ' + state.links.length + ' links.');
+    loadAllNodeSlots({ backgroundOnly: true });
+    fetchWithTimeout(FABRIC_API, { credentials: 'same-origin' }, 12000)
+      .then(function(r) { return r.ok ? r.json() : { links: [] }; })
+      .then(mergeFabricLinks)
+      .catch(function() { /* cached fabric optional */ });
+    fetchWithTimeout(FABRIC_API_LIVE, { credentials: 'same-origin' }, 45000)
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(fabric) {
+        if (fabric) {
+          mergeFabricLinks(fabric);
+          setStatus(Object.keys(state.nodes).length + ' nodes, ' + state.links.length + ' links (live OCS/LLDP refreshed).');
+        }
+      })
+      .catch(function() { /* live poll optional */ });
+  }).catch(function(e) { setStatus('Load error: ' + e); });
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+var LT_NODE_W = 140, LT_NODE_H = 72;
+var TLM = window.TopoLayoutModes || null;
+var _ltLayoutMode = TLM ? TLM.loadMode(TOPO_ID, 'designer', 'rack') : 'rack';
+
+function applyLtLayout(uiMode) {
+  if (!TLM) return;
+  _ltLayoutMode = uiMode;
+  TLM.saveMode(TOPO_ID, 'designer', uiMode);
+  TLM.setSegActive(uiMode);
+  if (uiMode === 'free') {
+    renderAll();
+    return;
+  }
+  var nodes = Object.values(state.nodes);
+  var links = state.links.map(function(lk) {
+    return { source: lk.node_a, target: lk.node_b };
+  });
+  var sizeOf = function() { return { w: LT_NODE_W, h: LT_NODE_H }; };
+  var pos;
+  if (uiMode === 'tier') {
+    pos = TLM.computeTierLayout(nodes, { sizeOf: sizeOf });
+  } else {
+    pos = TLM.computeDCLayout(nodes, links, { sizeOf: sizeOf });
+  }
+  nodes.forEach(function(n) {
+    if (pos[n.id]) { n.x = pos[n.id].x; n.y = pos[n.id].y; }
+  });
+  renderAll();
+  markDirty();
+}
+
+if (TLM && TLM.bindLayoutToolbar) {
+  TLM.bindLayoutToolbar({
+    topoId: TOPO_ID,
+    view: 'designer',
+    getMode: function() { return _ltLayoutMode; },
+    onSelect: function(m) { applyLtLayout(m); },
+  });
+} else if (TLM) {
+  TLM.setSegActive(_ltLayoutMode);
+}
+
+loadTopo();
+})();
+</script>
+
+<script>
+// ── Scenario Planner ─────────────────────────────────────────────────────────
+(function() {
+var SCENARIO_URL = '/lab-topology/{{ topo.id }}/scenario/';
+var PORTMAP_URL  = '/lab-topology/{{ topo.id }}/portmap/';
+
+var scChassis = {};   // {node_id: {id, label, ip}}
+var scSwitch  = {};
+var scPanelOpen = true;
+var portMapCache = null;
+
+// Expose: called by node click in the main JS
+window.scenarioNodeClick = function(nodeId, nodeType, label, ip) {
+  if (nodeType === 'chassis') {
+    if (scChassis[nodeId]) {
+      delete scChassis[nodeId];
+    } else {
+      scChassis[nodeId] = {id: nodeId, label: label, ip: ip || ''};
+    }
+  } else if (nodeType === 'switch') {
+    if (scSwitch[nodeId]) {
+      delete scSwitch[nodeId];
+    } else {
+      scSwitch[nodeId] = {id: nodeId, label: label, ip: ip || ''};
+    }
+  } else {
+    return; // OCS/server not selectable
+  }
+  renderScChips();
+  updateNodeHighlights();
+};
+
+function renderScChips() {
+  var cc = document.getElementById('sc-chassis-chips');
+  var sc = document.getElementById('sc-switch-chips');
+  document.getElementById('sc-chassis-count').textContent = '(' + Object.keys(scChassis).length + ')';
+  document.getElementById('sc-switch-count').textContent  = '(' + Object.keys(scSwitch).length + ')';
+  cc.innerHTML = Object.values(scChassis).map(function(c) {
+    return '<span class="sc-chip chassis">' + escSc(c.label) +
+           '<span class="sc-rm" onclick="removeScNode(' + c.id + ',\'chassis\')">✕</span></span>';
+  }).join('');
+  sc.innerHTML = Object.values(scSwitch).map(function(s) {
+    return '<span class="sc-chip switch">' + escSc(s.label) +
+           '<span class="sc-rm" onclick="removeScNode(' + s.id + ',\'switch\')">✕</span></span>';
+  }).join('');
+}
+
+window.removeScNode = function(id, type) {
+  if (type === 'chassis') delete scChassis[id];
+  else delete scSwitch[id];
+  renderScChips();
+  updateNodeHighlights();
+};
+
+function updateNodeHighlights() {
+  document.querySelectorAll('.lt-node').forEach(function(el) {
+    el.classList.remove('sc-selected-chassis', 'sc-selected-switch', 'sc-active');
+  });
+  Object.keys(scChassis).forEach(function(id) {
+    var el = document.querySelector('[data-nid="' + id + '"]');
+    if (el) { el.classList.add('sc-selected-chassis', 'sc-active'); }
+  });
+  Object.keys(scSwitch).forEach(function(id) {
+    var el = document.querySelector('[data-nid="' + id + '"]');
+    if (el) { el.classList.add('sc-selected-switch', 'sc-active'); }
+  });
+}
+
+window.toggleScenarioPanel = function() {
+  scPanelOpen = !scPanelOpen;
+  document.getElementById('lt-scenario-body').style.display = scPanelOpen ? '' : 'none';
+  document.getElementById('lt-scenario-toggle').textContent = scPanelOpen ? '▼' : '▶';
+};
+
+window.clearScenario = function() {
+  scChassis = {}; scSwitch = {};
+  renderScChips();
+  updateNodeHighlights();
+  document.getElementById('sc-result').style.display = 'none';
+};
+
+window.runScenarioAnalysis = function() {
+  var chassisIds = Object.keys(scChassis).join(',');
+  var switchIds  = Object.keys(scSwitch).join(',');
+  if (!chassisIds) { alert('Select at least one chassis node'); return; }
+  var url = SCENARIO_URL + '?chassis=' + chassisIds + (switchIds ? '&switch=' + switchIds : '');
+  
+  document.getElementById('sc-summary').innerHTML = '<div style="font-size:.65rem;color:#6e7681;"><i class="fas fa-spinner fa-spin me-1"></i>Analyzing…</div>';
+  document.getElementById('sc-result').style.display = '';
+
+  fetch(url).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.ok) {
+      document.getElementById('sc-summary').innerHTML = '<div style="color:#f85149;font-size:.68rem;">Error: ' + escSc(data.error) + '</div>';
+      return;
+    }
+    renderScenarioResult(data);
+  }).catch(function(e) {
+    document.getElementById('sc-summary').innerHTML = '<div style="color:#f85149;font-size:.68rem;">' + e + '</div>';
+  });
+};
+
+function renderScenarioResult(data) {
+  var s = data.summary || {};
+  // Summary bar
+  var sumHtml = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-bottom:8px;">' +
+    statBox(s.total_required || 0, 'Required', '#e6edf3') +
+    statBox(s.already_correct || 0, 'Exist ✓', '#7ee787') +
+    statBox(s.to_add || 0, 'To Add', '#f85149') +
+    '</div>';
+  if (s.to_remove > 0) {
+    sumHtml += '<div style="font-size:.62rem;color:#d29922;margin-bottom:6px;"><i class="fas fa-exclamation-triangle me-1"></i>' + s.to_remove + ' extra patch(es) should be removed</div>';
+  }
+  sumHtml += '<div style="font-size:.62rem;color:#6e7681;">' +
+    s.chassis_count + ' chassis · ' + s.switch_count + ' switch(es) · ' + s.port_pairs + ' port connections</div>';
+  document.getElementById('sc-summary').innerHTML = sumHtml;
+
+  // Patches tab
+  renderPatchesTab(data.required_patches || [], data.extra_patches || []);
+  // Port map tab
+  renderPortMapTab(data.port_connections || [], data.switch_ocs_ports || []);
+  // Switch tab
+  renderSwitchTab(data.switches || [], data.chassis || []);
+
+  showScTab('patches');
+}
+
+function statBox(val, lbl, color) {
+  return '<div class="sc-stat"><div class="sv" style="color:' + color + ';">' + val + '</div><div class="sl">' + lbl + '</div></div>';
+}
+
+function renderPatchesTab(required, extra) {
+  var html = '<div style="max-height:280px;overflow-y:auto;">';
+  
+  // Group by pair label
+  html += '<div style="font-size:.6rem;color:#58a6ff;margin-bottom:4px;font-weight:600;">Required OCS Patches</div>';
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr 50px;gap:2px;padding:2px 0;border-bottom:1px solid #30363d;margin-bottom:2px;">' +
+    '<div style="font-size:.58rem;color:#6e7681;">Port A (triplet)</div>' +
+    '<div style="font-size:.58rem;color:#6e7681;">Port B (triplet)</div>' +
+    '<div style="font-size:.58rem;color:#6e7681;">State</div></div>';
+
+  (required || []).forEach(function(p) {
+    var stCls = p.status === 'exists' ? 'exists' : 'missing';
+    var stTxt = p.status === 'exists' ? '✓ OK' : '+ Add';
+    html += '<div style="display:grid;grid-template-columns:1fr 1fr 50px;gap:2px;padding:2px 0;border-bottom:1px solid #21262d;">' +
+      '<div><span class="sc-triplet" style="color:#f0a500;">' + escSc(p.triplet_a) + '</span>' +
+      '<div style="font-size:.55rem;color:#6e7681;">' + escSc(p.chassis_a) + ' ' + escSc(p.port_a) + '</div></div>' +
+      '<div><span class="sc-triplet" style="color:#58a6ff;">' + escSc(p.triplet_b) + '</span>' +
+      '<div style="font-size:.55rem;color:#6e7681;">' + escSc(p.chassis_b) + ' ' + escSc(p.port_b) + '</div></div>' +
+      '<div><span class="sc-badge ' + stCls + '">' + stTxt + '</span></div>' +
+      '</div>';
+  });
+
+  if (extra && extra.length) {
+    html += '<div style="font-size:.6rem;color:#d29922;margin:8px 0 4px;font-weight:600;">Extra Patches (not needed)</div>';
+    (extra || []).forEach(function(p) {
+      html += '<div style="display:grid;grid-template-columns:1fr 1fr 60px;gap:2px;padding:2px 0;border-bottom:1px solid #21262d;">' +
+        '<div><span class="sc-triplet" style="color:#d29922;">' + escSc(p.port_a) + '</span></div>' +
+        '<div><span class="sc-triplet" style="color:#d29922;">' + escSc(p.port_b) + '</span></div>' +
+        '<div><span class="sc-badge extra">Remove</span></div></div>';
+    });
+  }
+
+  html += '</div>';
+  document.getElementById('sc-tab-patches').innerHTML = html;
+}
+
+function renderPortMapTab(portConnections, switchPorts) {
+  var html = '<div style="max-height:280px;overflow-y:auto;">';
+  
+  html += '<div style="font-size:.6rem;color:#f0a500;margin-bottom:4px;font-weight:600;">Chassis → OCS Triplets</div>';
+  html += '<div class="sc-pm-row" style="color:#6e7681;font-weight:600;border-bottom:1px solid #30363d;">' +
+    '<div>Port</div><div>OCS Triplets</div><div>Via OCS</div></div>';
+  
+  var lastChassis = '';
+  (portConnections || []).forEach(function(pc) {
+    if (pc.chassis_label !== lastChassis) {
+      html += '<div style="font-size:.58rem;color:#f0a500;padding:4px 0 1px;font-weight:600;">' + escSc(pc.chassis_label) +
+              (pc.chassis_ip ? ' <span style="color:#6e7681;">(' + escSc(pc.chassis_ip) + ')</span>' : '') + '</div>';
+      lastChassis = pc.chassis_label;
+    }
+    var ts = (pc.triplets || []).join(', ');
+    html += '<div class="sc-pm-row">' +
+      '<div style="color:#e6edf3;">' + escSc(pc.port) + '</div>' +
+      '<div style="font-family:monospace;color:#a5d6ff;">' + escSc(ts) + '</div>' +
+      '<div style="color:#6e7681;">' + escSc(pc.ocs_ip || '') + '</div></div>';
+  });
+
+  if (switchPorts && switchPorts.length) {
+    html += '<div style="font-size:.6rem;color:#58a6ff;margin:8px 0 4px;font-weight:600;">Switch → OCS Triplets</div>';
+    var lastSw = '';
+    switchPorts.forEach(function(sp) {
+      if (sp.switch_label !== lastSw) {
+        html += '<div style="font-size:.58rem;color:#58a6ff;padding:4px 0 1px;font-weight:600;">' + escSc(sp.switch_label) +
+                (sp.switch_ip ? ' <span style="color:#6e7681;">(' + escSc(sp.switch_ip) + ')</span>' : '') + '</div>';
+        lastSw = sp.switch_label;
+      }
+      var ts = (sp.triplets || []).join(', ');
+      html += '<div class="sc-pm-row">' +
+        '<div style="color:#e6edf3;">' + escSc(sp.port) + '</div>' +
+        '<div style="font-family:monospace;color:#a5d6ff;">' + escSc(ts) + '</div>' +
+        '<div></div></div>';
+    });
+  }
+
+  html += '</div>';
+  document.getElementById('sc-tab-ports').innerHTML = html;
+}
+
+function renderSwitchTab(switches, chassis) {
+  var html = '<div style="max-height:280px;overflow-y:auto;">';
+  
+  html += '<div style="font-size:.6rem;color:#6e7681;margin-bottom:6px;">DAC connections between chassis and switches used in this scenario.</div>';
+  
+  if (switches.length === 0) {
+    html += '<div style="font-size:.65rem;color:#6e7681;">No switches selected. Add switches to see DAC port configs.</div>';
+  } else {
+    switches.forEach(function(sw) {
+      html += '<div style="margin-bottom:8px;">';
+      html += '<div style="font-size:.65rem;color:#58a6ff;font-weight:600;">' + escSc(sw.label) + ' <span style="color:#6e7681;font-size:.58rem;">' + escSc(sw.ip) + '</span></div>';
+      
+      // Show OCS optic ports on this switch
+      var ocs_ports = Object.keys(sw.port_to_triplets || {});
+      if (ocs_ports.length) {
+        html += '<div style="font-size:.6rem;color:#6e7681;margin:3px 0 2px;">OCS optical ports:</div>';
+        ocs_ports.slice(0,8).forEach(function(p) {
+          var ts = (sw.port_to_triplets[p] || []).join(', ');
+          html += '<div style="font-size:.6rem;display:flex;justify-content:space-between;padding:1px 0;">' +
+            '<span style="color:#e6edf3;">' + escSc(p) + '</span>' +
+            '<span style="font-family:monospace;color:#a5d6ff;">' + escSc(ts) + '</span>' +
+            '</div>';
+        });
+        if (ocs_ports.length > 8) {
+          html += '<div style="font-size:.58rem;color:#6e7681;">+ ' + (ocs_ports.length - 8) + ' more ports…</div>';
+        }
+      }
+      
+      // Vlan config snippet
+      html += '<div style="font-size:.58rem;color:#22c55e;margin-top:5px;">Suggested config:</div>';
+      html += '<div style="font-family:monospace;font-size:.58rem;background:#161b22;border:1px solid #30363d;border-radius:4px;padding:4px;color:#a5d6ff;white-space:pre;">' +
+        'vlan 400\n  name TEST_400G\ninterface Ethernet' + (ocs_ports[0] ? ocs_ports[0].replace('port_','') : 'X') + '\n  switchport mode access\n  switchport access vlan 400' +
+        '</div>';
+      html += '</div>';
+    });
+  }
+  
+  html += '</div>';
+  document.getElementById('sc-tab-switch').innerHTML = html;
+}
+
+window.showScTab = function(tabName) {
+  document.querySelectorAll('.sc-tab').forEach(function(t) {
+    var isActive = t.dataset.tab === tabName;
+    t.classList.toggle('active', isActive);
+    t.style.borderBottom = isActive ? '2px solid #f0a500' : 'none';
+    t.style.color = isActive ? '#f0a500' : '#6e7681';
+  });
+  document.querySelectorAll('.sc-tab-content').forEach(function(c) { c.style.display = 'none'; });
+  var el = document.getElementById('sc-tab-' + tabName);
+  if (el) el.style.display = '';
+};
+
+function escSc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Hook into existing renderNode so clicks also update scenario selection
+var _origSelectNode = window.selectNode;
+// We'll patch the node-click in the main IIFE after it's set up
+document.addEventListener('DOMContentLoaded', function() {
+  // Small delay to let main IIFE finish
+  setTimeout(function() {
+    var canvasEl = document.getElementById('lt-canvas');
+    if (!canvasEl) return;
+    // Use event delegation on canvas clicks to also update scenario
+    canvasEl.addEventListener('click', function(e) {
+      var nodeEl = e.target.closest('.lt-node');
+      if (!nodeEl) return;
+      var nid = parseInt(nodeEl.dataset.nid);
+      if (!nid) return;
+      // Get node data from state (exposed globally from IIFE)
+      var n = window._ltState && window._ltState.nodes && window._ltState.nodes[nid];
+      if (!n) return;
+      scenarioNodeClick(nid, n.node_type, n.label, n.device_ip || '');
+    }, true);  // capture phase so we get it before stopPropagation
+  }, 300);
+});
+
+})();
+</script>
+
+{# ── Live LLDP/OCS overlay (Phase 4) ──────────────────────────────────── #}
+<script>
+(function(){
+'use strict';
+var _liveActive = false;
+var _liveOverlaySvg = null;
+
+function getLiveOverlaySvg() {
+  if (_liveOverlaySvg) return _liveOverlaySvg;
+  var canvas = document.getElementById('lt-canvas');
+  if (!canvas) return null;
+  var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.id = 'lt-live-overlay-svg';
+  svg.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:50;overflow:visible;';
+  canvas.appendChild(svg);
+  _liveOverlaySvg = svg;
+  return svg;
+}
+
+function clearLiveOverlay() {
+  if (_liveOverlaySvg) _liveOverlaySvg.innerHTML = '';
+}
+
+function nodeCenter(nodeId) {
+  var el = document.querySelector('[data-nid="' + nodeId + '"]');
+  var canvas = document.getElementById('lt-canvas');
+  if (!el || !canvas) return null;
+  var r = el.getBoundingClientRect();
+  var cr = canvas.getBoundingClientRect();
+  return { x: r.left + r.width/2 - cr.left, y: r.top + r.height/2 - cr.top };
+}
+
+function renderLiveOverlay(links) {
+  var svg = getLiveOverlaySvg();
+  if (!svg) return;
+  svg.innerHTML = '';
+  var COLORS = { up:'#22c55e', active:'#22c55e', stale:'#f59e0b', lldp_only:'#f59e0b', down:'#ef4444', ocs_active:'#fb923c' };
+  links.forEach(function(lk) {
+    var snid = String(lk.source || '').replace('node_', '');
+    var tnid = String(lk.target || '').replace('node_', '');
+    var s = nodeCenter(snid), t = nodeCenter(tnid);
+    if (!s || !t) return;
+    var color = COLORS[lk.type] || COLORS[lk.health] || '#64748b';
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', s.x); line.setAttribute('y1', s.y);
+    line.setAttribute('x2', t.x); line.setAttribute('y2', t.y);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', '3');
+    line.setAttribute('stroke-opacity', '0.45');
+    var title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    title.textContent = (lk.port_a || '?') + ' ↔ ' + (lk.port_b || '?') + ' [' + (lk.health || lk.type) + ']';
+    line.appendChild(title);
+    svg.appendChild(line);
+  });
+}
+
+var _showLiveBtn = document.getElementById('lt-show-live');
+if (_showLiveBtn) {
+  _showLiveBtn.addEventListener('click', function() {
+    _liveActive = !_liveActive;
+    this.dataset.active = _liveActive ? '1' : '0';
+    this.classList.toggle('lv-active-toggle', _liveActive);
+    if (!_liveActive) { clearLiveOverlay(); return; }
+    fetch('/lab-topology/{{ topo.id }}/graph.json?live=1&lldp=1&planned=0', { credentials:'same-origin' })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(g) {
+        if (g.error) throw new Error(g.error);
+        renderLiveOverlay(g.links || []);
+      })
+      .catch(function(e) {
+        console.error('Live overlay:', e);
+        _liveActive = false;
+        _showLiveBtn.dataset.active = '0';
+        _showLiveBtn.classList.remove('lv-active-toggle');
+        clearLiveOverlay();
+        alert('Live view failed: ' + (e.message || e));
+      });
+  });
+}
+  var splitBtn = document.getElementById('lt-split-subtopo-btn');
+  if (splitBtn) {
+    splitBtn.addEventListener('click', async function() {
+      if (!confirm('Create or rebuild two sub-topologies?\n\n• DAC staging (M01–M04, no OCS)\n• OCS patched (M05–M08 + OCS)\n\nExisting sub-topologies from this parent will be replaced.')) return;
+      splitBtn.disabled = true;
+      try {
+        var r = await fetch('/lab-topology/' + splitBtn.dataset.topoId + '/split-subtopologies/', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'X-CSRFToken': CSRF, 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        var d = await r.json();
+        if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+        window.location.reload();
+      } catch (e) {
+        alert('Split failed: ' + (e.message || e));
+        splitBtn.disabled = false;
+      }
+    });
+  }
+})();
+</script>
+
+{% endblock %}

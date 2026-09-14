@@ -1,0 +1,180 @@
+{% extends "connect/base.html" %}
+{% block title %}Keysight Reservations - LabVault{% endblock %}
+{% block page_title %}Keysight Hardware Reservations{% endblock %}
+
+{% block content %}
+<style>
+    .res-badge { font-size: 0.7rem; padding: 3px 8px; border-radius: 10px; }
+    .res-badge.active { background: #22c55e; color: #fff; }
+    .res-badge.upcoming { background: #3b82f6; color: #fff; }
+    .res-badge.expired { background: #6b7280; color: #fff; }
+    .res-badge.cancelled { background: #ef4444; color: #fff; }
+    .timeline-bar { height: 6px; border-radius: 3px; background: #e5e7eb; position: relative; overflow: hidden; }
+    .timeline-fill { position: absolute; top: 0; left: 0; height: 100%; border-radius: 3px; }
+    .timeline-fill.active { background: #22c55e; }
+    .timeline-fill.upcoming { background: #3b82f6; }
+    .timeline-fill.expired { background: #9ca3af; }
+    .timeline-fill.cancelled { background: #ef4444; }
+    .filter-bar { background: #fff; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .res-items-mini { font-size: 0.75rem; color: #888; }
+    .res-items-mini i { margin-right: 3px; }
+</style>
+
+<!-- Action bar -->
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <span class="text-muted">Manage virtual reservations for Keysight/Ixia hardware</span>
+    </div>
+    <a href="{% url 'keysight_create_reservation' %}" class="btn btn-nc">
+        <i class="fas fa-plus-circle me-1"></i> New Reservation
+    </a>
+</div>
+
+<!-- Filters -->
+<div class="filter-bar">
+    <form method="get" class="row g-2 align-items-end">
+        <div class="col-md-3">
+            <label class="form-label mb-1" style="font-size:.8rem;">Chassis</label>
+            <select name="chassis" class="form-select form-select-sm">
+                <option value="">All Chassis</option>
+                {% for ch in all_chassis %}
+                <option value="{{ ch.id }}" {% if filter_chassis == ch.id|stringformat:"d" %}selected{% endif %}>{{ ch.hostname|default:ch.ip_address }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label mb-1" style="font-size:.8rem;">Status</label>
+            <select name="status" class="form-select form-select-sm">
+                <option value="">All</option>
+                <option value="active" {% if filter_status == 'active' %}selected{% endif %}>Active</option>
+                <option value="upcoming" {% if filter_status == 'upcoming' %}selected{% endif %}>Upcoming</option>
+                <option value="expired" {% if filter_status == 'expired' %}selected{% endif %}>Expired</option>
+                <option value="cancelled" {% if filter_status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+            </select>
+        </div>
+        <div class="col-md-3">
+            <label class="form-label mb-1" style="font-size:.8rem;">User</label>
+            <input type="text" name="user" class="form-control form-control-sm" placeholder="Username" value="{{ filter_user }}">
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-sm btn-outline-primary"><i class="fas fa-filter me-1"></i>Filter</button>
+            <a href="{% url 'keysight_reservations' %}" class="btn btn-sm btn-outline-secondary">Clear</a>
+        </div>
+    </form>
+</div>
+
+<!-- Summary cards -->
+<div class="row mb-4">
+    {% with active_count=0 upcoming_count=0 %}
+    <div class="col-md-3">
+        <div class="stat-card d-flex align-items-center gap-3">
+            <div class="stat-icon" style="background:#dcfce7;color:#16a34a;"><i class="fas fa-check-circle"></i></div>
+            <div>
+                <div class="stat-value" id="active-count">-</div>
+                <div class="stat-label">Active</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card d-flex align-items-center gap-3">
+            <div class="stat-icon" style="background:#dbeafe;color:#2563eb;"><i class="fas fa-clock"></i></div>
+            <div>
+                <div class="stat-value" id="upcoming-count">-</div>
+                <div class="stat-label">Upcoming</div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card d-flex align-items-center gap-3">
+            <div class="stat-icon" style="background:#f3f4f6;color:#6b7280;"><i class="fas fa-history"></i></div>
+            <div>
+                <div class="stat-value" id="total-count">{{ reservations|length }}</div>
+                <div class="stat-label">Total Shown</div>
+            </div>
+        </div>
+    </div>
+    {% endwith %}
+</div>
+
+<!-- Reservations table -->
+<div class="card-custom">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-calendar-alt me-2"></i>Reservations</span>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover table-devices mb-0">
+                <thead>
+                    <tr>
+                        <th data-sortable>Title</th>
+                        <th data-sortable>User</th>
+                        <th data-sortable>Status</th>
+                        <th data-sortable>Start</th>
+                        <th data-sortable>End</th>
+                        <th>Resources</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for res in reservations %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'keysight_reservation_detail' res.id %}" style="text-decoration:none;font-weight:600;">
+                                {{ res.title }}
+                            </a>
+                        </td>
+                        <td>
+                            <i class="fas fa-user me-1 text-muted"></i>
+                            {{ res.user.get_full_name|default:res.user.username }}
+                        </td>
+                        <td><span class="res-badge {{ res.status }}">{{ res.get_status_display }}</span></td>
+                        <td style="font-size:.85rem;">{{ res.start_time|date:"M j, Y H:i" }}</td>
+                        <td style="font-size:.85rem;">{{ res.end_time|date:"M j, Y H:i" }}</td>
+                        <td>
+                            <div class="res-items-mini">
+                                {% for item in res.items.all %}
+                                <div>
+                                    <i class="fas fa-{{ item.chassis.chassis_icon }}"></i>
+                                    {{ item.chassis.hostname|default:item.chassis.ip_address|truncatechars:15 }}
+                                    {% if item.slot_number is not None %} / Slot {{ item.slot_number }}{% endif %}
+                                    {% if item.port_number is not None %} / Port {{ item.port_number }}{% endif %}
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </td>
+                        <td>
+                            <div class="d-flex gap-1">
+                                <a href="{% url 'keysight_reservation_detail' res.id %}" class="btn btn-sm btn-outline-primary" title="View"><i class="fas fa-eye"></i></a>
+                                {% if res.status != 'cancelled' and res.status != 'expired' %}
+                                <a href="{% url 'keysight_edit_reservation' res.id %}" class="btn btn-sm btn-outline-secondary" title="Edit"><i class="fas fa-edit"></i></a>
+                                {% endif %}
+                                <form method="post" action="{% url 'keysight_delete_reservation' res.id %}" class="d-inline" onsubmit="return confirm('Delete this reservation?');">
+                                    {% csrf_token %}
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete"><i class="fas fa-trash-alt"></i></button>
+                                </form>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted py-4">No reservations found. <a href="{% url 'keysight_create_reservation' %}">Create one</a>.</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Count statuses from rendered rows
+    var rows = document.querySelectorAll('.res-badge');
+    var active = 0, upcoming = 0;
+    rows.forEach(function(b) {
+        if (b.classList.contains('active')) active++;
+        if (b.classList.contains('upcoming')) upcoming++;
+    });
+    document.getElementById('active-count').textContent = active;
+    document.getElementById('upcoming-count').textContent = upcoming;
+});
+</script>
+{% endblock %}

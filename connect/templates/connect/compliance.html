@@ -1,0 +1,60 @@
+{% extends 'connect/base.html' %}
+{% block title %}Compliance - LabVault{% endblock %}
+{% block page_title %}Configuration Compliance{% endblock %}
+
+{% block topbar_actions %}
+<form method="post" action="{% url 'run_compliance_check' %}">
+    {% csrf_token %}
+    <button class="btn btn-sm btn-nc"><i class="fas fa-play me-1"></i> Run Compliance Check</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-md-5">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-list-check me-2"></i> Rules ({{ rules|length }})</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Rule</th><th>Vendor</th><th>Severity</th><th>Enabled</th></tr></thead>
+                    <tbody>
+                        {% for r in rules %}
+                        <tr>
+                            <td>{{ r.name }}<div class="text-muted" style="font-size:0.75rem;">{{ r.pattern|truncatechars:40 }}</div></td>
+                            <td><span class="badge badge-{{ r.vendor_type }}">{{ r.vendor_type }}</span></td>
+                            <td><span class="badge bg-{% if r.severity == 'critical' %}danger{% elif r.severity == 'warning' %}warning text-dark{% else %}info{% endif %}">{{ r.severity }}</span></td>
+                            <td>{% if r.enabled %}<i class="fas fa-check text-success"></i>{% else %}<i class="fas fa-times text-muted"></i>{% endif %}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="4" class="text-center text-muted py-3">No rules defined. Add rules via Admin panel.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-7">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-clipboard-check me-2"></i> Recent Results</div>
+            <div class="card-body p-0">
+                <table class="table table-sm mb-0">
+                    <thead><tr><th>Device</th><th>Rule</th><th>Result</th><th>Details</th><th>Time</th></tr></thead>
+                    <tbody>
+                        {% for cr in results %}
+                        <tr class="{% if not cr.passed %}table-danger{% endif %}">
+                            <td>{% if cr.device %}<a href="{% url 'device_detail' cr.device.id %}">{{ cr.device }}</a>{% endif %}</td>
+                            <td>{{ cr.rule.name }}</td>
+                            <td>{% if cr.passed %}<span class="badge bg-success">PASS</span>{% else %}<span class="badge bg-danger">FAIL</span>{% endif %}</td>
+                            <td style="font-size:0.8rem;">{{ cr.details|truncatechars:50 }}</td>
+                            <td style="font-size:0.8rem;">{{ cr.checked_at|date:"M d H:i" }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr><td colspan="5" class="text-center text-muted py-3">No compliance results yet. Run a check!</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

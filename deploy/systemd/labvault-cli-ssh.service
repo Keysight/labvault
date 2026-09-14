@@ -1,0 +1,28 @@
+[Unit]
+Description=LabVault appliance SSH CLI
+After=network.target postgresql.service labvault-web.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=labvault
+Group=labvault
+SupplementaryGroups=labvault-ops
+WorkingDirectory=/opt/labvault/current
+EnvironmentFile=-/etc/labvault/labvault.env
+Environment=DJANGO_SETTINGS_MODULE=connect.settings
+Environment=LABVAULT_CLI_SSH_PORT=2222
+Environment=LABVAULT_CLI_SSH_HOST_KEY=/var/lib/labvault/cli-ssh/ssh_host_ed25519_key
+Environment=LABVAULT_OPS_SOCK=/run/labvault/ops.sock
+RuntimeDirectory=labvault
+StateDirectory=labvault/cli-ssh
+StateDirectoryMode=0700
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+ExecStart=/opt/labvault/current/.venv/bin/python /opt/labvault/current/manage.py run_cli_ssh
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

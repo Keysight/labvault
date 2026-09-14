@@ -1,0 +1,59 @@
+{% extends 'connect/base.html' %}
+{% load static %}
+{% block title %}{{ topo.name }} — {{ view_meta.title }}{% endblock %}
+{% block body_attrs %}class="lv-topology-page lv-topology-page--graph lv-graph-{{ view_key }}"{% endblock %}
+{% block content_area_class %}content-area--topology{% endblock %}
+{% block topbar %}
+{% include "connect/includes/lab_topology_topbar.html" with active_view=active_view sub_nav=sub_nav %}
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/usage-graph-views.css' %}?v=20260609">
+<link rel="stylesheet" href="{% static 'css/usage-insights.css' %}?v=20260609">
+<div class="lv-topo-workspace ugv-workspace" data-view="{{ view_key }}">
+  <header class="ugv-toolbar" id="ugv-toolbar">
+    <div class="ugv-toolbar-left">
+      <h1 class="ugv-title" style="--ugv-accent: {{ view_meta.accent }}">
+        <i class="fas {{ view_meta.icon }}"></i> {{ view_meta.title }}
+      </h1>
+      <span class="ugv-subtitle">{{ view_meta.subtitle }}</span>
+    </div>
+    <div class="ugv-toolbar-mid">
+      <label>Window
+        <select id="ugv-window">
+          <option value="4h">Last 4 hours</option>
+          <option value="24h" selected>Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+        </select>
+      </label>
+      <div id="ugv-data-mode" class="ugv-data-mode" role="group" aria-label="Data mode"></div>
+      <button type="button" id="ugv-refresh" class="ugv-btn"><i class="fas fa-sync-alt"></i> Refresh</button>
+    </div>
+  </header>
+
+  <div id="ugv-loading" class="ugv-loading" hidden>
+    <i class="fas fa-spinner fa-spin"></i> Loading graph data…
+  </div>
+  <div id="ugv-error" class="ugv-error" hidden></div>
+
+  <main class="ugv-stage" id="ugv-stage">
+    <div id="ugv-viz-root" class="ugv-viz-root"></div>
+    <aside id="ugv-detail" class="ugv-detail" hidden></aside>
+  </main>
+</div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script type="module">
+import { initGraphViewShell } from '{% static "js/lab-graph/usage-graph-shell.js" %}?v=20260609';
+import { initView } from '{% static "js/lab-graph/" %}{{ view_meta.module }}?v=20260609';
+
+initGraphViewShell({
+  topoId: {{ topo.id }},
+  insightsUrl: '/lab-topology/{{ topo.id }}/usage-insights.json',
+  timelineUrl: '/lab-topology/{{ topo.id }}/timeline-graph.json',
+  fabricUrl: '/lab-topology/{{ topo.id }}/fabric-graph.json',
+  viewKey: '{{ view_key }}',
+  initView,
+});
+</script>
+{% endblock %}

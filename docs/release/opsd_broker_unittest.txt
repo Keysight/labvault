@@ -1,0 +1,15 @@
+test_db_restart_denied (connect.tests.test_opsd_broker.OpsdBrokerTests.test_db_restart_denied) ... labvault-opsd: peer={} action=restart name=db source=ssh adapter=systemd request_id=
+ok
+test_list_uses_status_helper (connect.tests.test_opsd_broker.OpsdBrokerTests.test_list_uses_status_helper) ... labvault-opsd: peer={} action=list name=None source=ssh adapter=systemd request_id=
+ok
+test_rejects_extra_fields (connect.tests.test_opsd_broker.OpsdBrokerTests.test_rejects_extra_fields) ... ok
+test_rejects_unknown_action (connect.tests.test_opsd_broker.OpsdBrokerTests.test_rejects_unknown_action) ... ok
+test_restart_all_requires_reason (connect.tests.test_opsd_broker.OpsdBrokerTests.test_restart_all_requires_reason) ... labvault-opsd: peer={} action=restart name=all source=ssh adapter=systemd request_id=
+ok
+test_web_restart_denied_from_web (connect.tests.test_opsd_broker.OpsdBrokerTests.test_web_restart_denied_from_web) ... labvault-opsd: peer={} action=restart name=web source=web adapter=systemd request_id=
+ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.007s
+
+OK

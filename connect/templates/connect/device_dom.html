@@ -1,0 +1,31 @@
+{% extends "connect/base.html" %}
+{% block title %}Transceivers - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}{{ device.hostname|default:device.ip_address }} - Transceiver/DOM{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Device</a>
+</div>
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-microchip me-2"></i>Optical Transceiver Diagnostics (DOM)</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0">
+            <thead><tr><th>Interface</th><th>Media Type</th><th>Vendor</th><th>Rx Power</th><th>Tx Power</th><th>Temp</th><th>Voltage</th></tr></thead>
+            <tbody>
+            {% for t in transceivers %}
+            <tr>
+                <td><code>{{ t.interface }}</code></td>
+                <td>{{ t.media_type }}</td>
+                <td>{{ t.vendor }}</td>
+                <td>{{ t.rx_power }}</td>
+                <td>{{ t.tx_power }}</td>
+                <td>{{ t.temperature }}</td>
+                <td>{{ t.voltage }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" class="text-center text-muted py-4">No transceiver data available</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

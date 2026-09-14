@@ -1,0 +1,36 @@
+{% extends "connect/base.html" %}
+{% block title %}Config Search{% endblock %}
+{% block page_title %}Config Search Across Fleet{% endblock %}
+{% block content %}
+<div class="card card-custom mb-4">
+    <div class="card-body">
+        <form method="get" class="d-flex gap-2">
+            <input type="text" name="pattern" class="form-control" placeholder="Search pattern (e.g. ntp server, access-list, route-map)" value="{{ pattern }}">
+            <button type="submit" class="btn btn-nc"><i class="fas fa-search me-1"></i>Search</button>
+        </form>
+        <small class="text-muted mt-1 d-block">Searches the most recent config backup of each online device. Back up configs first if no results are found.</small>
+    </div>
+</div>
+{% if pattern %}
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-list me-2"></i>Results for "{{ pattern }}" ({{ results|length }} devices matched)</div>
+    <div class="card-body p-0">
+        {% for r in results %}
+        <div class="border-bottom p-3">
+            <h6 class="mb-2">
+                <a href="{% url 'device_detail' r.device.id %}">
+                    <i class="fas {{ r.device.vendor_icon }} me-1" style="color:{{ r.device.vendor_color }}"></i>
+                    {{ r.device.hostname|default:r.device.ip_address }}
+                </a>
+                <span class="badge bg-secondary ms-2">{{ r.match_count }} matches</span>
+            </h6>
+            <div class="terminal-output" style="max-height:200px;font-size:0.8rem;">{% for m in r.matches %}{{ m }}
+{% endfor %}</div>
+        </div>
+        {% empty %}
+        <div class="p-4 text-center text-muted">No matches found. Ensure devices have config backups.</div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,104 @@
+/* Graph view pages (Lab Pulse family) */
+.lv-topology-page--graph .content-area {
+  display: flex; flex-direction: column; min-height: 0; flex: 1;
+}
+.ugv-workspace {
+  display: flex; flex-direction: column; flex: 1; min-height: 0;
+  height: calc(100vh - 112px); min-height: 480px;
+  background: #050d1a; color: #e2e8f0;
+}
+
+.ugv-toolbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 10px 14px; border-bottom: 1px solid #1e3a5f; background: #0a1628;
+  flex-shrink: 0;
+}
+.ugv-toolbar-left { display: flex; flex-direction: column; gap: 2px; }
+.ugv-title { font-size: 1rem; margin: 0; font-weight: 600; color: #f8fafc; }
+.ugv-title i { color: var(--ugv-accent, #f472b6); margin-right: 6px; }
+.ugv-subtitle { font-size: 0.72rem; color: #64748b; }
+.ugv-toolbar-mid { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ugv-toolbar-mid select, .ugv-btn {
+  background: #0d1b2a; color: #e2e8f0; border: 1px solid #334155; border-radius: 6px;
+  padding: 5px 10px; font-size: 0.78rem; cursor: pointer;
+}
+.ugv-btn:hover { border-color: #64748b; }
+
+.ugv-data-mode, .ui-data-mode {
+  display: inline-flex; border: 1px solid #334155; border-radius: 8px; overflow: hidden;
+}
+.ugv-mode-btn, .ui-mode-btn {
+  border: none; background: transparent; color: #94a3b8;
+  padding: 5px 10px; font-size: 0.72rem; cursor: pointer;
+}
+.ugv-mode-btn.on, .ui-mode-btn.on {
+  background: #1e3a5f; color: #f8fafc;
+}
+.ugv-mode-btn:not(:last-child), .ui-mode-btn:not(:last-child) {
+  border-right: 1px solid #334155;
+}
+
+.lv-insights-subnav {
+  display: flex; flex-wrap: wrap; gap: 4px; align-items: center;
+}
+.lv-insights-tab {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 999px; font-size: 0.72rem;
+  border: 1px solid #334155; color: #94a3b8; text-decoration: none;
+}
+.lv-insights-tab:hover { border-color: #64748b; color: #e2e8f0; }
+.lv-insights-tab.on {
+  background: #831843; border-color: #be185d; color: #fce7f3;
+}
+
+.ugv-loading, .ugv-error { padding: 12px 16px; text-align: center; font-size: 0.85rem; }
+.ugv-error { color: #fca5a5; background: #450a0a44; }
+
+.ugv-stage {
+  flex: 1; display: grid; grid-template-columns: 1fr 220px; gap: 12px;
+  padding: 14px; min-height: 0; overflow: hidden;
+}
+@media (max-width: 900px) {
+  .ugv-stage { grid-template-columns: 1fr; overflow-y: auto; }
+  .ugv-detail { order: -1; }
+}
+.ugv-viz-root { overflow-y: auto; min-height: 0; }
+.ugv-detail {
+  background: #0a1628; border: 1px solid #1e3a5f; border-radius: 10px;
+  padding: 12px 14px; font-size: 0.78rem; overflow-y: auto;
+}
+.ugv-detail h3 { margin: 0 0 8px; font-size: 0.82rem; color: #93c5fd; }
+
+.ugv-card {
+  background: #0a1628; border: 1px solid #1e3a5f; border-radius: 10px;
+  padding: 14px 16px; margin-bottom: 12px;
+}
+.ugv-card--wide { width: 100%; }
+.ugv-card h2 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em;
+  color: #93c5fd; margin: 0 0 8px; }
+.ugv-hint { font-size: 0.72rem; color: #64748b; margin: 0 0 10px; }
+.ugv-hint-inline { font-size: 0.68rem; color: #64748b; margin-left: 8px; }
+
+.ugv-svg { width: 100%; display: block; }
+.ugv-svg--tall { min-height: 280px; }
+.ugv-svg--graph { min-height: 420px; height: 460px; }
+.ugv-svg--grid { min-height: 240px; }
+
+.ugv-radial-wrap { display: grid; grid-template-columns: 1fr 1.2fr; gap: 12px; }
+@media (max-width: 800px) { .ugv-radial-wrap { grid-template-columns: 1fr; } }
+
+.ugv-legend { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; font-size: 0.72rem; color: #94a3b8; }
+.ugv-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.ugv-legend i { width: 12px; height: 3px; border-radius: 1px; display: inline-block; }
+
+.ugv-heat-controls { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+.ugv-topo-wrap { border: 1px solid #1e3a5f33; border-radius: 8px; background: #0d1b2a; }
+
+.ugv-brush .selection { fill: #38bdf833; stroke: #38bdf8; }
+
+/* Per-view accent in topbar when active */
+.lv-topo-views a.lv-active-graph-radial { color: #f472b6; border-bottom-color: #f472b6; }
+.lv-topo-views a.lv-active-graph-stream { color: #38bdf8; border-bottom-color: #38bdf8; }
+.lv-topo-views a.lv-active-graph-radar { color: #a78bfa; border-bottom-color: #a78bfa; }
+.lv-topo-views a.lv-active-graph-matrix { color: #fb923c; border-bottom-color: #fb923c; }
+.lv-topo-views a.lv-active-graph-topo { color: #4ade80; border-bottom-color: #4ade80; }

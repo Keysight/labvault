@@ -1,0 +1,24 @@
+# Never bake secrets or local env files into container images.
+# (The google-demo image is built with `COPY . /app`; without this the prod
+# .env and secrets/ would leak into the image and trigger unwanted SSH.)
+.env
+**/.env
+secrets/
+**/secrets/
+
+# Local databases and runtime data (recreated at deploy / mounted volumes).
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+var/
+
+# VCS, venv, caches, and local dumps (never bake lab data into the image).
+.git/
+.venv/
+venv/
+**/__pycache__/
+**/*.pyc
+*.tgz
+*.tar.gz
+labvault_export.json
+labvault_export.bin

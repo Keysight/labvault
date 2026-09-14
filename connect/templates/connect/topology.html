@@ -1,0 +1,2787 @@
+{% extends "connect/base.html" %}
+{% load static %}
+{% block title %}Network Topology{% endblock %}
+{% block page_title %}Network Topology{% endblock %}
+{% block topbar_actions %}
+<div class="btn-group btn-group-sm me-2" role="group" aria-label="Topology layout">
+    <button type="button" class="btn btn-outline-secondary" id="topo-view-map" title="Hub-and-spoke fabric map with unlinked inventory below">Map</button>
+    <button type="button" class="btn btn-nc active" id="topo-view-tier" title="Vendor tier swimlanes">Tier view</button>
+    <button type="button" class="btn btn-outline-secondary" id="topo-view-network" title="Checkmk-style network graph (force or hierarchical)">Network</button>
+</div>
+<div class="btn-group btn-group-sm me-2" role="group" aria-label="Export topology">
+    <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false" id="topo-export-btn" title="Export filtered subgraph for draw.io">
+        <i class="fas fa-download me-1"></i>Export
+    </button>
+    <ul class="dropdown-menu dropdown-menu-end">
+        <li><h6 class="dropdown-header">Uses current tag filter</h6></li>
+        <li><a class="dropdown-item" href="#" id="topo-export-drawio"><i class="fas fa-project-diagram me-2"></i>draw.io (.drawio)</a></li>
+        <li><a class="dropdown-item" href="#" id="topo-export-json"><i class="fas fa-code me-2"></i>JSON</a></li>
+    </ul>
+</div>
+<button type="button" class="btn btn-sm btn-outline-secondary me-2" id="topo-fit-btn" title="Zoom to fit"><i class="fas fa-compress-arrows-alt me-1"></i>Fit</button>
+<button type="button" class="btn btn-sm btn-nc" id="topo-rescan-btn"><i class="fas fa-sync-alt me-1"></i>Rescan LLDP</button>
+<a href="{% url 'topology_refresh' %}" class="btn btn-sm btn-outline-secondary d-none" id="topo-rescan-fallback" title="Fallback if JS disabled">Rescan (sync)</a>
+{% endblock %}
+{% block extra_css %}
+<style>
+    #topology-container {
+        width: 100%; height: calc(100vh - 240px); min-height: 420px;
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 55%, #0f172a 100%);
+        border-radius: 12px; position: relative; overflow: hidden;
+        border: 1px solid rgba(255,255,255,0.08);
+    }
+    #topology-container svg { width: 100%; height: 100%; }
+    .topo-tier-band { stroke-width: 1.5; }
+    .topo-tier-title { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+    .node-card { cursor: pointer; }
+    .node-card-bg { stroke-width: 2; }
+    .node-card-title { font-size: 11px; fill: #fff; font-weight: 600; pointer-events: none; }
+    .node-card-ip { font-size: 9px; fill: rgba(255,255,255,0.65); pointer-events: none; }
+    .node-card-vendor { font-size: 8px; fill: rgba(255,255,255,0.45); text-transform: uppercase; letter-spacing: 0.04em; pointer-events: none; }
+    .node-label { font-size: 11px; fill: #fff; text-anchor: middle; pointer-events: none; font-weight: 500; }
+    .node-sublabel { font-size: 9px; fill: rgba(255,255,255,0.6); text-anchor: middle; pointer-events: none; }
+    .link-label { font-size: 8px; fill: rgba(255,255,255,0.45); text-anchor: middle; }
+    .link-line { fill: none; stroke-linecap: round; }
+    .dc-zone-label { font-size: 10px; fill: rgba(255,255,255,0.4); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; }
+    .dc-zone-box { fill: rgba(255,255,255,0.02); stroke: rgba(255,255,255,0.08); stroke-width: 1; }
+    .map-fabric-zone {
+        fill: rgba(6,12,24,0.72);
+        stroke: rgba(74,222,128,0.28);
+        stroke-width: 1.5;
+        filter: drop-shadow(0 0 24px rgba(34,197,94,0.08));
+    }
+    .map-island-zone {
+        fill: rgba(30,41,59,0.28); stroke: rgba(100,116,139,0.22);
+        stroke-width: 1; stroke-dasharray: 6,5;
+    }
+    .map-island-title { font-size: 10px; fill: rgba(203,213,225,0.75); font-weight: 600; letter-spacing: 0.04em; }
+    .map-fabric-title { font-size: 10px; fill: rgba(148,163,184,0.85); font-weight: 600; letter-spacing: 0.04em; }
+    .map-link-spine { stroke: rgba(148,163,184,0.14); stroke-width: 1; fill: none; }
+    .map-link-trunk { fill: none; stroke: rgba(74,222,128,0.38); stroke-width: 1.5; stroke-linecap: round; }
+    .map-link-access { fill: none; stroke: rgba(74,222,128,0.28); stroke-width: 1; stroke-linecap: round; }
+    .map-link-peer { fill: none; stroke: rgba(56,189,248,0.15); stroke-width: 0.9; stroke-linecap: round; stroke-dasharray: 3,5; }
+    .map-links .map-link-hidden { display: none; }
+    .map-link-down { stroke: rgba(239,68,68,0.35) !important; stroke-dasharray: 3,3; }
+    .fabric-sw-body { filter: drop-shadow(0 1px 4px rgba(0,0,0,0.35)); }
+    .fabric-sw-name { font-size: 10px; fill: #f8fafc; font-weight: 600; pointer-events: none; }
+    .fabric-sw-vendor { font-size: 7px; fill: rgba(255,255,255,0.55); text-transform: uppercase; letter-spacing: 0.05em; pointer-events: none; }
+    .fabric-dut-body { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.3)); }
+    .fabric-dut-name { font-size: 9px; fill: #f1f5f9; font-weight: 600; pointer-events: none; }
+    .fabric-dut-led { pointer-events: none; }
+    .fabric-col-label { font-size: 8px; fill: rgba(148,163,184,0.5); font-weight: 500; pointer-events: none; }
+    .node-card.isolated .node-card-bg { stroke: rgba(156,163,175,0.85) !important; stroke-dasharray: 5,3; opacity: 0.92; }
+    .dc-link-bus { stroke: rgba(34,197,94,0.25); stroke-width: 1; stroke-dasharray: 4,4; fill: none; }
+    .dc-link-orth { fill: none; stroke-linecap: square; stroke-linejoin: round; }
+    .chassis-card .node-card-title { font-size: 10px; }
+    .chassis-card .node-card-ip { font-size: 8px; }
+    .topo-view-toolbar { position: absolute; top: 16px; left: 16px; z-index: 4; }
+    .tooltip-topo {
+        position: absolute; background: rgba(0,0,0,0.9); color: #fff; padding: 10px 14px;
+        border-radius: 8px; font-size: 0.8rem; pointer-events: none; z-index: 10;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); max-width: 300px;
+    }
+    .topo-display-toolbar {
+        position: absolute; top: 12px; left: 12px; z-index: 6;
+        background: rgba(15,23,42,0.92); border: 1px solid rgba(148,163,184,0.25);
+        border-radius: 8px; padding: 8px 12px; color: #e2e8f0; font-size: 0.72rem;
+        display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center;
+        max-width: calc(100% - 340px);
+    }
+    .topo-display-toolbar label {
+        display: inline-flex; align-items: center; gap: 5px; margin: 0; cursor: pointer;
+        white-space: nowrap; user-select: none;
+    }
+    .topo-display-toolbar input { cursor: pointer; }
+    .topo-network-style-wrap {
+        display: none; align-items: center; gap: 6px;
+        padding-left: 8px; border-left: 1px solid rgba(148,163,184,0.25);
+    }
+    .topo-network-style-wrap.visible { display: inline-flex; }
+    .topo-network-style-wrap .btn { font-size: 0.68rem; padding: 2px 8px; }
+    .network-link-hover { stroke-opacity: 1 !important; filter: drop-shadow(0 0 4px rgba(56,189,248,0.5)); }
+    .tier-link-hover { stroke-opacity: 1 !important; }
+    .topo-legend-panel {
+        position: absolute; bottom: 16px; left: 16px; z-index: 5;
+        max-width: 220px; max-height: 55vh; overflow-y: auto;
+    }
+    .topo-legend-inner {
+        background: rgba(0,0,0,0.78); padding: 10px 14px; border-radius: 8px;
+        color: #fff; font-size: 0.72rem; border: 1px solid rgba(148,163,184,0.2);
+    }
+    .topo-legend-section {
+        font-size: 0.62rem; text-transform: uppercase; letter-spacing: 0.06em;
+        color: rgba(148,163,184,0.85); margin: 8px 0 4px; font-weight: 600;
+    }
+    .topo-legend-section:first-child { margin-top: 0; }
+    .topo-legend-inner .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+    .topo-legend-inner .legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .topo-stats {
+        position: absolute; top: 16px; right: 16px; background: rgba(0,0,0,0.7);
+        padding: 10px 16px; border-radius: 8px; color: #fff; font-size: 0.8rem;
+        z-index: 4; max-width: 42%;
+    }
+    .topo-status-bar {
+        position: absolute; bottom: 16px; right: 16px; z-index: 5;
+        background: rgba(15,23,42,0.88); border: 1px solid rgba(148,163,184,0.2);
+        border-radius: 6px; padding: 6px 12px; min-width: 200px;
+    }
+    .topo-inspector-panel {
+        position: absolute; top: 56px; right: 12px; width: 260px; z-index: 7;
+        display: none; max-height: calc(100% - 120px); overflow-y: auto;
+    }
+    .topo-inspector-panel.visible { display: block; }
+    .topo-inspector-panel .topo-inspector-body {
+        position: static; background: rgba(15,23,42,0.96); border: 1px solid #334155;
+        border-radius: 8px; padding: 12px 14px; color: #e2e8f0; font-size: 0.78rem;
+    }
+    .topo-inspector-panel h6 { font-size: 0.85rem; margin: 0 0 8px; color: #f8fafc; }
+    .topo-inspector-row {
+        display: flex; justify-content: space-between; gap: 8px;
+        padding: 3px 0; border-bottom: 1px solid rgba(51,65,85,0.5); font-size: 0.72rem;
+    }
+    .topo-inspector-row span:first-child { color: #94a3b8; }
+    .topo-inspector-note { font-size: 0.68rem; color: #fbbf24; margin: 0 0 8px; }
+    .topo-inspector-close {
+        float: right; background: none; border: none; color: #94a3b8;
+        font-size: 1.2rem; line-height: 1; cursor: pointer; padding: 0 4px;
+    }
+    .fabric-ext-body { fill: rgba(51,65,85,0.5); stroke: #94a3b8; stroke-width: 1.5; stroke-dasharray: 4,3; }
+    .fabric-fw-hex { filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35)); }
+    .topo-host-label-hidden { display: none !important; }
+    .topo-iface-label { font-size: 7px; fill: rgba(203,213,225,0.65); pointer-events: none; }
+    .topo-errors {
+        position: absolute; top: 52px; right: 16px; left: auto; background: rgba(220,38,38,0.85);
+        padding: 8px 14px; border-radius: 8px; color: #fff; font-size: 0.75rem;
+        max-width: 360px; max-height: 150px; overflow-y: auto; z-index: 5;
+    }
+    .topo-errors strong { display: block; margin-bottom: 4px; }
+    .topo-errors .err-item { opacity: 0.9; margin-bottom: 2px; word-break: break-word; }
+    #topo-scan-overlay {
+        display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+        z-index: 1000; align-items: center; justify-content: center; flex-direction: column;
+        color: #fff; font-size: 1rem;
+    }
+    #topo-scan-overlay.active { display: flex; }
+    #topo-scan-overlay .spinner-border { width: 2.5rem; height: 2.5rem; }
+    .topo-tag-strip-wrap {
+        display: none;
+        background: #fff;
+        border-radius: 8px;
+        padding: 8px 14px 10px;
+        margin-bottom: 10px;
+        box-shadow: 0 1px 3px rgba(0,0,0,.06);
+        border-top: 3px solid var(--ks-red, #E31937);
+    }
+    .topo-tag-strip-wrap.visible { display: block; }
+    .topo-tag-strip-row {
+        display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    }
+    .topo-tag-strip-label {
+        font-size: 0.7rem; color: #888; font-weight: 600; flex-shrink: 0;
+    }
+    .topo-filter-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; flex: 1; min-width: 0; }
+    .topo-filter-tags .tag-chip {
+        font-size: 0.78rem; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+        border: none;
+        background: #ede9fe; color: #5b21b6;
+    }
+    .topo-filter-tags .tag-chip.selected { background: #7c3aed; color: #fff; }
+    .topo-filter-tags .tag-chip:hover { filter: brightness(1.06); }
+    .topo-filter-clear.btn {
+        font-size: 0.72rem; padding: 4px 10px; flex-shrink: 0;
+    }
+    .topo-tag-strip-hint {
+        font-size: 0.68rem; color: #6b7280; margin-top: 6px; line-height: 1.35;
+        border-top: 1px solid #eee; padding-top: 6px;
+    }
+    /* Network Diagram — Industry-grade styling */
+    .net-zone-bg {
+        fill: rgba(255,255,255,0.015);
+        stroke: rgba(255,255,255,0.12);
+        stroke-width: 1.5;
+        stroke-dasharray: 8,4;
+    }
+    .net-zone-bg.perimeter { fill: rgba(239,68,68,0.04); stroke: rgba(239,68,68,0.25); }
+    .net-zone-bg.core { fill: rgba(59,130,246,0.04); stroke: rgba(59,130,246,0.25); }
+    .net-zone-bg.edge { fill: rgba(168,85,247,0.04); stroke: rgba(168,85,247,0.25); }
+    .net-zone-bg.isolated { fill: rgba(107,114,128,0.06); stroke: rgba(107,114,128,0.35); stroke-dasharray: 4,4; }
+    .net-zone-label {
+        font-size: 11px; fill: rgba(255,255,255,0.55);
+        font-weight: 700; letter-spacing: 0.08em;
+        text-transform: uppercase;
+    }
+    .net-zone-label.perimeter { fill: rgba(239,68,68,0.9); }
+    .net-zone-label.core { fill: rgba(96,165,250,0.9); }
+    .net-zone-label.edge { fill: rgba(192,132,252,0.9); }
+    .net-zone-label.isolated { fill: rgba(156,163,175,0.9); }
+    .net-device-rack {
+        fill: #0c0f14; stroke: rgba(34,197,94,0.55); stroke-width: 1.25;
+        filter: drop-shadow(0 2px 10px rgba(0,0,0,0.55)) drop-shadow(0 0 6px rgba(34,197,94,0.12));
+    }
+    .net-device-rack.offline { fill: #140a0a; stroke: rgba(239,68,68,0.75); filter: drop-shadow(0 0 5px rgba(239,68,68,0.25)); }
+    .net-device-rack.isolated { fill: #1a1a2e; stroke: rgba(107,114,128,0.3); }
+    .net-device-faceplate {
+        fill: #0f172a; stroke: rgba(255,255,255,0.08); stroke-width: 0.5;
+    }
+    .net-led {
+        filter: drop-shadow(0 0 3px currentColor);
+    }
+    .net-led.green { fill: #4ade80; filter: drop-shadow(0 0 5px #22c55e) drop-shadow(0 0 10px rgba(34,197,94,0.55)); }
+    .net-led.red { fill: #f87171; filter: drop-shadow(0 0 5px #ef4444) drop-shadow(0 0 8px rgba(239,68,68,0.5)); }
+    .net-led.amber { fill: #f59e0b; }
+    .net-led.gray { fill: #6b7280; }
+    .net-port-grid-line { stroke: rgba(255,255,255,0.06); stroke-width: 0.5; }
+    .net-link-bus {
+        fill: none; stroke: rgba(34,197,94,0.25); stroke-width: 2;
+        stroke-linecap: round;
+    }
+    .net-link-trunk {
+        fill: none; stroke: rgba(59,130,246,0.45); stroke-width: 2.5;
+        stroke-linecap: round;
+    }
+    .net-link-access {
+        fill: none; stroke: rgba(168,85,247,0.4); stroke-width: 1.5;
+        stroke-linecap: round;
+    }
+    .net-link-down {
+        stroke: rgba(239,68,68,0.3); stroke-dasharray: 4,3;
+    }
+    .net-link-highlight {
+        stroke: rgba(34,197,94,0.7); stroke-width: 3;
+        filter: drop-shadow(0 0 4px rgba(34,197,94,0.4));
+    }
+    .net-iso-badge {
+        font-size: 9px; fill: #9ca3af;
+        font-weight: 600;
+    }
+    .net-iso-count {
+        font-size: 10px; fill: #f59e0b; font-weight: 700;
+    }
+    .net-dev-label {
+        font-size: 10px; fill: #e2e8f0; font-weight: 600;
+        pointer-events: none;
+    }
+    .net-dev-ip {
+        font-size: 8px; fill: rgba(255,255,255,0.5);
+        pointer-events: none;
+    }
+    .net-dev-model {
+        font-size: 7px; fill: rgba(255,255,255,0.35);
+        text-transform: uppercase;
+        pointer-events: none;
+    }
+    .net-emblem {
+        fill: #3b82f6; stroke: rgba(255,255,255,0.35); stroke-width: 0.5;
+        pointer-events: none;
+    }
+    .net-emblem-label {
+        font-size: 8px; fill: #fff; font-weight: 700; pointer-events: none;
+    }
+    .tier-overlap-hint {
+        font-size: 10px; fill: rgba(251,191,36,0.9); pointer-events: none;
+    }
+    .tier-links .link-line {
+        stroke-opacity: 0.32;
+        pointer-events: stroke;
+    }
+    .tier-links .link-line.tier-link-cross {
+        stroke-opacity: 0.18;
+    }
+    .tier-links .link-line.tier-link-hover {
+        stroke-opacity: 0.85;
+        stroke-width: 2.5 !important;
+    }
+    .tier-link-labels text { display: none; }
+    .tier-link-labels text.tier-link-label-show { display: block; }
+    .tier-nodes.tier-dense .net-port-indicator { display: none; }
+    .tier-nodes.tier-dense .net-dev-ip { display: none; }
+    .net-port-indicator {
+        fill: #22c55e; opacity: 0.7;
+    }
+    .net-port-indicator.empty { fill: #374151; opacity: 1; }
+</style>
+{% endblock %}
+{% block content %}
+{% csrf_token %}
+<div id="topo-scan-overlay" aria-hidden="true">
+    <div class="spinner-border text-light mb-3" role="status"><span class="visually-hidden">Loading...</span></div>
+    <div>Starting LLDP scan…</div>
+    <div style="font-size:.85rem;opacity:.85;margin-top:8px;">This runs in the background. The page will reload shortly.</div>
+</div>
+<div id="topo-tag-strip-wrap" class="topo-tag-strip-wrap" aria-label="Topology tag filters">
+    <div class="topo-tag-strip-row">
+        <span class="topo-tag-strip-label">Team:</span>
+        <div class="topo-filter-tags" id="topo-filter-tags"></div>
+        <button type="button" class="btn btn-sm btn-outline-secondary topo-filter-clear" id="topo-filter-clear">Clear</button>
+    </div>
+    <p class="topo-tag-strip-hint mb-0">Filter by tag, then include every device/chassis on the same <strong>LLDP link component</strong> so neighbors stay connected. Chassis: team tags. Devices: tags field.</p>
+</div>
+<div id="topology-container">
+    <div class="topo-display-toolbar" id="topo-display-toolbar" role="toolbar" aria-label="Topology display options">
+        <label><input type="checkbox" id="topo-pref-host-labels" checked> Host labels</label>
+        <label><input type="checkbox" id="topo-pref-iface-labels"> Interface labels</label>
+        <label><input type="checkbox" id="topo-pref-legend" checked> Legend</label>
+        <label><input type="checkbox" id="topo-pref-layer-lldp" checked> LLDP</label>
+        <label><input type="checkbox" id="topo-pref-layer-chassis" checked> Chassis links</label>
+        <label><input type="checkbox" id="topo-pref-layer-external"> External LLDP</label>
+        <span id="topo-network-style-wrap" class="topo-network-style-wrap" aria-hidden="true">
+            <span style="opacity:0.75;">Style</span>
+            <button type="button" class="btn btn-outline-secondary active" id="topo-network-full" title="Hierarchical tree (Checkmk full)">Full</button>
+            <button type="button" class="btn btn-outline-secondary" id="topo-network-flat" title="Force-directed spread (Checkmk flat)">Flat</button>
+        </span>
+    </div>
+    <div class="topo-stats" id="topo-stats">Loading...</div>
+    <div id="topo-errors" style="display:none;"></div>
+    <aside id="topo-inspector-panel" class="topo-inspector-panel" role="complementary" aria-label="Selection details"></aside>
+    <div id="topo-legend-panel" class="topo-legend-panel" aria-label="Map legend"></div>
+    <div id="topo-status-bar" class="topo-status-bar" role="status" aria-live="polite"></div>
+</div>
+<div class="tooltip-topo" id="tooltip" style="display:none;"></div>
+{% endblock %}
+{% block extra_js %}
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script type="module">
+import { initTopoMapChrome } from '{% static "js/topo/topo-map-init.js" %}';
+initTopoMapChrome({ dataUrl: '{% url "topology_data" %}', pollIntervalMs: 45000 }).catch((err) => {
+  console.error('Topo map chrome failed to load:', err);
+});
+</script>
+<script>
+function getCookie(name) {
+    const m = document.cookie.match('(^|;) ?' + name + '=([^;]*)(;|$)');
+    return m ? m[2] : '';
+}
+document.getElementById('topo-rescan-btn')?.addEventListener('click', function() {
+    const ov = document.getElementById('topo-scan-overlay');
+    ov.classList.add('active');
+    ov.setAttribute('aria-hidden', 'false');
+    fetch('{% url "topology_rescan" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': getCookie('csrftoken'),
+            'Content-Type': 'application/json',
+        },
+        credentials: 'same-origin',
+        body: '{}',
+    })
+    .then(r => r.json())
+    .then(() => {
+        setTimeout(() => { window.location.reload(); }, 5000);
+    })
+    .catch(err => {
+        console.error(err);
+        ov.classList.remove('active');
+        alert('Rescan failed: ' + err.message);
+    });
+});
+
+const FILTER_LS_KEY = 'labvault_topology_team_tags_v1';
+const FILTER_QPARAM = 'team_tag';
+
+const container = document.getElementById('topology-container');
+const tooltip = document.getElementById('tooltip');
+let width = 0;
+let height = 0;
+let svg = null;
+let g = null;
+
+function measureViewport() {
+    if (!container) return { width: 1200, height: 500 };
+    const w = container.clientWidth || container.offsetWidth || 0;
+    const h = container.clientHeight || container.offsetHeight || 0;
+    width = Math.max(w, 640);
+    height = Math.max(h, 420);
+    return { width, height };
+}
+
+function ensureSvg() {
+    if (!container || typeof d3 === 'undefined') return false;
+    measureViewport();
+    if (!svg) {
+        d3.select('#topology-container').selectAll('svg').remove();
+        svg = d3.select('#topology-container').append('svg')
+            .attr('width', width).attr('height', height);
+        g = svg.append('g');
+        zoomBehavior = d3.zoom().scaleExtent([0.15, 4]).on('zoom', (e) => {
+            g.attr('transform', e.transform);
+            if (window.labvaultTopoMap) window.labvaultTopoMap.setCurrentZoom(e.transform.k);
+            applyLabelVisibility();
+        });
+        svg.call(zoomBehavior);
+        svg.append('defs').append('marker').attr('id', 'arrow').attr('viewBox', '0 -5 10 10')
+            .attr('refX', 20).attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+            .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', 'rgba(255,255,255,0.3)');
+    } else {
+        svg.attr('width', width).attr('height', parseFloat(svg.attr('height')) || height);
+    }
+    return true;
+}
+
+function showTopoError(msg) {
+    const el = document.getElementById('topo-stats');
+    if (el) {
+        el.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-exclamation-triangle me-1"></i>${msg}</span>`;
+    }
+    measureViewport();
+    if (g) {
+        g.selectAll('*').remove();
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(239,68,68,0.75)')
+            .attr('font-size', '15px').text(msg);
+    }
+}
+
+const vendorColors = {
+    arista: '#22c55e',
+    sonic: '#16a34a',
+    fortigate: '#ef4444',
+    paloalto: '#dc2626',
+    keysight: '#0a0a0f',
+    external: '#64748b',
+};
+/** Per-tier swimlane accents (shiny green / red / black). */
+const TIER_BAND_THEME = [
+    { fill: 'rgba(239,68,68,0.14)', stroke: 'rgba(248,113,113,0.55)', title: '#fecaca' },
+    { fill: 'rgba(34,197,94,0.12)', stroke: 'rgba(74,222,128,0.5)', title: '#bbf7d0' },
+    { fill: 'rgba(22,163,74,0.10)', stroke: 'rgba(34,197,94,0.42)', title: '#86efac' },
+    { fill: 'rgba(0,0,0,0.42)', stroke: 'rgba(34,197,94,0.38)', title: '#a7f3d0' },
+];
+
+function nodeKind(n) {
+    if (n.kind) return n.kind;
+    if (n.external || String(n.id).startsWith('external:')) return 'external';
+    if (isChassis(n)) return 'chassis';
+    const v = (n.vendor || '').toLowerCase();
+    if (v === 'fortigate' || v === 'paloalto') return 'firewall';
+    return 'switch';
+}
+
+function parseSpeedMbps(speedStr) {
+    if (!speedStr) return 0;
+    const s = String(speedStr).toLowerCase().replace(/\s/g, '');
+    const m = s.match(/(\d+(?:\.\d+)?)\s*(g|m|k)?/);
+    if (!m) return 0;
+    let n = parseFloat(m[1]);
+    const u = m[2] || 'm';
+    if (u === 'g') n *= 1000;
+    else if (u === 'k') n /= 1000;
+    return n;
+}
+
+function linkStrokeWidth(l) {
+    const mbps = parseSpeedMbps(l.speed);
+    if (mbps >= 100000) return 7;
+    if (mbps >= 40000) return 6;
+    if (mbps >= 10000) return 4;
+    if (mbps >= 1000) return 3;
+    if (mbps > 0) return 2.5;
+    const cnt = l.link_count || 1;
+    return Math.min(5, 1.25 + cnt * 0.35);
+}
+
+function linkDashForDuplex(l) {
+    const d = (l.duplex || '').toLowerCase();
+    if (d.includes('half')) return '5,4';
+    return null;
+}
+
+function linkStrokeColor(l) {
+    if (window.labvaultTopoMap && window.labvaultTopoMap.linkColorForHealth) {
+        const h = l.status === 'up' ? 'up' : 'down';
+        return window.labvaultTopoMap.linkColorForHealth(h, l.layer === 'lldp_external' ? 'lldp' : 'lldp');
+    }
+    if (l.status !== 'up') return 'rgba(248,113,113,0.55)';
+    if (l._kind === 'trunk') return 'rgba(74,222,128,0.5)';
+    if (l._kind === 'peer') return 'rgba(34,197,94,0.38)';
+    return 'rgba(74,222,128,0.42)';
+}
+
+function filterByLayers(nodes, links) {
+    const chrome = window.labvaultTopoMap;
+    if (!chrome || !chrome.layerVisible) return { nodes, links };
+    let n = nodes.slice();
+    let l = links.slice();
+    if (!chrome.layerVisible('external')) {
+        n = n.filter(nd => !nd.external && !String(nd.id).startsWith('external:'));
+        l = l.filter(lk => {
+            const a = String(lk.source), b = String(lk.target);
+            return !a.startsWith('external:') && !b.startsWith('external:');
+        });
+    }
+    if (!chrome.layerVisible('chassis')) {
+        n = n.filter(nd => !isChassis(nd));
+        l = l.filter(lk => {
+            const a = String(lk.source), b = String(lk.target);
+            return !a.startsWith('chassis-') && !b.startsWith('chassis-');
+        });
+    }
+    if (!chrome.layerVisible('lldp')) {
+        l = l.filter(lk => {
+            const a = String(lk.source), b = String(lk.target);
+            const isCh = a.startsWith('chassis-') || b.startsWith('chassis-');
+            const isExt = a.startsWith('external:') || b.startsWith('external:');
+            return isCh || isExt;
+        });
+    }
+    return { nodes: n, links: l };
+}
+
+function applyLabelVisibility() {
+    if (!g) return;
+    const chrome = window.labvaultTopoMap;
+    const vis = chrome && chrome.labelsVisible ? chrome.labelsVisible() : { host: true, iface: false };
+    g.selectAll('.fabric-sw-name, .fabric-dut-name, .node-card-title, .net-dev-label')
+        .attr('display', vis.host ? null : 'none');
+    g.selectAll('.topo-iface-label')
+        .attr('display', vis.iface ? null : 'none');
+}
+
+function onDisplayPrefsChanged() {
+    refreshTopoLegend();
+    if (allNodes.length) updateStatsAndGraph();
+}
+const vendorIcons = {'arista':'\uf06c','sonic':'\uf028','fortigate':'\uf3ed','paloalto':'\uf06d','keysight':'\uf2db'};
+const vendorTier = {fortigate:0, paloalto:0, arista:1, sonic:2, keysight:3, unknown:2};
+const tierLabels = ['Firewalls', 'Switches (Arista)', 'Switches (SONiC / other)', 'Keysight chassis'];
+const CARD_W = 128;
+const CARD_H = 46;
+const CHASSIS_CARD_W = 108;
+const CHASSIS_CARD_H = 40;
+const FABRIC_SW_W = 96;
+const FABRIC_SW_H = 34;
+const FABRIC_DUT_W = 84;
+const FABRIC_DUT_H = 26;
+const MAP_HUB_GAP = 72;
+const MAP_SWITCH_ROW_GAP = 52;
+const MAP_SW_TO_DUT_GAP = 38;
+const MAP_FABRIC_COL_GAP = 40;
+const MAP_FABRIC_ROW_GAP = 32;
+const MAP_DUT_PER_ROW_MAX = 3;
+const MAP_MAX_HUBS_PER_ROW = 3;
+const MAP_EXT_GAP = 128;
+const MAP_EXT_ROW_H = 54;
+const MAP_INV_COL_GAP = 28;
+const MAP_INV_ROW_GAP = 24;
+const MAP_FABRIC_MIN_VH = 0.55;
+const MAP_TRUNK_LANE_STEP = 12;
+const MAP_INV_MIN_CELL_GAP = 28;
+const VIEW_LS_KEY = 'labvault_topology_view_mode_v1';
+const NETWORK_STYLE_LS_KEY = 'labvault_topology_network_style_v1';
+let viewMode = 'tier';  // 'map' | 'tier' | 'network'
+let networkStyle = 'flat';  // 'flat' | 'full'
+let lastGraph = { nodes: [], links: [] };
+
+/** Industry-grade network diagram constants */
+const NET_RACK_W = 140;
+const NET_RACK_H = 56;
+/** Compact rack cards for tier swimlanes (Checkmk NVDCT-style icon + faceplate). */
+const TIER_RACK_W = 118;
+const TIER_RACK_H = 50;
+const TIER_CHASSIS_W = 112;
+const TIER_CHASSIS_H = 44;
+const TIER_COMPACT_W = 86;
+const TIER_COMPACT_H = 36;
+const TIER_COMPACT_CHASSIS_W = 88;
+const TIER_COMPACT_CHASSIS_H = 34;
+const TIER_NODE_GAP = 44;
+const TIER_MIN_GAP = 40;
+const TIER_ROW_V_GAP = 22;
+const TIER_SIDE_PAD = 48;
+const TIER_BAND_PAD_TOP = 30;
+const TIER_BAND_PAD_BOTTOM = 18;
+const TIER_BAND_V_GAP = 28;
+const TIER_DENSE_THRESHOLD = 8;
+const NET_PORT_COLS = 12;
+const NET_PORT_ROWS = 2;
+const NET_ZONE_PADDING = 36;
+const NET_DEVICE_GAP = 24;
+let zoomBehavior = null;
+
+function isChassis(n) {
+    return String(n.id).startsWith('chassis-');
+}
+
+function isExternalNode(n) {
+    return !!(n && (n.external || String(n.id).startsWith('external:')));
+}
+
+function chassisShortLabel(n) {
+    const nm = (n.name || '').trim();
+    if (!nm || /^\d+\.\d+/.test(nm)) {
+        const m = /^chassis-(\d+)$/.exec(String(n.id));
+        return m ? 'Ch-' + m[1] : (n.ip || '?').split('.').pop();
+    }
+    const parts = nm.split(/[-_]/);
+    const tail = parts[parts.length - 1];
+    if (tail.length <= 14) return tail;
+    return nm.length > 12 ? nm.substring(0, 10) + '…' : nm;
+}
+
+function normalizeViewMode(mode) {
+    if (mode === 'tier' || mode === 'network') return mode;
+    return 'map';
+}
+
+function readNetworkStyle() {
+    try {
+        const v = localStorage.getItem(NETWORK_STYLE_LS_KEY);
+        if (v === 'full' || v === 'flat') return v;
+    } catch (e) { /* ignore */ }
+    return 'flat';
+}
+
+function setNetworkStyle(style) {
+    networkStyle = style === 'full' ? 'full' : 'flat';
+    try { localStorage.setItem(NETWORK_STYLE_LS_KEY, networkStyle); } catch (e) { /* ignore */ }
+    const fullBtn = document.getElementById('topo-network-full');
+    const flatBtn = document.getElementById('topo-network-flat');
+    if (fullBtn) {
+        fullBtn.className = 'btn ' + (networkStyle === 'full' ? 'btn-nc active' : 'btn-outline-secondary');
+    }
+    if (flatBtn) {
+        flatBtn.className = 'btn ' + (networkStyle === 'flat' ? 'btn-nc active' : 'btn-outline-secondary');
+    }
+    if (viewMode === 'network' && allNodes.length) updateStatsAndGraph();
+}
+
+function updateNetworkStyleToolbar() {
+    const wrap = document.getElementById('topo-network-style-wrap');
+    if (!wrap) return;
+    const show = viewMode === 'network';
+    wrap.classList.toggle('visible', show);
+    wrap.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function refreshTopoLegend() {
+    const chrome = window.labvaultTopoMap;
+    if (!chrome || !chrome.legend) return;
+    const prefs = chrome.readDisplayPrefs ? chrome.readDisplayPrefs() : {};
+    if (viewMode === 'network' && chrome.legend.renderForNetwork) {
+        chrome.legend.renderForNetwork(prefs, networkStyle);
+    } else if (chrome.legend.renderForMap) {
+        chrome.legend.renderForMap(prefs);
+    }
+}
+
+function setViewMode(mode) {
+    viewMode = normalizeViewMode(mode);
+    try { localStorage.setItem(VIEW_LS_KEY, viewMode); } catch (e) { /* ignore */ }
+    const mapBtn = document.getElementById('topo-view-map');
+    const tierBtn = document.getElementById('topo-view-tier');
+    const netBtn = document.getElementById('topo-view-network');
+    if (mapBtn) {
+        mapBtn.className = 'btn ' + (viewMode === 'map' ? 'btn-nc active' : 'btn-outline-secondary');
+    }
+    if (tierBtn) {
+        tierBtn.className = 'btn ' + (viewMode === 'tier' ? 'btn-nc active' : 'btn-outline-secondary');
+    }
+    if (netBtn) {
+        netBtn.className = 'btn ' + (viewMode === 'network' ? 'btn-nc active' : 'btn-outline-secondary');
+    }
+    updateNetworkStyleToolbar();
+    refreshTopoLegend();
+    if (allNodes.length) updateStatsAndGraph();
+}
+
+function readViewMode() {
+    try {
+        const v = localStorage.getItem(VIEW_LS_KEY);
+        if (v === 'tier' || v === 'network' || v === 'map') return v;
+        if (v === 'dc') return 'map';
+    } catch (e) { /* ignore */ }
+    return 'tier';
+}
+
+/** Map layout: connected fabric on top; unlinked inventory in a full-width grid below (preserves zoom). */
+function mapHubColumnWidth(chIds) {
+    if (!chIds.length) return FABRIC_SW_W + 48;
+    const cols = Math.min(chIds.length, MAP_DUT_PER_ROW_MAX);
+    return Math.max(
+        FABRIC_SW_W + 40,
+        cols * (FABRIC_DUT_W + MAP_FABRIC_COL_GAP) - MAP_FABRIC_COL_GAP + 36,
+    );
+}
+
+function mapHubStackHeight(chIds) {
+    if (!chIds.length) return FABRIC_SW_H + MAP_SW_TO_DUT_GAP + 24;
+    const perRow = Math.min(chIds.length, MAP_DUT_PER_ROW_MAX);
+    const dutRows = Math.ceil(chIds.length / perRow);
+    return FABRIC_SW_H + MAP_SW_TO_DUT_GAP
+        + dutRows * FABRIC_DUT_H + Math.max(0, dutRows - 1) * MAP_FABRIC_ROW_GAP + 20;
+}
+
+/** Unlinked inventory grid with minimum cell spacing (no overlapping cards). */
+function layoutMapInventory(invItems, mainLeft, layoutW, invTop) {
+    if (!invItems.length) {
+        return { invCols: 0, invRows: 0, contentH: invTop + 48 };
+    }
+    const maxCardW = Math.max(CARD_W, CHASSIS_CARD_W);
+    const maxCardH = Math.max(CARD_H, CHASSIS_CARD_H);
+    const cellW = maxCardW + MAP_INV_MIN_CELL_GAP;
+    const rowH = maxCardH + MAP_INV_ROW_GAP;
+    const usableW = Math.max(400, layoutW - 48);
+    let invCols = Math.max(3, Math.floor(usableW / cellW));
+    invCols = Math.min(invCols, 8, invItems.length);
+    const invRows = Math.ceil(invItems.length / invCols);
+    const gridW = invCols * cellW - MAP_INV_MIN_CELL_GAP;
+    const invX0 = mainLeft + Math.max(20, (layoutW - gridW) / 2);
+
+    invItems.forEach((n, i) => {
+        const col = i % invCols;
+        const row = Math.floor(i / invCols);
+        const cardW = isChassis(n) ? CHASSIS_CARD_W : CARD_W;
+        const cardH = isChassis(n) ? CHASSIS_CARD_H : CARD_H;
+        n.x = invX0 + col * cellW + cardW / 2;
+        n.y = invTop + row * rowH + cardH / 2;
+        n.fx = n.x;
+        n.fy = n.y;
+        n._fabric = false;
+    });
+
+    return {
+        invCols,
+        invRows,
+        contentH: invTop + invRows * rowH + 80,
+    };
+}
+
+/** Pack switch hubs into spaced columns; wrap rows by width and max hubs per row. */
+function packMapInfraHubs(infra, chassisBySwitch, mainLeft, mainW, switchY0) {
+    const maxRowW = Math.max(520, mainW - 64);
+    const hubs = infra.map(n => {
+        const chIds = (chassisBySwitch.get(String(n.id)) || []).slice().sort();
+        return { n, chIds, colW: mapHubColumnWidth(chIds), stackH: mapHubStackHeight(chIds) };
+    });
+    const rows = [];
+    let row = [];
+    let rowW = 0;
+    hubs.forEach(hub => {
+        const addW = row.length ? MAP_HUB_GAP + hub.colW : hub.colW;
+        const tooWide = row.length && rowW + addW > maxRowW;
+        const tooMany = row.length >= MAP_MAX_HUBS_PER_ROW;
+        if (tooWide || tooMany) {
+            rows.push(row);
+            row = [];
+            rowW = 0;
+        }
+        row.push(hub);
+        rowW += row.length > 1 ? MAP_HUB_GAP + hub.colW : hub.colW;
+    });
+    if (row.length) rows.push(row);
+
+    const hubCenters = new Map();
+    let y = switchY0;
+    let fabricCanvasW = mainW;
+    rows.forEach(hubRow => {
+        const totalW = hubRow.reduce((sum, h, i) => sum + h.colW + (i ? MAP_HUB_GAP : 0), 0);
+        fabricCanvasW = Math.max(fabricCanvasW, totalW + 96);
+        let x = mainLeft + Math.max(48, (fabricCanvasW - totalW) / 2);
+        const rowStackH = Math.max(...hubRow.map(h => h.stackH));
+        hubRow.forEach(({ n, chIds, colW }) => {
+            n.tier = vendorTier[n.vendor] ?? 2;
+            n._dcRole = 'infra';
+            n._isIsolated = false;
+            n._fabric = true;
+            n.x = x + colW / 2;
+            n.y = y + FABRIC_SW_H / 2;
+            n.fx = n.x;
+            n.fy = n.y;
+            n._hubWidth = colW;
+            n._dutCount = chIds.length;
+            n._dutPerRow = Math.min(chIds.length || 1, MAP_DUT_PER_ROW_MAX);
+            n._gridTop = y + FABRIC_SW_H + MAP_SW_TO_DUT_GAP;
+            hubCenters.set(String(n.id), n.x);
+            x += colW + MAP_HUB_GAP;
+        });
+        y += rowStackH + MAP_SWITCH_ROW_GAP;
+    });
+
+    return {
+        hubCenters,
+        switchRowCount: rows.length,
+        bottomSwitchY: y - MAP_SWITCH_ROW_GAP,
+        fabricCanvasW,
+        fabricBottomY: y,
+    };
+}
+
+function assignDcLayout(nodes, links) {
+    const pad = 16;
+    const connectedIds = new Set();
+    links.forEach(l => {
+        connectedIds.add(String(l.source));
+        connectedIds.add(String(l.target));
+    });
+
+    const connected = nodes.filter(n => connectedIds.has(String(n.id)));
+    const external = connected.filter(n => n.external || String(n.id).startsWith('external:'));
+    const connectedCore = connected.filter(n => !n.external && !String(n.id).startsWith('external:'));
+    const isolated = nodes.filter(n => !connectedIds.has(String(n.id)));
+    isolated.forEach(n => {
+        n._isIsolated = true;
+        n._dcRole = 'isolated';
+    });
+
+    const mainLeft = pad;
+    const mainW = Math.max(960, width - pad * 2);
+
+    const infra = connectedCore.filter(n => !isChassis(n));
+    const chassis = connectedCore.filter(n => isChassis(n));
+
+    const fabricTop = 32;
+    let fabricCanvasW = mainW;
+    const extRowY = fabricTop + 24;
+    if (external.length) {
+        const extTotalW = external.length * MAP_EXT_GAP - MAP_EXT_GAP;
+        fabricCanvasW = Math.max(fabricCanvasW, extTotalW + 96);
+        let ex = mainLeft + Math.max(48, (fabricCanvasW - extTotalW) / 2);
+        external.forEach(n => {
+            n._dcRole = 'external';
+            n._isIsolated = false;
+            n._fabric = true;
+            n.x = ex;
+            n.y = extRowY;
+            n.fx = n.x;
+            n.fy = n.y;
+            ex += MAP_EXT_GAP;
+        });
+    }
+
+    const switchY0 = external.length ? fabricTop + MAP_EXT_ROW_H + 36 : fabricTop + 48;
+
+    infra.sort((a, b) => {
+        const ta = vendorTier[a.vendor] ?? 2;
+        const tb = vendorTier[b.vendor] ?? 2;
+        if (ta !== tb) return ta - tb;
+        return (a.name || a.id).localeCompare(b.name || b.id);
+    });
+
+    const swById = new Map(infra.map(n => [String(n.id), n]));
+    const chassisBySwitch = new Map();
+    const linkedChassisIds = new Set();
+    links.forEach(l => {
+        const a = String(l.source);
+        const b = String(l.target);
+        let swId = null;
+        let chId = null;
+        if (a.startsWith('chassis-') && swById.has(b)) { chId = a; swId = b; }
+        else if (b.startsWith('chassis-') && swById.has(a)) { chId = b; swId = a; }
+        if (!chId || !swId) return;
+        linkedChassisIds.add(chId);
+        if (!chassisBySwitch.has(swId)) chassisBySwitch.set(swId, []);
+        chassisBySwitch.get(swId).push(chId);
+    });
+
+    let hubCenters = new Map();
+    let switchRowCount = 0;
+    let bottomSwitchY = switchY0;
+    let fabricBottomY = switchY0 + mapHubStackHeight([]);
+
+    if (infra.length === 1) {
+        const n = infra[0];
+        const chIds = chassisBySwitch.get(String(n.id)) || [];
+        const colW = mapHubColumnWidth(chIds);
+        n.tier = vendorTier[n.vendor] ?? 2;
+        n._dcRole = 'infra';
+        n._isIsolated = false;
+        n._fabric = true;
+        n.x = mainLeft + mainW / 2;
+        n.y = switchY0 + FABRIC_SW_H / 2;
+        n.fx = n.x;
+        n.fy = n.y;
+        n._hubWidth = colW;
+        n._dutCount = chIds.length;
+        n._dutPerRow = Math.min(chIds.length || 1, MAP_DUT_PER_ROW_MAX);
+        n._gridTop = switchY0 + FABRIC_SW_H + MAP_SW_TO_DUT_GAP;
+        hubCenters.set(String(n.id), n.x);
+        switchRowCount = 1;
+        bottomSwitchY = switchY0 + FABRIC_SW_H / 2;
+        fabricBottomY = switchY0 + mapHubStackHeight(chIds);
+        fabricCanvasW = Math.max(fabricCanvasW, colW + 96);
+    } else if (infra.length > 1) {
+        const packed = packMapInfraHubs(infra, chassisBySwitch, mainLeft, mainW, switchY0);
+        hubCenters = packed.hubCenters;
+        switchRowCount = packed.switchRowCount;
+        bottomSwitchY = packed.bottomSwitchY;
+        fabricBottomY = packed.fabricBottomY;
+        fabricCanvasW = Math.max(fabricCanvasW, packed.fabricCanvasW);
+    }
+
+    const switchY = switchY0;
+    const busY = bottomSwitchY + 20;
+
+    const placed = new Set();
+    let linkedMaxY = fabricBottomY;
+
+    chassisBySwitch.forEach((chIds, swId) => {
+        const sw = swById.get(swId);
+        if (!sw) return;
+        chIds.sort();
+        const gridTop = sw._gridTop || (switchY0 + FABRIC_SW_H + MAP_SW_TO_DUT_GAP);
+        const perRowUnder = sw._dutPerRow || Math.min(chIds.length, MAP_DUT_PER_ROW_MAX);
+        const colsUnder = Math.min(chIds.length, perRowUnder);
+        const totalW = colsUnder * (FABRIC_DUT_W + MAP_FABRIC_COL_GAP) - MAP_FABRIC_COL_GAP;
+        const x0 = sw.x - totalW / 2 + FABRIC_DUT_W / 2;
+        chIds.forEach((cid, idx) => {
+            const n = chassis.find(c => String(c.id) === cid);
+            if (!n) return;
+            const col = idx % perRowUnder;
+            const row = Math.floor(idx / perRowUnder);
+            n._dcRole = 'chassis-linked';
+            n._peerSwitch = swId;
+            n._isIsolated = false;
+            n._fabric = true;
+            n.x = x0 + col * (FABRIC_DUT_W + MAP_FABRIC_COL_GAP);
+            n.y = gridTop + row * (FABRIC_DUT_H + MAP_FABRIC_ROW_GAP) + FABRIC_DUT_H / 2;
+            n.fx = n.x;
+            n.fy = n.y;
+            placed.add(cid);
+            linkedMaxY = Math.max(linkedMaxY, n.y + FABRIC_DUT_H / 2);
+        });
+    });
+
+    chassis.filter(c => linkedChassisIds.has(String(c.id)) && !placed.has(String(c.id))).forEach((n, i) => {
+        n._dcRole = 'chassis-linked';
+        n._isIsolated = false;
+        n._fabric = true;
+        const orphanCols = 4;
+        const orphanX0 = mainLeft + 64 + (i % orphanCols) * (FABRIC_DUT_W + MAP_FABRIC_COL_GAP);
+        n.x = orphanX0;
+        n.y = linkedMaxY + 52 + Math.floor(i / orphanCols) * (FABRIC_DUT_H + MAP_FABRIC_ROW_GAP);
+        n.fx = n.x;
+        n.fy = n.y;
+        linkedMaxY = Math.max(linkedMaxY, n.y + FABRIC_DUT_H / 2);
+        fabricCanvasW = Math.max(fabricCanvasW, orphanX0 + 80);
+    });
+
+    linkedMaxY = Math.max(linkedMaxY, fabricBottomY);
+    const fabricMinH = Math.max(300, height * MAP_FABRIC_MIN_VH);
+    const invTop = Math.max(linkedMaxY + 80, fabricTop + fabricMinH);
+    const layoutW = Math.max(mainW, fabricCanvasW);
+
+    const isolatedChassis = isolated.filter(isChassis);
+    const isolatedInfra = isolated.filter(n => !isChassis(n));
+    const invItems = [...isolatedInfra, ...isolatedChassis];
+    invItems.sort((a, b) => {
+        const ac = isChassis(a) ? 1 : 0;
+        const bc = isChassis(b) ? 1 : 0;
+        if (ac !== bc) return ac - bc;
+        return chassisShortLabel(a).localeCompare(chassisShortLabel(b));
+    });
+
+    const invLayout = layoutMapInventory(invItems, mainLeft, layoutW, invTop);
+    const contentH = Math.max(invLayout.contentH, height + 120);
+
+    return {
+        mainLeft,
+        mainW,
+        layoutW,
+        fabricCanvasW: layoutW,
+        fabricTop,
+        busY,
+        switchY,
+        gridTop: switchY0 + FABRIC_SW_H + MAP_SW_TO_DUT_GAP,
+        invTop,
+        fabricBottomY: linkedMaxY,
+        contentH: Math.max(contentH, height + 120),
+        infra,
+        external,
+        chassis: connectedCore.filter(isChassis),
+        connected: connectedCore,
+        isolated: invItems,
+        hasIsland: invItems.length > 0,
+        linkedCount: linkedChassisIds.size,
+        unlinkedCount: invItems.length,
+        connectedInfraCount: infra.length,
+        invCols: invLayout.invCols,
+        hubCenters,
+        switchRowCount,
+        bottomSwitchY,
+    };
+}
+
+function tierNodeDimensions(n, compact) {
+    if (compact) {
+        if (isExternalNode(n)) return { w: 36, h: 36 };
+        if (isChassis(n)) return { w: TIER_COMPACT_CHASSIS_W, h: TIER_COMPACT_CHASSIS_H };
+        return { w: TIER_COMPACT_W, h: TIER_COMPACT_H };
+    }
+    if (isExternalNode(n)) return { w: 48, h: 48 };
+    if (isChassis(n)) return { w: TIER_CHASSIS_W, h: TIER_CHASSIS_H };
+    return { w: TIER_RACK_W, h: TIER_RACK_H };
+}
+
+function nodeHalfHeight(n) {
+    if (n._tierLayout || n._networkLayout) {
+        return (n._tierH || tierNodeDimensions(n, !!n._tierCompact).h) / 2;
+    }
+    if (n._fabric) return isChassis(n) ? FABRIC_DUT_H / 2 : FABRIC_SW_H / 2;
+    return isChassis(n) ? CHASSIS_CARD_H / 2 : CARD_H / 2;
+}
+
+function nodeHalfWidth(n) {
+    if (n._tierLayout || n._networkLayout) {
+        return (n._tierW || tierNodeDimensions(n, !!n._tierCompact).w) / 2;
+    }
+    if (n._fabric) return isChassis(n) ? FABRIC_DUT_W / 2 : FABRIC_SW_W / 2;
+    return isChassis(n) ? CHASSIS_CARD_W / 2 : CARD_W / 2;
+}
+
+/** One visual trunk per switch pair; access links stay individual. */
+function fabricLinksForRender(simLinks) {
+    const trunks = new Map();
+    const access = [];
+    simLinks.forEach(l => {
+        const aCh = isChassis(l.source);
+        const bCh = isChassis(l.target);
+        if (!aCh && !bCh) {
+            const a = String(l.source.id);
+            const b = String(l.target.id);
+            const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+            const existing = trunks.get(key);
+            if (!existing) {
+                trunks.set(key, Object.assign({}, l, { _kind: 'trunk', _pairKey: key }));
+            } else {
+                existing.link_count = (existing.link_count || 1) + (l.link_count || 1);
+                existing.local_port = [existing.local_port, l.local_port].filter(Boolean).join(', ');
+                existing.remote_port = [existing.remote_port, l.remote_port].filter(Boolean).join(', ');
+                if (l.status !== 'up') existing.status = l.status;
+            }
+        } else {
+            access.push(Object.assign({}, l, { _kind: aCh && bCh ? 'peer' : 'access' }));
+        }
+    });
+    return [...trunks.values(), ...access];
+}
+
+function topologyLinkPath(d, layout) {
+    const src = d.source;
+    const tgt = d.target;
+    if (!src || !tgt || src.x == null || tgt.x == null) {
+        return '';
+    }
+    if (isExternalNode(src) || isExternalNode(tgt)) {
+        const yArc = Math.min(src.y, tgt.y) - 32 - (d._extLane || 0);
+        return `M${src.x},${src.y} L${src.x},${yArc} L${tgt.x},${yArc} L${tgt.x},${tgt.y}`;
+    }
+    const srcCh = isChassis(src);
+    const tgtCh = isChassis(tgt);
+
+    if (!srcCh && !tgtCh) {
+        const lane = d._trunkLane || 0;
+        const y = layout.busY + lane;
+        return `M${src.x},${src.y + FABRIC_SW_H / 2} L${src.x},${y} L${tgt.x},${y} L${tgt.x},${tgt.y + FABRIC_SW_H / 2}`;
+    }
+
+    if (srcCh && tgtCh) {
+        const sx = src.x, sy = src.y, tx = tgt.x, ty = tgt.y;
+        const mx = (sx + tx) / 2;
+        return `M${sx},${sy} Q${mx},${(sy + ty) / 2} ${tx},${ty}`;
+    }
+
+    let sw = src;
+    let ch = tgt;
+    if (srcCh && !tgtCh) { sw = tgt; ch = src; }
+    const sx = sw.x;
+    const sy = sw.y + FABRIC_SW_H / 2;
+    const tx = ch.x;
+    const ty = ch.y - FABRIC_DUT_H / 2;
+    return `M${sx},${sy} L${tx},${ty}`;
+}
+
+function orthogonalLinkPath(d, busY) {
+    return topologyLinkPath(d, { busY });
+}
+
+function resizeSvg(h) {
+    const hPx = Math.max(420, Math.ceil(h));
+    container.style.minHeight = hPx + 'px';
+    svg.attr('height', hPx);
+    return hPx;
+}
+
+function fitGraphToView(nodes, svgH) {
+    if (!nodes.length || !zoomBehavior) return;
+    const pad = 48;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    nodes.forEach(n => {
+        const hw = nodeHalfWidth(n) + 4;
+        const hh = nodeHalfHeight(n) + 4;
+        minX = Math.min(minX, n.x - hw);
+        maxX = Math.max(maxX, n.x + hw);
+        minY = Math.min(minY, n.y - hh);
+        maxY = Math.max(maxY, n.y + hh);
+    });
+    const w = Math.max(maxX - minX, 80);
+    const h = Math.max(maxY - minY, 80);
+    const minScale = viewMode === 'tier' ? 0.48 : (viewMode === 'network' ? 0.28 : 0.52);
+    const scale = Math.min(2.2, Math.max(minScale, Math.min(
+        (width - pad * 2) / w,
+        (svgH - pad * 2) / h,
+    )));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const t = d3.zoomIdentity
+        .translate(width / 2, svgH / 2)
+        .scale(scale)
+        .translate(-cx, -cy);
+    svg.transition().duration(400).call(zoomBehavior.transform, t);
+}
+
+/** Zoom to the connected fabric (switches + linked DUTs), not the full inventory strip. */
+function fitFabricToView(layout, svgH) {
+    const fabricNodes = layout.infra
+        .concat(layout.chassis || [])
+        .concat(layout.external || []);
+    if (!fabricNodes.length) {
+        fitGraphToView(layout.connected.length ? layout.connected : layout.isolated, svgH);
+        return;
+    }
+    const pad = 56;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    fabricNodes.forEach(n => {
+        const hw = nodeHalfWidth(n) + 12;
+        const hh = nodeHalfHeight(n) + 12;
+        minX = Math.min(minX, n.x - hw);
+        maxX = Math.max(maxX, n.x + hw);
+        minY = Math.min(minY, n.y - hh);
+        maxY = Math.max(maxY, n.y + hh);
+    });
+    const w = Math.max(maxX - minX, 120);
+    const h = Math.max(maxY - minY, 120);
+    const scale = Math.min(1.85, Math.max(0.52, Math.min(
+        (width - pad * 2) / w,
+        (Math.min(svgH, layout.invTop || svgH) - pad * 2) / h,
+    )));
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const t = d3.zoomIdentity
+        .translate(width / 2, (layout.invTop || svgH) * 0.42)
+        .scale(scale)
+        .translate(-cx, -cy);
+    svg.transition().duration(400).call(zoomBehavior.transform, t);
+}
+
+/** Normalize API nodes (legacy cache or graph builder) for D3. */
+function normalizeNode(n) {
+    const id = String(n.id ?? '');
+    const ip = n.ip || n.mgmt_display || n.mgmt_ipv6 || n.mgmt_ipv4 || '';
+    const name = (n.name || n.label || ip || id || 'Unknown').trim();
+    let vendor = (n.vendor || '').toLowerCase();
+    if (!vendor && id.startsWith('chassis-')) vendor = 'keysight';
+    if (!vendor && (n.external || id.startsWith('external:'))) vendor = 'external';
+    if (!vendor) vendor = 'unknown';
+    const external = !!(n.external || id.startsWith('external:'));
+    const kind = n.kind || (external ? 'external' : (isChassis({ id }) ? 'chassis' : (
+        vendor === 'fortigate' || vendor === 'paloalto' ? 'firewall' : 'switch'
+    )));
+    return {
+        id, ip, name, vendor,
+        status: n.status || 'unknown',
+        model: n.model || '',
+        tags: Array.isArray(n.tags) ? n.tags : [],
+        color: n.color || vendorColors[vendor] || '#607D8B',
+        icon: n.icon || 'fa-server',
+        external, kind,
+    };
+}
+
+function normalizeLink(l) {
+    const status = l.status || (
+        (l.health === 'up' || l.health === 'active') ? 'up' : 'down'
+    );
+    return {
+        source: String(l.source),
+        target: String(l.target),
+        local_port: l.local_port || l.port_a || '',
+        remote_port: l.remote_port || l.port_b || '',
+        lag: l.lag || '',
+        speed: l.speed || '',
+        duplex: l.duplex || '',
+        layer: l.layer || 'lldp',
+        status,
+        link_count: l.link_count || 1,
+    };
+}
+
+function tierPerRowCount(nodeCount, usableW, cellW) {
+    const maxPerRowFromWidth = Math.max(1, Math.floor(usableW / cellW));
+    if (nodeCount <= 6) return Math.min(nodeCount, maxPerRowFromWidth);
+    const sqrtCap = Math.max(5, Math.ceil(Math.sqrt(nodeCount * 2.5)));
+    return Math.min(maxPerRowFromWidth, sqrtCap);
+}
+
+function assignTierLayout(nodes) {
+    const byTier = new Map();
+    nodes.forEach(n => {
+        n._tierLayout = true;
+        const t = vendorTier[n.vendor] ?? 2;
+        n.tier = t;
+        if (!byTier.has(t)) byTier.set(t, []);
+        byTier.get(t).push(n);
+    });
+    const tierCount = 4;
+    const viewportW = Math.max(width, 960);
+    let layoutW = viewportW;
+    const tiers = [];
+    let yCursor = 44;
+
+    for (let t = 0; t < tierCount; t++) {
+        const row = byTier.get(t) || [];
+        row.sort((a, b) => a.name.localeCompare(b.name));
+        if (!row.length) {
+            tiers.push({ tier: t, y0: yCursor, bandH: 0, count: 0, compact: false, numRows: 0 });
+            continue;
+        }
+
+        const compact = row.length >= TIER_DENSE_THRESHOLD;
+        const maxW = Math.max(...row.map(n => tierNodeDimensions(n, compact).w));
+        const maxH = Math.max(...row.map(n => tierNodeDimensions(n, compact).h));
+        const gap = Math.max(TIER_NODE_GAP, TIER_MIN_GAP, Math.ceil(maxW * 0.16) + 8);
+        const cellW = maxW + gap;
+        const usableW = viewportW - TIER_SIDE_PAD * 2;
+        const perRow = tierPerRowCount(row.length, usableW, cellW);
+        const numRows = Math.ceil(row.length / perRow);
+
+        row.forEach((n) => {
+            const dim = tierNodeDimensions(n, compact);
+            n._tierW = dim.w;
+            n._tierH = dim.h;
+            n._tierCompact = compact;
+        });
+
+        for (let rowIdx = 0; rowIdx < numRows; rowIdx++) {
+            const start = rowIdx * perRow;
+            const slice = row.slice(start, start + perRow);
+            const nodesInThisRow = slice.length;
+            const rowWidth = nodesInThisRow * maxW + Math.max(0, nodesInThisRow - 1) * gap;
+            layoutW = Math.max(layoutW, rowWidth + TIER_SIDE_PAD * 2, viewportW);
+            const xStart = (layoutW - rowWidth) / 2 + maxW / 2;
+            slice.forEach((n, col) => {
+                n.x = xStart + col * (maxW + gap);
+                n.y = yCursor + TIER_BAND_PAD_TOP + rowIdx * (maxH + TIER_ROW_V_GAP) + maxH / 2;
+                n.fx = n.x;
+                n.fy = n.y;
+            });
+        }
+
+        const bandH = TIER_BAND_PAD_TOP + numRows * maxH + Math.max(0, numRows - 1) * TIER_ROW_V_GAP
+            + TIER_BAND_PAD_BOTTOM;
+        tiers.push({ tier: t, y0: yCursor, bandH, count: row.length, compact, numRows });
+        yCursor += bandH + TIER_BAND_V_GAP;
+    }
+
+    layoutW = Math.max(layoutW, viewportW);
+
+    return {
+        tierCount,
+        layoutW,
+        contentH: yCursor + 28,
+        tiers,
+        anyCompact: tiers.some(ti => ti.compact),
+    };
+}
+
+/** One visual edge per device pair in tier view (reduces link spaghetti). */
+function tierLinksForRender(links) {
+    const bundle = new Map();
+    links.forEach(l => {
+        const a = String(l.source.id);
+        const b = String(l.target.id);
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        const existing = bundle.get(key);
+        if (!existing) {
+            bundle.set(key, Object.assign({}, l, { link_count: l.link_count || 1 }));
+        } else {
+            existing.link_count = (existing.link_count || 1) + (l.link_count || 1);
+            if (l.status !== 'up') existing.status = l.status;
+        }
+    });
+    return [...bundle.values()];
+}
+
+/** Vertical tier link anchors (tree-style, Checkmk full layout). */
+function tierLinkPath(d) {
+    const src = d.source;
+    const tgt = d.target;
+    if (!src || !tgt || src.x == null || tgt.x == null) return '';
+    const srcTier = src.tier ?? vendorTier[src.vendor] ?? 2;
+    const tgtTier = tgt.tier ?? vendorTier[tgt.vendor] ?? 2;
+    const downward = srcTier < tgtTier;
+    const sh = nodeHalfHeight(src);
+    const th = nodeHalfHeight(tgt);
+    const sx = src.x;
+    const sy = src.y + (downward ? sh : -sh);
+    const tx = tgt.x;
+    const ty = tgt.y + (downward ? -th : th);
+    const my = (sy + ty) / 2;
+    return `M${sx},${sy} C${sx},${my} ${tx},${my} ${tx},${ty}`;
+}
+
+let simulation = null;
+let allNodes = [];
+let allLinks = [];
+let allErrors = [];
+let needsRescanFlag = false;
+/** @type {Set<string>} */
+let selectedTags = new Set();
+
+function stopSimulation() {
+    if (simulation) {
+        simulation.stop();
+        simulation = null;
+    }
+}
+
+function normNodeTags(n) {
+    return Array.isArray(n.tags) ? n.tags : [];
+}
+
+/** OR match: node visible if it has any selected tag (Keysight dashboard rule). */
+function nodeMatchesFilter(n, selected) {
+    if (!selected.size) return true;
+    const tags = normNodeTags(n);
+    for (const t of selected) {
+        if (tags.includes(t)) return true;
+    }
+    return false;
+}
+
+function linkEndpointIds(l) {
+    return [String(l.source), String(l.target)];
+}
+
+function visibleIdsForTagFilter(nodes, links, selected) {
+    if (!selected.size) return null;
+    const seeds = nodes.filter(n => nodeMatchesFilter(n, selected)).map(n => String(n.id));
+    if (!seeds.length) return new Set();
+
+    const adj = new Map();
+    for (const n of nodes) adj.set(String(n.id), []);
+    for (const l of links) {
+        const [a, b] = linkEndpointIds(l);
+        if (!adj.has(a) || !adj.has(b)) continue;
+        adj.get(a).push(b);
+        adj.get(b).push(a);
+    }
+    const visible = new Set();
+    const stack = [...seeds];
+    while (stack.length) {
+        const id = stack.pop();
+        if (visible.has(id)) continue;
+        visible.add(id);
+        for (const nb of adj.get(id) || []) {
+            if (!visible.has(nb)) stack.push(nb);
+        }
+    }
+    return visible;
+}
+
+function cloneLink(l) {
+    return {
+        source: l.source,
+        target: l.target,
+        local_port: l.local_port,
+        remote_port: l.remote_port,
+        lag: l.lag,
+        status: l.status,
+        link_count: l.link_count,
+    };
+}
+
+function filterGraph(nodes, links, selected) {
+    if (!selected.size) {
+        return {
+            nodes: nodes.map(n => {
+                const c = Object.assign({}, n);
+                c._topologyTagMatch = true;
+                return c;
+            }),
+            links: links.map(cloneLink),
+        };
+    }
+    const idSet = visibleIdsForTagFilter(nodes, links, selected);
+    const flinks = links
+        .filter(l => {
+            const [a, b] = linkEndpointIds(l);
+            return idSet.has(a) && idSet.has(b);
+        })
+        .map(cloneLink);
+    const fnodes = nodes
+        .filter(n => idSet.has(String(n.id)))
+        .map(n => {
+            const c = Object.assign({}, n);
+            c._topologyTagMatch = nodeMatchesFilter(n, selected);
+            return c;
+        });
+    return { nodes: fnodes, links: flinks };
+}
+
+function buildTagStats(nodes) {
+    const counts = new Map();
+    for (const n of nodes) {
+        for (const t of normNodeTags(n)) {
+            counts.set(t, (counts.get(t) || 0) + 1);
+        }
+    }
+    return Array.from(counts.entries())
+        .map(([tag, count]) => ({ tag, count }))
+        .sort((a, b) => a.tag.localeCompare(b.tag));
+}
+
+function readInitialSelectedTags() {
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get(FILTER_QPARAM);
+    if (q !== null) {
+        const fromUrl = q.split(',').map(s => s.trim()).filter(Boolean);
+        return new Set(fromUrl);
+    }
+    try {
+        const raw = localStorage.getItem(FILTER_LS_KEY);
+        if (raw) {
+            const arr = JSON.parse(raw);
+            if (Array.isArray(arr)) return new Set(arr.filter(x => typeof x === 'string' && x));
+        }
+    } catch (e) { /* ignore */ }
+    return new Set();
+}
+
+function persistFilters() {
+    try {
+        localStorage.setItem(FILTER_LS_KEY, JSON.stringify(Array.from(selectedTags).sort()));
+    } catch (e) { /* ignore */ }
+    const params = new URLSearchParams(window.location.search);
+    if (selectedTags.size) {
+        params.set(FILTER_QPARAM, Array.from(selectedTags).sort().join(','));
+    } else {
+        params.delete(FILTER_QPARAM);
+    }
+    const qs = params.toString();
+    const path = window.location.pathname + (qs ? '?' + qs : '');
+    window.history.replaceState(null, '', path);
+}
+
+function renderFilterChips(tagStats) {
+    const outer = document.getElementById('topo-tag-strip-wrap');
+    const wrap = document.getElementById('topo-filter-tags');
+    wrap.textContent = '';
+    if (!tagStats.length) {
+        outer.classList.remove('visible');
+        return;
+    }
+    outer.classList.add('visible');
+    for (const { tag, count } of tagStats) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'tag-chip' + (selectedTags.has(tag) ? ' selected' : '');
+        btn.textContent = tag + ' · ' + count;
+        btn.addEventListener('click', () => {
+            if (selectedTags.has(tag)) selectedTags.delete(tag);
+            else selectedTags.add(tag);
+            persistFilters();
+            renderFilterChips(tagStats);
+            updateStatsAndGraph();
+        });
+        wrap.appendChild(btn);
+    }
+}
+
+function updateStatsAndGraph() {
+    const tagged = filterGraph(allNodes, allLinks, selectedTags);
+    const { nodes: visNodes, links: visLinks } = filterByLayers(tagged.nodes, tagged.links);
+    const totalN = allNodes.length;
+    const offlineV = visNodes.filter(n => n.status !== 'online').length;
+    const matchedInView = visNodes.filter(n => n._topologyTagMatch).length;
+    const neighborInView = visNodes.length - matchedInView;
+    let statsHtml = '';
+    if (selectedTags.size && visNodes.length) {
+        statsHtml += `<span style="opacity:0.95;">Subgraph <strong>${visNodes.length}</strong> nodes`
+            + (neighborInView > 0 ? ` (<strong>${matchedInView}</strong> tagged + <strong>${neighborInView}</strong> LLDP neighbors)` : '')
+            + ` of ${totalN}</span> | `;
+    }
+    statsHtml += `<strong>${visNodes.length}</strong> nodes | <strong>${visLinks.length}</strong> links`;
+    if (offlineV > 0 && visNodes.length) {
+        statsHtml += ` | <span style="color:#ef4444;">${offlineV} offline</span>`;
+    }
+    if (needsRescanFlag && visNodes.length > 0) {
+        statsHtml += ` | <span style="color:#fbbf24;">No saved LLDP links — click <b>Rescan LLDP</b> above</span>`;
+    }
+    if (selectedTags.size && !visNodes.length) {
+        statsHtml = `<span style="color:#fbbf24;">No nodes match the selected tags.</span> (${totalN} total)`;
+        if (needsRescanFlag) {
+            statsHtml += ` | <span style="color:#fbbf24;">No saved LLDP links — click <b>Rescan LLDP</b></span>`;
+        }
+    }
+    if (viewMode === 'map') {
+        const connected = visNodes.filter(n => visLinks.some(l =>
+            String(l.source) === String(n.id) || String(l.target) === String(n.id)
+        )).length;
+        const isolated = visNodes.length - connected;
+        const swLinks = visLinks.filter(l => {
+            const a = String(l.source);
+            const b = String(l.target);
+            return !a.startsWith('chassis-') && !b.startsWith('chassis-');
+        }).length;
+        statsHtml += ` | <span style="opacity:0.85;">Map: ${connected} linked`;
+        if (swLinks) statsHtml += ` · ${swLinks} fabric trunks`;
+        if (isolated > 0) {
+            statsHtml += ` · <span style="color:#f59e0b;">${isolated} isolated →</span>`;
+        }
+        statsHtml += '</span>';
+    } else if (viewMode === 'network') {
+        statsHtml += ` | <span style="opacity:0.85;">Network · ${networkStyle === 'full' ? 'Full (tree)' : 'Flat (force)'}</span>`;
+    }
+    document.getElementById('topo-stats').innerHTML = statsHtml;
+    refreshTopoLegend();
+    lastGraph = { nodes: visNodes, links: visLinks };
+    try {
+        if (!ensureSvg()) {
+            showTopoError('Chart library failed to load. Check network or refresh.');
+            return;
+        }
+        if (viewMode === 'map') renderDcGraph(visNodes, visLinks);
+        else if (viewMode === 'network') renderNetworkTopologyGraph(visNodes, visLinks);
+        else renderTierGraph(visNodes, visLinks);
+    } catch (err) {
+        console.error('Topology render error:', err);
+        showTopoError('Render error: ' + (err.message || String(err)));
+    }
+}
+
+function drawFabricSwitch(parentSel) {
+    const w = FABRIC_SW_W, h = FABRIC_SW_H;
+    parentSel.each(function(d) {
+        const sel = d3.select(this);
+        if (nodeKind(d) === 'firewall') {
+            const r = Math.min(w, h) / 2 - 2;
+            const pts = [];
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI / 3) * i - Math.PI / 2;
+                pts.push([r * Math.cos(a), r * Math.sin(a)]);
+            }
+            const pathD = 'M' + pts.map(p => p.join(',')).join('L') + 'Z';
+            sel.append('path').attr('class', 'fabric-sw-body fabric-fw-hex')
+                .attr('d', pathD)
+                .attr('fill', () => {
+                    const c = vendorColors[d.vendor] || '#475569';
+                    return d.status === 'online' ? c : c + '88';
+                })
+                .attr('stroke', d.status === 'online' ? 'rgba(255,255,255,0.22)' : 'rgba(239,68,68,0.55)')
+                .attr('stroke-width', 1);
+        } else {
+            sel.append('rect').attr('class', 'fabric-sw-body')
+                .attr('x', -w / 2).attr('y', -h / 2)
+                .attr('width', w).attr('height', h).attr('rx', h / 2)
+                .attr('fill', () => {
+                    const c = vendorColors[d.vendor] || '#475569';
+                    return d.status === 'online' ? c : c + '88';
+                })
+                .attr('stroke', d.status === 'online' ? 'rgba(255,255,255,0.22)' : 'rgba(239,68,68,0.55)')
+                .attr('stroke-width', 1);
+        }
+        sel.append('text').attr('class', 'fabric-sw-name')
+            .attr('x', 0).attr('y', 1)
+            .attr('text-anchor', 'middle')
+            .text(() => {
+                const nm = (d.name || d.id || '').trim();
+                return nm.length > 11 ? nm.substring(0, 10) + '…' : nm;
+            });
+        sel.append('text').attr('class', 'fabric-sw-vendor')
+            .attr('x', 0).attr('y', h / 2 - 5)
+            .attr('text-anchor', 'middle')
+            .text(() => (d.vendor || 'switch').substring(0, 8));
+    });
+    bindNodeInteractions(parentSel);
+}
+
+function drawExternalNode(parentSel) {
+    const r = 22;
+    parentSel.append('circle').attr('class', 'topo-external-node')
+        .attr('r', r)
+        .attr('fill', 'rgba(30,41,59,0.92)')
+        .attr('stroke', '#64748b')
+        .attr('stroke-width', 1.5)
+        .attr('stroke-dasharray', '4,3');
+    parentSel.append('text').attr('class', 'fabric-sw-name')
+        .attr('y', -r - 6)
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#94a3b8')
+        .attr('font-size', '9px')
+        .text(d => {
+            const nm = (d.name || d.id || '').replace(/^external:/, '').trim();
+            return nm.length > 14 ? nm.substring(0, 13) + '…' : nm;
+        });
+    parentSel.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('fill', '#64748b')
+        .attr('font-family', 'Font Awesome 6 Free')
+        .attr('font-weight', 900)
+        .attr('font-size', '14px')
+        .text('\uf0c2');
+    bindNodeInteractions(parentSel, true);
+}
+
+function drawFabricDut(parentSel) {
+    const w = FABRIC_DUT_W, h = FABRIC_DUT_H;
+    parentSel.append('rect').attr('class', 'fabric-dut-body')
+        .attr('x', -w / 2).attr('y', -h / 2)
+        .attr('width', w).attr('height', h).attr('rx', 4)
+        .attr('fill', '#1e1b4b')
+        .attr('stroke', d => d.status === 'online' ? 'rgba(167,139,250,0.55)' : 'rgba(239,68,68,0.45)')
+        .attr('stroke-width', 1);
+    parentSel.append('circle').attr('class', 'fabric-dut-led')
+        .attr('cx', -w / 2 + 7).attr('cy', 0).attr('r', 3)
+        .attr('fill', d => d.status === 'online' ? '#22c55e' : '#ef4444');
+    parentSel.append('text').attr('class', 'fabric-dut-name')
+        .attr('x', 6).attr('y', 3)
+        .attr('text-anchor', 'start')
+        .text(d => chassisShortLabel(d));
+    bindNodeInteractions(parentSel);
+}
+
+function linkTooltipHtml(d) {
+    const lp = (d.local_port || '—').split(',')[0].trim();
+    const rp = (d.remote_port || '—').split(',')[0].trim();
+    const cnt = d.link_count > 1 ? `<br>${d.link_count} parallel links` : '';
+    const spd = d.speed ? `<br>Speed: ${d.speed}` : '';
+    const dpx = d.duplex ? `<br>Duplex: ${d.duplex}` : '';
+    const src = d.source.name || d.source.id;
+    const tgt = d.target.name || d.target.id;
+    return `<strong>${src}</strong> ↔ <strong>${tgt}</strong><br>`
+        + `${lp} ↔ ${rp}${cnt}${spd}${dpx}<br>`
+        + `Status: ${d.status === 'up' ? 'up' : d.status || 'unknown'}`;
+}
+
+function bindFabricLinkInteractions(linkSel) {
+    linkSel
+        .style('cursor', 'pointer')
+        .attr('fill', 'none')
+        .attr('stroke', d => linkStrokeColor(d))
+        .attr('stroke-width', d => linkStrokeWidth(d))
+        .attr('stroke-dasharray', d => linkDashForDuplex(d) || null)
+        .on('mouseover', (e, d) => {
+            tooltip.style.display = 'block';
+            tooltip.innerHTML = linkTooltipHtml(d);
+        })
+        .on('mousemove', (e) => {
+            tooltip.style.left = (e.pageX + 15) + 'px';
+            tooltip.style.top = (e.pageY - 10) + 'px';
+        })
+        .on('mouseout', () => { tooltip.style.display = 'none'; })
+        .on('click', (e, d) => {
+            e.stopPropagation();
+            if (window.labvaultTopoMap && window.labvaultTopoMap.showLinkInspector) {
+                window.labvaultTopoMap.showLinkInspector({
+                    source: d.source,
+                    target: d.target,
+                    local_port: d.local_port,
+                    remote_port: d.remote_port,
+                    speed: d.speed,
+                    duplex: d.duplex,
+                    status: d.status,
+                    link_count: d.link_count,
+                    layer: d.layer,
+                });
+            }
+        });
+}
+
+/** Checkmk-style rack node for tier swimlanes (icon top-left, LED, faceplate, port strip). */
+function drawTierNetworkDevice(parentSel) {
+    parentSel.each(function(d) {
+        const sel = d3.select(this);
+        const w = d._tierW || TIER_RACK_W;
+        const h = d._tierH || TIER_RACK_H;
+        const compact = !!d._tierCompact;
+        const isOffline = d.status !== 'online';
+        const isFw = d.vendor === 'fortigate' || d.vendor === 'paloalto';
+        const stroke = isOffline ? 'rgba(248,113,113,0.85)' : 'rgba(74,222,128,0.75)';
+
+        if (isFw) {
+            const r = Math.min(w, h) * 0.42;
+            const pts = [];
+            for (let i = 0; i < 6; i++) {
+                const a = (Math.PI / 3) * i - Math.PI / 2;
+                pts.push([r * Math.cos(a), r * Math.sin(a)]);
+            }
+            const pathD = 'M' + pts.map(p => p.join(',')).join('L') + 'Z';
+            sel.append('path').attr('class', 'net-device-rack fabric-fw-hex' + (isOffline ? ' offline' : ''))
+                .attr('d', pathD)
+                .attr('fill', () => {
+                    const c = vendorColors[d.vendor] || '#475569';
+                    return isOffline ? c + '99' : c;
+                })
+                .attr('stroke', stroke)
+                .attr('stroke-width', 1.5);
+        } else {
+            sel.append('rect').attr('class', 'net-device-rack' + (isOffline ? ' offline' : ''))
+                .attr('x', -w / 2).attr('y', -h / 2)
+                .attr('width', w).attr('height', h).attr('rx', 4)
+                .attr('stroke', stroke);
+        }
+
+        if (!isFw) {
+            sel.append('rect').attr('class', 'net-device-faceplate')
+                .attr('x', -w / 2 + 3).attr('y', -h / 2 + 3)
+                .attr('width', w - 6).attr('height', h - 6).attr('rx', 2);
+        }
+
+        const ledColor = isOffline ? (d.status === 'auth_failed' ? 'amber' : 'red') : 'green';
+        sel.append('circle').attr('class', 'net-led ' + ledColor)
+            .attr('cx', -w / 2 + 9).attr('cy', -h / 2 + 9).attr('r', 3);
+
+        sel.append('text')
+            .attr('x', -w / 2 + 22).attr('y', -h / 2 + 12)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#fff')
+            .attr('font-family', 'Font Awesome 6 Free')
+            .attr('font-weight', 900)
+            .attr('font-size', '11px')
+            .text(vendorIcons[d.vendor] || '\uf233');
+
+        if (isExternalNode(d)) {
+            sel.append('circle').attr('class', 'net-emblem')
+                .attr('cx', w / 2 - 9).attr('cy', -h / 2 + 9).attr('r', 6);
+            sel.append('text').attr('class', 'net-emblem-label')
+                .attr('x', w / 2 - 9).attr('y', -h / 2 + 12)
+                .attr('text-anchor', 'middle')
+                .text('?');
+        }
+
+        const maxName = compact ? 11 : 14;
+        const name = (d.name || d.id || '').length > maxName
+            ? (d.name || '').substring(0, maxName - 1) + '…' : (d.name || d.id);
+        sel.append('text').attr('class', 'net-dev-label')
+            .attr('x', 4).attr('y', compact ? -h / 2 + 22 : -h / 2 + 24)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', compact ? '9px' : null)
+            .text(name);
+        if (!compact) {
+            sel.append('text').attr('class', 'net-dev-ip')
+                .attr('x', 4).attr('y', -h / 2 + 36)
+                .attr('text-anchor', 'middle')
+                .text(d.ip || '—');
+        }
+
+        if (!compact) {
+            const portStartX = -w / 2 + 6;
+            const portStartY = h / 2 - 12;
+            const portSize = 3;
+            const portGap = 2;
+            let portSeed = 0;
+            for (let i = 0; i < String(d.id || '').length; i++) {
+                portSeed += String(d.id).charCodeAt(i);
+            }
+            const activePorts = Math.min(8, Math.max(2, (portSeed % 6) + 2));
+            for (let i = 0; i < 8; i++) {
+                const px = portStartX + i * (portSize + portGap);
+                sel.append('rect').attr('class', 'net-port-indicator' + (i < activePorts ? '' : ' empty'))
+                    .attr('x', px).attr('y', portStartY)
+                    .attr('width', portSize).attr('height', portSize).attr('rx', 1);
+            }
+        }
+
+        bindNodeInteractions(sel);
+    });
+}
+
+/** Keysight chassis rack card for tier view. */
+function drawTierChassisNode(parentSel) {
+    parentSel.each(function(d) {
+        const sel = d3.select(this);
+        const w = d._tierW || TIER_CHASSIS_W;
+        const h = d._tierH || TIER_CHASSIS_H;
+        const compact = !!d._tierCompact;
+        const isOffline = d.status !== 'online';
+        const stroke = isOffline ? 'rgba(248,113,113,0.85)' : 'rgba(74,222,128,0.65)';
+
+        sel.append('rect').attr('class', 'net-device-rack' + (isOffline ? ' offline' : ''))
+            .attr('x', -w / 2).attr('y', -h / 2)
+            .attr('width', w).attr('height', h).attr('rx', 4)
+            .attr('fill', vendorColors.keysight || '#0a0a0f')
+            .attr('stroke', stroke)
+            .attr('stroke-width', 1.5);
+        sel.append('rect').attr('class', 'net-device-faceplate')
+            .attr('x', -w / 2 + 3).attr('y', -h / 2 + 3)
+            .attr('width', w - 6).attr('height', h - 6).attr('rx', 2);
+
+        const ledColor = isOffline ? 'red' : 'green';
+        sel.append('circle').attr('class', 'net-led ' + ledColor)
+            .attr('cx', -w / 2 + 9).attr('cy', -h / 2 + 9).attr('r', 3);
+
+        sel.append('text')
+            .attr('x', -w / 2 + 22).attr('y', -h / 2 + 12)
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#c4b5fd')
+            .attr('font-family', 'Font Awesome 6 Free')
+            .attr('font-weight', 900)
+            .attr('font-size', '11px')
+            .text(vendorIcons.keysight || '\uf2db');
+
+        sel.append('text').attr('class', 'net-dev-label')
+            .attr('x', 6).attr('y', compact ? -1 : -2)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', compact ? '9px' : null)
+            .text(chassisShortLabel(d));
+        if (!compact) {
+            sel.append('text').attr('class', 'net-dev-ip')
+                .attr('x', 6).attr('y', 10)
+                .attr('text-anchor', 'middle')
+                .text(d.ip || '—');
+        }
+
+        bindNodeInteractions(sel);
+    });
+}
+
+/** External / unmanaged LLDP peer (Checkmk emblem). */
+function drawTierExternalNode(parentSel) {
+    parentSel.each(function(d) {
+        const sel = d3.select(this);
+        const r = 22;
+        sel.append('circle').attr('class', 'topo-external-node')
+            .attr('r', r)
+            .attr('fill', 'rgba(30,41,59,0.92)')
+            .attr('stroke', '#64748b')
+            .attr('stroke-width', 1.5)
+            .attr('stroke-dasharray', '4,3');
+        sel.append('circle').attr('class', 'net-emblem')
+            .attr('cx', r - 4).attr('cy', -r + 4).attr('r', 6);
+        sel.append('text').attr('class', 'net-emblem-label')
+            .attr('x', r - 4).attr('y', -r + 7)
+            .attr('text-anchor', 'middle')
+            .text('?');
+        sel.append('text')
+            .attr('text-anchor', 'middle')
+            .attr('fill', '#94a3b8')
+            .attr('font-family', 'Font Awesome 6 Free')
+            .attr('font-weight', 900)
+            .attr('font-size', '13px')
+            .text('\uf0c2');
+        sel.append('text').attr('class', 'net-dev-label')
+            .attr('y', r + 12)
+            .attr('text-anchor', 'middle')
+            .attr('font-size', '9px')
+            .text(() => {
+                const nm = (d.name || d.id || '').replace(/^external:/, '').trim();
+                return nm.length > 16 ? nm.substring(0, 14) + '…' : nm;
+            });
+        bindNodeInteractions(sel, true);
+    });
+}
+
+function drawNodeCard(parentSel, cardW, cardH, isSmall) {
+    parentSel.append('rect').attr('class', 'node-card-bg')
+        .attr('x', -cardW / 2).attr('y', -cardH / 2)
+        .attr('width', cardW).attr('height', cardH).attr('rx', 6)
+        .attr('fill', d => {
+            const c = vendorColors[d.vendor] || '#607D8B';
+            return d.status === 'online' ? c : c + '99';
+        })
+        .attr('stroke', d => d.status === 'online' ? '#22c55e' : '#ef4444')
+        .attr('stroke-dasharray', d => d.status === 'online' ? 'none' : '4,3');
+    parentSel.append('rect')
+        .attr('x', -cardW / 2).attr('y', -cardH / 2)
+        .attr('width', isSmall ? 28 : 36).attr('height', cardH).attr('rx', 6)
+        .attr('fill', 'rgba(0,0,0,0.25)');
+    parentSel.append('text')
+        .attr('x', -cardW / 2 + (isSmall ? 14 : 18)).attr('y', 4)
+        .attr('text-anchor', 'middle').attr('fill', '#fff')
+        .attr('font-family', 'Font Awesome 6 Free').attr('font-weight', 900)
+        .attr('font-size', isSmall ? '11px' : '14px')
+        .text(d => vendorIcons[d.vendor] || '\uf233');
+    parentSel.append('text').attr('class', 'node-card-title')
+        .attr('x', -cardW / 2 + (isSmall ? 32 : 44)).attr('y', isSmall ? -5 : -6)
+        .attr('text-anchor', 'start')
+        .text(d => isSmall ? chassisShortLabel(d) : ((d.name || d.id).length > 14 ? (d.name || '').substring(0, 12) + '…' : (d.name || d.id)));
+    parentSel.append('text').attr('class', 'node-card-ip')
+        .attr('x', -cardW / 2 + (isSmall ? 32 : 44)).attr('y', isSmall ? 7 : 8)
+        .attr('text-anchor', 'start')
+        .text(d => d.ip || '—');
+    parentSel.filter(d => d.status !== 'online').append('circle')
+        .attr('cx', cardW / 2 - 8).attr('cy', -cardH / 2 + 8).attr('r', 5)
+        .attr('fill', d => d.status === 'auth_failed' ? '#f59e0b' : '#ef4444');
+    bindNodeInteractions(parentSel);
+}
+
+function bindNodeInteractions(nodeSel, externalOnly) {
+    nodeSel.attr('opacity', d => (selectedTags.size && d._topologyTagMatch === false) ? 0.72 : 1);
+    nodeSel.on('mouseover', (e, d) => {
+        tooltip.style.display = 'block';
+        const statusColor = d.status === 'online' ? '#22c55e'
+            : d.status === 'auth_failed' ? '#f59e0b' : '#ef4444';
+        const tagStr = normNodeTags(d).length ? normNodeTags(d).join(', ') : '—';
+        const roleLine = (selectedTags.size && d._topologyTagMatch === false)
+            ? `<span style="color:#fbbf24;">Shown as LLDP neighbor (tag filter)</span><br>` : '';
+        const peerLine = d._peerSwitch ? `<span style="color:#94a3b8;">Peer switch: ${d._peerSwitch}</span><br>` : '';
+        const extLine = (d.external || externalOnly) ? `<span style="color:#94a3b8;">Not in LabVault inventory</span><br>` : '';
+        tooltip.innerHTML = `<strong>${d.name}</strong><br>`
+            + roleLine + peerLine + extLine
+            + `IP: ${d.ip || '—'}<br>Vendor: ${d.vendor}<br>Model: ${d.model || 'N/A'}<br>`
+            + `Tags: ${tagStr}<br>`
+            + `Status: <span style="color:${statusColor};font-weight:700;">${(d.status || '').replace(/_/g, ' ')}</span>`;
+    }).on('mousemove', (e) => {
+        tooltip.style.left = (e.pageX + 15) + 'px';
+        tooltip.style.top = (e.pageY - 10) + 'px';
+    }).on('mouseout', () => { tooltip.style.display = 'none'; })
+    .on('click', (e, d) => {
+        e.stopPropagation();
+        if (window.labvaultTopoMap && window.labvaultTopoMap.showNodeInspector) {
+            window.labvaultTopoMap.showNodeInspector(d);
+            return;
+        }
+        if (d.external || externalOnly || String(d.id).startsWith('external:')) return;
+        const m = /^chassis-(\d+)$/.exec(String(d.id));
+        if (m) window.location.href = '/keysight/chassis/' + m[1] + '/';
+        else if (/^\d+$/.test(String(d.id))) window.location.href = '/device/' + d.id + '/';
+    })
+    .on('dblclick', (e, d) => {
+        if (d.external || externalOnly) return;
+        const m = /^chassis-(\d+)$/.exec(String(d.id));
+        if (m) window.location.href = '/keysight/chassis/' + m[1] + '/';
+        else if (/^\d+$/.test(String(d.id))) window.location.href = '/device/' + d.id + '/';
+    });
+}
+
+function renderDcGraph(nodes, links) {
+    if (!g) return;
+    stopSimulation();
+    measureViewport();
+    nodes.forEach(n => {
+        delete n._tierLayout;
+        delete n._tierW;
+        delete n._tierH;
+    });
+    svg.attr('width', width);
+    g.selectAll('*').remove();
+
+    if (!allNodes.length) {
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(255,255,255,0.5)')
+            .attr('font-size', '18px').text('No devices found. Click "Rescan LLDP" to discover.');
+        return;
+    }
+    if (!nodes.length) {
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(255,255,255,0.45)')
+            .attr('font-size', '16px').text('No nodes match the selected tags.');
+        return;
+    }
+
+    const layout = assignDcLayout(nodes, links);
+    const canvasW = Math.max(width, layout.layoutW || layout.fabricCanvasW || layout.mainW);
+    svg.attr('width', canvasW);
+    const svgH = resizeSvg(layout.contentH);
+
+    const fabricBottom = layout.hasIsland ? layout.invTop - 28 : layout.contentH - 36;
+    const fabricH = Math.max(
+        fabricBottom - layout.fabricTop,
+        (layout.bottomSwitchY || layout.switchY) + 96,
+        height * MAP_FABRIC_MIN_VH,
+    );
+    const zoneW = Math.max(layout.mainW, canvasW - layout.mainLeft * 2);
+    g.append('rect').attr('class', 'map-fabric-zone')
+        .attr('x', layout.mainLeft).attr('y', layout.fabricTop)
+        .attr('width', zoneW).attr('height', fabricH).attr('rx', 8);
+    g.append('text').attr('class', 'map-fabric-title')
+        .attr('x', layout.mainLeft + 12).attr('y', layout.fabricTop + 16)
+        .text(`Connected fabric · ${layout.connectedInfraCount} switches · ${layout.linkedCount} DUTs`);
+
+    if (layout.hasIsland) {
+        const invH = layout.contentH - layout.invTop - 20;
+        g.append('rect').attr('class', 'map-island-zone')
+            .attr('x', layout.mainLeft).attr('y', layout.invTop - 12)
+            .attr('width', zoneW).attr('height', invH + 12).attr('rx', 8);
+        g.append('text').attr('class', 'map-island-title')
+            .attr('x', layout.mainLeft + 12).attr('y', layout.invTop + 2)
+            .text(`Unlinked inventory (${layout.unlinkedCount})`);
+    }
+
+    if (layout.infra.length > 1) {
+        const byY = new Map();
+        layout.infra.forEach(n => {
+            const yk = Math.round(n.y);
+            if (!byY.has(yk)) byY.set(yk, []);
+            byY.get(yk).push(n);
+        });
+        byY.forEach(rowSw => {
+            if (rowSw.length < 2) return;
+            rowSw.sort((a, b) => a.x - b.x);
+            const y = layout.busY + (rowSw[0].y - layout.switchY) * 0.15;
+            g.append('line').attr('class', 'map-link-spine')
+                .attr('x1', rowSw[0].x - 8)
+                .attr('y1', y)
+                .attr('x2', rowSw[rowSw.length - 1].x + 8)
+                .attr('y2', y);
+        });
+    }
+
+    layout.infra.forEach(sw => {
+        const count = sw._dutCount || 0;
+        if (!count) return;
+        const labelY = (sw._gridTop || layout.gridTop) - 8;
+        g.append('text').attr('class', 'fabric-col-label')
+            .attr('x', sw.x).attr('y', labelY)
+            .attr('text-anchor', 'middle')
+            .text(count === 1 ? '1 DUT' : `${count} DUTs`);
+    });
+
+    const connectedLinks = links.filter(l => {
+        const a = String(l.source);
+        const b = String(l.target);
+        const connectedIds = new Set([
+            ...layout.connected.map(n => String(n.id)),
+            ...(layout.external || []).map(n => String(n.id)),
+        ]);
+        return connectedIds.has(a) && connectedIds.has(b);
+    });
+
+    const simLinks = connectedLinks.map(l => {
+        const src = nodes.find(n => String(n.id) === String(l.source));
+        const tgt = nodes.find(n => String(n.id) === String(l.target));
+        return Object.assign({}, l, { source: src || l.source, target: tgt || l.target });
+    }).filter(l => l.source && l.target && typeof l.source === 'object');
+
+    const renderLinks = fabricLinksForRender(simLinks);
+    const peerCount = renderLinks.filter(l => l._kind === 'peer').length;
+    const trunkCount = renderLinks.filter(l => l._kind === 'trunk').length;
+    const showPeerLinks = peerCount <= 8;
+    const showTrunks = trunkCount <= 16;
+    let trunkLane = 0;
+    let extLane = 0;
+    renderLinks.forEach(l => {
+        if (l._kind === 'trunk') l._trunkLane = trunkLane++ * MAP_TRUNK_LANE_STEP;
+        if (isExternalNode(l.source) || isExternalNode(l.target)) {
+            l._extLane = extLane++ * 8;
+        }
+    });
+
+    const link = g.append('g').attr('class', 'map-links')
+        .selectAll('path').data(renderLinks).join('path')
+        .attr('class', d => {
+            let cls = 'map-link-access';
+            if (d._kind === 'trunk') cls = 'map-link-trunk';
+            else if (d._kind === 'peer') cls = 'map-link-peer';
+            if (d._kind === 'peer' && !showPeerLinks) cls += ' map-link-hidden';
+            if (d._kind === 'trunk' && !showTrunks) cls += ' map-link-hidden';
+            if (d.status !== 'up') cls += ' map-link-down';
+            return cls;
+        })
+        .attr('d', d => topologyLinkPath(d, layout));
+    bindFabricLinkInteractions(link);
+
+    const hiddenParts = [];
+    if (!showPeerLinks && peerCount > 0) hiddenParts.push(`${peerCount} DUT–DUT`);
+    if (!showTrunks && trunkCount > 0) hiddenParts.push(`${trunkCount} trunks`);
+    if (hiddenParts.length) {
+        g.append('text').attr('class', 'map-fabric-title')
+            .attr('x', layout.mainLeft + zoneW - 14)
+            .attr('y', layout.fabricTop + 16)
+            .attr('text-anchor', 'end')
+            .attr('fill', 'rgba(148,163,184,0.65)')
+            .attr('font-size', '9px')
+            .text(`${hiddenParts.join(', ')} hidden — use Network view`);
+    }
+
+    if (layout.external && layout.external.length) {
+        const extNode = g.append('g').selectAll('.node-external').data(layout.external).join('g')
+            .attr('class', 'node-card fabric-node topo-external-g')
+            .attr('transform', d => `translate(${d.x},${d.y})`)
+            .call(d3.drag().on('drag', (e, d) => {
+                d.x = e.x; d.y = e.y; d.fx = e.x; d.fy = e.y;
+                d3.select(e.sourceEvent.currentTarget).attr('transform', `translate(${d.x},${d.y})`);
+                link.attr('d', lk => topologyLinkPath(lk, layout));
+            }));
+        drawExternalNode(extNode);
+    }
+
+    const infraNode = g.append('g').selectAll('.node-infra').data(layout.infra).join('g')
+        .attr('class', 'node-card node-infra fabric-node')
+        .attr('transform', d => `translate(${d.x},${d.y})`)
+        .call(d3.drag().on('drag', (e, d) => {
+            d.x = e.x; d.y = e.y; d.fx = e.x; d.fy = e.y;
+            d3.select(e.sourceEvent.currentTarget).attr('transform', `translate(${d.x},${d.y})`);
+            link.attr('d', lk => topologyLinkPath(lk, layout));
+        }));
+    drawFabricSwitch(infraNode);
+
+    const linkedChassis = layout.chassis.filter(c => !c._isIsolated);
+    const chassisNode = g.append('g').selectAll('.node-chassis').data(linkedChassis).join('g')
+        .attr('class', 'node-card chassis-card fabric-node')
+        .attr('transform', d => `translate(${d.x},${d.y})`)
+        .call(d3.drag().on('drag', (e, d) => {
+            d.x = e.x; d.y = e.y; d.fx = e.x; d.fy = e.y;
+            d3.select(e.sourceEvent.currentTarget).attr('transform', `translate(${d.x},${d.y})`);
+            link.attr('d', lk => topologyLinkPath(lk, layout));
+        }));
+    drawFabricDut(chassisNode);
+
+    const isolatedNode = g.append('g').selectAll('.node-isolated').data(layout.isolated).join('g')
+        .attr('class', 'node-card isolated')
+        .attr('transform', d => `translate(${d.x},${d.y})`)
+        .call(d3.drag().on('drag', (e, d) => {
+            d.x = e.x; d.y = e.y; d.fx = e.x; d.fy = e.y;
+            d3.select(e.sourceEvent.currentTarget).attr('transform', `translate(${d.x},${d.y})`);
+        }));
+    isolatedNode.each(function(d) {
+        const sel = d3.select(this);
+        if (isChassis(d)) drawNodeCard(sel, CHASSIS_CARD_W, CHASSIS_CARD_H, true);
+        else drawNodeCard(sel, CARD_W, CARD_H, false);
+    });
+
+    applyLabelVisibility();
+    window.setTimeout(() => fitFabricToView(layout, svgH), 80);
+}
+
+/** Curved link between network-view nodes (edge-anchored). */
+function networkLinkPath(d) {
+    const src = d.source;
+    const tgt = d.target;
+    if (!src || !tgt || src.x == null || tgt.x == null) return '';
+    const sh = nodeHalfHeight(src);
+    const th = nodeHalfHeight(tgt);
+    const dx = tgt.x - src.x;
+    const dy = tgt.y - src.y;
+    const dist = Math.hypot(dx, dy) || 1;
+    const ux = dx / dist;
+    const uy = dy / dist;
+    const sx = src.x + ux * sh;
+    const sy = src.y + uy * sh;
+    const tx = tgt.x - ux * th;
+    const ty = tgt.y - uy * th;
+    const mx = (sx + tx) / 2;
+    const my = (sy + ty) / 2;
+    return `M${sx},${sy} Q${mx},${my} ${tx},${ty}`;
+}
+
+/** BFS hierarchical layout for Network "Full" style (Checkmk tree). */
+function assignNetworkTreeLayout(nodes, links) {
+    const idOf = (n) => String(n.id);
+    const adj = new Map();
+    nodes.forEach(n => adj.set(idOf(n), []));
+    links.forEach(l => {
+        const a = idOf(l.source);
+        const b = idOf(l.target);
+        if (!adj.has(a) || !adj.has(b)) return;
+        adj.get(a).push(b);
+        adj.get(b).push(a);
+    });
+
+    const degree = new Map();
+    nodes.forEach(n => degree.set(idOf(n), (adj.get(idOf(n)) || []).length));
+
+    let roots = nodes.filter(n => nodeKind(n) === 'firewall');
+    if (!roots.length) {
+        let best = nodes[0];
+        let bestDeg = -1;
+        nodes.forEach(n => {
+            const d = degree.get(idOf(n)) || 0;
+            if (d > bestDeg) { bestDeg = d; best = n; }
+        });
+        roots = best ? [best] : nodes.slice(0, 1);
+    }
+
+    const depth = new Map();
+    const parent = new Map();
+    const queue = [];
+    roots.forEach(r => {
+        const id = idOf(r);
+        if (depth.has(id)) return;
+        depth.set(id, 0);
+        queue.push(id);
+    });
+    if (!queue.length && nodes.length) {
+        const id = idOf(nodes[0]);
+        depth.set(id, 0);
+        queue.push(id);
+    }
+    while (queue.length) {
+        const cur = queue.shift();
+        const d = depth.get(cur);
+        for (const nb of adj.get(cur) || []) {
+            if (depth.has(nb)) continue;
+            depth.set(nb, d + 1);
+            parent.set(nb, cur);
+            queue.push(nb);
+        }
+    }
+    nodes.forEach(n => {
+        const id = idOf(n);
+        if (!depth.has(id)) depth.set(id, (depth.size % 6) + 1);
+    });
+
+    const byDepth = new Map();
+    nodes.forEach(n => {
+        const d = depth.get(idOf(n)) || 0;
+        if (!byDepth.has(d)) byDepth.set(d, []);
+        byDepth.get(d).push(n);
+    });
+
+    const levelGap = 110;
+    const padX = 72;
+    const padY = 56;
+    let maxX = width;
+    let maxY = padY;
+
+    const depths = [...byDepth.keys()].sort((a, b) => a - b);
+    depths.forEach(d => {
+        const row = byDepth.get(d) || [];
+        row.sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+        const compact = row.length >= TIER_DENSE_THRESHOLD;
+        const maxW = Math.max(...row.map(n => tierNodeDimensions(n, compact).w));
+        const gap = Math.max(TIER_NODE_GAP, TIER_MIN_GAP);
+        const rowW = row.length * maxW + Math.max(0, row.length - 1) * gap;
+        maxX = Math.max(maxX, rowW + padX * 2);
+        const y = padY + d * levelGap;
+        maxY = Math.max(maxY, y);
+        row.forEach((n, i) => {
+            const dim = tierNodeDimensions(n, compact);
+            n._tierW = dim.w;
+            n._tierH = dim.h;
+            n._tierCompact = compact;
+            let x;
+            if (row.length <= 1) x = maxX / 2;
+            else {
+                const x0 = padX + dim.w / 2;
+                const x1 = maxX - padX - dim.w / 2;
+                x = x0 + (i / (row.length - 1)) * (x1 - x0);
+            }
+            n.x = x;
+            n.y = y;
+            n.fx = x;
+            n.fy = y;
+        });
+    });
+
+    return { layoutW: maxX, contentH: maxY + 120 };
+}
+
+function prepareNetworkNodes(nodes) {
+    const compact = nodes.length >= TIER_DENSE_THRESHOLD;
+    nodes.forEach(n => {
+        delete n._tierLayout;
+        n._networkLayout = true;
+        const dim = tierNodeDimensions(n, compact);
+        n._tierW = dim.w;
+        n._tierH = dim.h;
+        n._tierCompact = compact;
+    });
+}
+
+function bindNetworkLinkInteractions(linkSel, linkLabelSel) {
+    linkSel
+        .style('cursor', 'pointer')
+        .on('mouseover', function(e, d) {
+            d3.select(this).classed('network-link-hover', true);
+            tooltip.style.display = 'block';
+            tooltip.innerHTML = linkTooltipHtml(d);
+            if (linkLabelSel) linkLabelSel.filter(l => l === d).classed('tier-link-label-show', true);
+        })
+        .on('mousemove', (e) => {
+            tooltip.style.left = (e.pageX + 15) + 'px';
+            tooltip.style.top = (e.pageY - 10) + 'px';
+        })
+        .on('mouseout', function(e, d) {
+            d3.select(this).classed('network-link-hover', false);
+            tooltip.style.display = 'none';
+            if (linkLabelSel) linkLabelSel.filter(l => l === d).classed('tier-link-label-show', false);
+        })
+        .on('click', (e, d) => {
+            e.stopPropagation();
+            if (window.labvaultTopoMap && window.labvaultTopoMap.showLinkInspector) {
+                window.labvaultTopoMap.showLinkInspector({
+                    source: d.source,
+                    target: d.target,
+                    local_port: d.local_port,
+                    remote_port: d.remote_port,
+                    speed: d.speed,
+                    duplex: d.duplex,
+                    status: d.status,
+                    link_count: d.link_count,
+                    layer: d.layer,
+                });
+            }
+        });
+}
+
+function renderNetworkTopologyGraph(nodes, links) {
+    if (!g || !svg) return;
+    container.style.minHeight = '420px';
+    measureViewport();
+    stopSimulation();
+    prepareNetworkNodes(nodes);
+    g.selectAll('*').remove();
+
+    if (!allNodes.length) {
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(255,255,255,0.5)')
+            .attr('font-size', '18px').text('No devices found. Click "Rescan LLDP" to discover.');
+        return;
+    }
+    if (!nodes.length) {
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(255,255,255,0.45)')
+            .attr('font-size', '16px').text('No nodes match the selected tags.');
+        return;
+    }
+
+    const simLinks = links.map(l => {
+        const src = nodes.find(n => String(n.id) === String(l.source));
+        const tgt = nodes.find(n => String(n.id) === String(l.target));
+        return Object.assign({}, l, { source: src || l.source, target: tgt || l.target });
+    }).filter(l => l.source && l.target && typeof l.source === 'object' && typeof l.target === 'object');
+
+    const renderLinks = tierLinksForRender(simLinks);
+
+    const linkG = g.append('g').attr('class', 'network-links');
+    const link = linkG.selectAll('path').data(renderLinks).join('path')
+        .attr('class', 'link-line')
+        .attr('fill', 'none')
+        .attr('stroke', d => linkStrokeColor(d))
+        .attr('stroke-width', d => linkStrokeWidth(d))
+        .attr('stroke-dasharray', d => linkDashForDuplex(d) || null)
+        .attr('d', networkLinkPath);
+
+    const nodeG = g.append('g').attr('class', 'network-nodes');
+    const node = nodeG.selectAll('g').data(nodes).join('g')
+        .attr('class', d => {
+            let cls = 'net-device node-card';
+            if (isExternalNode(d)) cls += ' topo-external-g';
+            if (d.status !== 'online') cls += ' offline';
+            return cls;
+        })
+        .attr('transform', d => `translate(${d.x || width / 2},${d.y || height / 2})`);
+
+    node.each(function(d) {
+        const sel = d3.select(this);
+        if (isExternalNode(d)) drawTierExternalNode(sel);
+        else if (isChassis(d)) drawTierChassisNode(sel);
+        else drawTierNetworkDevice(sel);
+    });
+
+    const linkLabel = g.append('g').attr('class', 'network-link-labels')
+        .selectAll('text').data(renderLinks).join('text')
+        .attr('class', 'link-label topo-iface-label')
+        .attr('x', d => ((d.source.x || 0) + (d.target.x || 0)) / 2)
+        .attr('y', d => ((d.source.y || 0) + (d.target.y || 0)) / 2 - 6)
+        .text(d => {
+            if (d.link_count > 1) return `×${d.link_count}`;
+            const port = (d.local_port || '').split(',')[0].trim();
+            return port.length > 12 ? port.substring(0, 11) + '…' : port;
+        });
+
+    bindNetworkLinkInteractions(link, linkLabel);
+
+    const drag = d3.drag()
+        .on('start', (e, d) => {
+            if (networkStyle === 'flat' && simulation && !e.active) simulation.alphaTarget(0.25).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        })
+        .on('drag', (e, d) => {
+            d.fx = e.x;
+            d.fy = e.y;
+            d.x = e.x;
+            d.y = e.y;
+            d3.select(e.sourceEvent.currentTarget).attr('transform', `translate(${d.x},${d.y})`);
+            link.attr('d', networkLinkPath);
+            linkLabel
+                .attr('x', l => (l.source.x + l.target.x) / 2)
+                .attr('y', l => (l.source.y + l.target.y) / 2 - 6);
+        })
+        .on('end', (e, d) => {
+            if (networkStyle === 'flat' && simulation && !e.active) simulation.alphaTarget(0);
+            d.fx = d.x;
+            d.fy = d.y;
+        });
+    node.call(drag);
+
+    let canvasW = width;
+    let svgH;
+
+    if (networkStyle === 'full') {
+        const tree = assignNetworkTreeLayout(nodes, simLinks);
+        canvasW = Math.max(width, tree.layoutW);
+        svg.attr('width', canvasW);
+        svgH = resizeSvg(tree.contentH);
+        link.attr('d', networkLinkPath);
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+        linkLabel
+            .attr('x', d => (d.source.x + d.target.x) / 2)
+            .attr('y', d => (d.source.y + d.target.y) / 2 - 6);
+        g.insert(() => linkG.node(), () => nodeG.node());
+        applyLabelVisibility();
+        window.setTimeout(() => fitGraphToView(nodes, svgH), 80);
+        return;
+    }
+
+    nodes.forEach(n => {
+        if (n.fx == null || Number.isNaN(n.fx)) {
+            n.x = width / 2 + (Math.random() - 0.5) * width * 0.35;
+            n.y = height / 2 + (Math.random() - 0.5) * height * 0.35;
+        }
+        delete n.fx;
+        delete n.fy;
+    });
+
+    simulation = d3.forceSimulation(nodes)
+        .force('link', d3.forceLink(renderLinks)
+            .id(d => d.id)
+            .distance(d => 70 + linkStrokeWidth(d) * 10)
+            .strength(0.65))
+        .force('charge', d3.forceManyBody().strength(-520))
+        .force('collide', d3.forceCollide().radius(d => {
+            const hw = nodeHalfWidth(d);
+            const hh = nodeHalfHeight(d);
+            return Math.max(hw, hh) + 14;
+        }))
+        .force('center', d3.forceCenter(width / 2, height / 2))
+        .force('x', d3.forceX(width / 2).strength(0.04))
+        .force('y', d3.forceY(height / 2).strength(0.04));
+
+    const tick = () => {
+        link.attr('d', networkLinkPath);
+        node.attr('transform', d => `translate(${d.x},${d.y})`);
+        linkLabel
+            .attr('x', d => (d.source.x + d.target.x) / 2)
+            .attr('y', d => (d.source.y + d.target.y) / 2 - 6);
+    };
+    simulation.on('tick', tick);
+
+    svgH = resizeSvg(height);
+    g.insert(() => linkG.node(), () => nodeG.node());
+
+    simulation.on('end', () => {
+        let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+        nodes.forEach(n => {
+            const hw = nodeHalfWidth(n) + 20;
+            const hh = nodeHalfHeight(n) + 20;
+            minX = Math.min(minX, n.x - hw);
+            maxX = Math.max(maxX, n.x + hw);
+            minY = Math.min(minY, n.y - hh);
+            maxY = Math.max(maxY, n.y + hh);
+        });
+        const newW = Math.max(width, maxX - minX + 120);
+        const newH = Math.max(height, maxY - minY + 120);
+        svg.attr('width', newW);
+        svgH = resizeSvg(newH);
+        fitGraphToView(nodes, svgH);
+    });
+
+    applyLabelVisibility();
+}
+
+function renderTierGraph(nodes, links) {
+    if (!g || !svg) return;
+    container.style.minHeight = '420px';
+    measureViewport();
+    stopSimulation();
+    g.selectAll('*').remove();
+
+    if (!allNodes.length) {
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(255,255,255,0.5)')
+            .attr('font-size', '18px').text('No devices found. Click "Rescan LLDP" to discover.');
+        return;
+    }
+
+    if (!nodes.length) {
+        g.append('text').attr('x', width / 2).attr('y', height / 2)
+            .attr('text-anchor', 'middle').attr('fill', 'rgba(255,255,255,0.45)')
+            .attr('font-size', '16px').text('No nodes match the selected tags (or no LLDP links to expand).');
+        return;
+    }
+
+    const layout = assignTierLayout(nodes);
+    const canvasW = layout.layoutW;
+    svg.attr('width', canvasW);
+    const svgH = resizeSvg(layout.contentH);
+
+    layout.tiers.forEach(ti => {
+        if (!ti.bandH) return;
+        const theme = TIER_BAND_THEME[ti.tier] || TIER_BAND_THEME[2];
+        g.append('rect').attr('class', 'topo-tier-band')
+            .attr('x', 8).attr('y', ti.y0).attr('width', canvasW - 16).attr('height', ti.bandH - 4)
+            .attr('rx', 10)
+            .attr('fill', theme.fill)
+            .attr('stroke', theme.stroke);
+        const countSuffix = ti.count ? ` (${ti.count})` : '';
+        const rowSuffix = ti.numRows > 1 ? ` · ${ti.numRows} rows` : '';
+        g.append('text').attr('class', 'topo-tier-title')
+            .attr('x', 22).attr('y', ti.y0 + 18)
+            .attr('fill', theme.title)
+            .text((tierLabels[ti.tier] || 'Devices') + countSuffix + rowSuffix);
+    });
+
+    if (layout.contentH > height + 80) {
+        g.append('text').attr('class', 'tier-overlap-hint')
+            .attr('x', canvasW - 20).attr('y', 28)
+            .attr('text-anchor', 'end')
+            .text('Scroll or zoom — tall tier layout');
+    }
+
+    const simLinks = tierLinksForRender(links.map(l => {
+        const src = nodes.find(n => String(n.id) === String(l.source));
+        const tgt = nodes.find(n => String(n.id) === String(l.target));
+        return Object.assign({}, l, { source: src || l.source, target: tgt || l.target });
+    }).filter(l => l.source && l.target && typeof l.source === 'object' && typeof l.target === 'object'));
+
+    const link = g.append('g').attr('class', 'tier-links')
+        .selectAll('path').data(simLinks).join('path')
+        .attr('class', d => {
+            const src = d.source;
+            const tgt = d.target;
+            const st = src.tier ?? vendorTier[src.vendor] ?? 2;
+            const tt = tgt.tier ?? vendorTier[tgt.vendor] ?? 2;
+            const cross = Math.abs(st - tt) > 1;
+            return 'link-line' + (cross ? ' tier-link-cross' : '');
+        })
+        .attr('fill', 'none')
+        .attr('stroke', d => linkStrokeColor(d))
+        .attr('stroke-width', d => Math.min(3, Math.max(1, linkStrokeWidth(d) * 0.55)))
+        .attr('stroke-dasharray', d => linkDashForDuplex(d))
+        .attr('d', tierLinkPath)
+        .lower();
+
+    const node = g.append('g').attr('class', 'tier-nodes' + (layout.anyCompact ? ' tier-dense' : ''))
+        .selectAll('g').data(nodes).join('g')
+        .attr('class', d => {
+            let cls = 'net-device node-card';
+            if (isExternalNode(d)) cls += ' topo-external-g';
+            if (d.status !== 'online') cls += ' offline';
+            return cls;
+        })
+        .attr('transform', d => `translate(${d.x},${d.y})`)
+        .call(d3.drag().on('drag', (e, d) => {
+            d.x = e.x;
+            d.y = e.y;
+            d.fx = d.x;
+            d.fy = d.y;
+            d3.select(e.sourceEvent.currentTarget).attr('transform', `translate(${d.x},${d.y})`);
+            link.attr('d', tierLinkPath);
+            linkLabel
+                .attr('x', l => (l.source.x + l.target.x) / 2)
+                .attr('y', l => (l.source.y + l.target.y) / 2 - 6);
+        }));
+
+    node.each(function(d) {
+        const sel = d3.select(this);
+        if (isExternalNode(d)) drawTierExternalNode(sel);
+        else if (isChassis(d)) drawTierChassisNode(sel);
+        else drawTierNetworkDevice(sel);
+    });
+
+    const linkLabel = g.append('g').attr('class', 'tier-link-labels')
+        .selectAll('text').data(simLinks).join('text')
+        .attr('class', 'link-label topo-iface-label')
+        .attr('x', d => (d.source.x + d.target.x) / 2)
+        .attr('y', d => (d.source.y + d.target.y) / 2 - 6)
+        .text(d => {
+            if (d.link_count > 1) return `×${d.link_count} links`;
+            const port = (d.local_port || '').split(',')[0].trim();
+            return port.length > 12 ? port.substring(0, 11) + '…' : port;
+        });
+
+    link.selectAll('path')
+        .on('mouseover', function(e, d) {
+            d3.select(this).classed('tier-link-hover', true);
+            tooltip.style.display = 'block';
+            tooltip.innerHTML = linkTooltipHtml(d);
+            linkLabel.filter(l => l === d).classed('tier-link-label-show', true);
+        })
+        .on('mousemove', (e) => {
+            tooltip.style.left = (e.pageX + 15) + 'px';
+            tooltip.style.top = (e.pageY - 10) + 'px';
+        })
+        .on('mouseout', function(e, d) {
+            d3.select(this).classed('tier-link-hover', false);
+            tooltip.style.display = 'none';
+            linkLabel.filter(l => l === d).classed('tier-link-label-show', false);
+        });
+
+    applyLabelVisibility();
+    window.setTimeout(() => fitGraphToView(nodes, svgH), 80);
+}
+
+document.getElementById('topo-filter-clear')?.addEventListener('click', () => {
+    selectedTags.clear();
+    persistFilters();
+    renderFilterChips(buildTagStats(allNodes));
+    updateStatsAndGraph();
+});
+
+function applyTopologyPayload(data) {
+    allNodes = (data.nodes || []).map(normalizeNode);
+    allLinks = (data.links || []).map(normalizeLink);
+    allErrors = data.errors || [];
+    needsRescanFlag = !!data.needs_rescan;
+
+    const errDiv = document.getElementById('topo-errors');
+    if (allErrors.length > 0 && errDiv) {
+        errDiv.className = 'topo-errors';
+        errDiv.style.display = 'block';
+        errDiv.innerHTML = `<strong><i class="fas fa-exclamation-triangle me-1"></i>${allErrors.length} device error(s)</strong>`
+            + allErrors.slice(0, 8).map(e => `<div class="err-item">${e}</div>`).join('')
+            + (allErrors.length > 8 ? `<div class="err-item" style="opacity:0.7;">...and ${allErrors.length - 8} more</div>` : '');
+    } else if (errDiv) {
+        errDiv.style.display = 'none';
+    }
+
+    const tagStats = buildTagStats(allNodes);
+    renderFilterChips(tagStats);
+    updateStatsAndGraph();
+}
+
+function loadTopologyData() {
+    if (window.labvaultTopoMap && window.labvaultTopoMap.client) {
+        window.labvaultTopoMap.client.fetch().catch(err => {
+            console.error('Topology fetch error:', err);
+            showTopoError('Failed to load topology: ' + err.message);
+        });
+        return;
+    }
+    fetch('{% url "topology_data" %}', { credentials: 'same-origin' })
+    .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}: ${r.statusText}`);
+        return r.json();
+    })
+    .then(applyTopologyPayload)
+    .catch(err => {
+        console.error('Topology fetch error:', err);
+        showTopoError('Failed to load topology: ' + err.message);
+    });
+}
+
+function wireTopoMapChrome() {
+    let attempts = 0;
+    const maxAttempts = 50;
+    const attach = () => {
+        attempts += 1;
+        if (!window.labvaultTopoMap) {
+            if (attempts >= maxAttempts) {
+                loadTopologyData();
+                return;
+            }
+            setTimeout(attach, 40);
+            return;
+        }
+        window.labvaultTopoMap.onGraphData = applyTopologyPayload;
+        window.labvaultTopoMap.onDisplayPrefsChange = onDisplayPrefsChanged;
+        const last = window.labvaultTopoMap.client && window.labvaultTopoMap.client.getLast();
+        if (last) applyTopologyPayload(last);
+        else loadTopologyData();
+    };
+    attach();
+}
+
+function bootTopologyPage() {
+    if (!container) {
+        showTopoError('Topology container missing from page.');
+        return;
+    }
+    if (typeof d3 === 'undefined') {
+        showTopoError('D3 library did not load (CDN blocked?). Refresh or check network.');
+        return;
+    }
+    selectedTags = readInitialSelectedTags();
+    viewMode = readViewMode();
+    networkStyle = readNetworkStyle();
+    setNetworkStyle(networkStyle);
+    setViewMode(viewMode);
+
+    document.getElementById('topo-view-map')?.addEventListener('click', () => setViewMode('map'));
+    document.getElementById('topo-view-tier')?.addEventListener('click', () => setViewMode('tier'));
+    document.getElementById('topo-view-network')?.addEventListener('click', () => setViewMode('network'));
+    document.getElementById('topo-network-full')?.addEventListener('click', () => setNetworkStyle('full'));
+    document.getElementById('topo-network-flat')?.addEventListener('click', () => setNetworkStyle('flat'));
+    document.getElementById('topo-fit-btn')?.addEventListener('click', () => {
+        const nodes = lastGraph.nodes || [];
+        const links = lastGraph.links || [];
+        if (!nodes.length || !svg) return;
+        const svgH = parseFloat(svg.attr('height')) || height;
+        if (viewMode === 'map') {
+            const layout = assignDcLayout(nodes, links);
+            fitFabricToView(layout, svgH);
+            return;
+        }
+        fitGraphToView(nodes, svgH);
+    });
+
+    function topologyExportUrl(format) {
+        const params = new URLSearchParams();
+        params.set('format', format);
+        if (selectedTags && selectedTags.size) {
+            params.set('tags', Array.from(selectedTags).sort().join(','));
+        }
+        return '{% url "topology_export" %}?' + params.toString();
+    }
+    document.getElementById('topo-export-drawio')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.location.href = topologyExportUrl('drawio');
+    });
+    document.getElementById('topo-export-json')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        window.location.href = topologyExportUrl('json');
+    });
+
+    wireTopoMapChrome();
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootTopologyPage);
+} else {
+    bootTopologyPage();
+}
+</script>
+{% endblock %}
+
+{% block extra_content %}
+<!-- Lab Topology Designer collapsible section -->
+<div id="lab-topo-section" class="mt-4">
+  <div class="card-custom">
+    <div class="card-header d-flex justify-content-between align-items-center"
+         data-bs-toggle="collapse" data-bs-target="#lab-topo-body" style="cursor:pointer;">
+      <span><i class="fas fa-project-diagram me-2 text-info"></i> Lab Topology Designer</span>
+      <div class="d-flex gap-2" onclick="event.stopPropagation();">
+        <a href="{% url 'lab_topology_list' %}" class="btn btn-sm btn-nc">
+          <i class="fas fa-external-link-alt me-1"></i> Open Designer
+        </a>
+        <form method="post" action="{% url 'lab_topology_from_lldp' %}" class="d-inline">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-sm btn-outline-info">
+            <i class="fas fa-network-wired me-1"></i> Build from LLDP
+          </button>
+        </form>
+      </div>
+    </div>
+    <div id="lab-topo-body" class="collapse show">
+      <div class="card-body" style="font-size:0.8rem; color:#94a3b8;">
+        <p class="mb-2">Design physical port-level topology diagrams with drag-and-drop. Features:</p>
+        <ul class="mb-2 ps-3" style="line-height:1.8;">
+          <li>Per-port config push (VLAN, description, speed, admin state) for Arista/SONiC</li>
+          <li>Bezier cable links colored by type (DAC=red, optic=green, direct=blue, OCS=orange)</li>
+          <li>Import/Export JSON &mdash; version 2 format with nodes, links, cable metadata</li>
+          <li><strong>Prepare Testbed</strong>: batch-push all staged port configs at once</li>
+          <li>Build from LLDP: auto-seed from the cached topology scan above</li>
+        </ul>
+        {% with topos=lab_topo_recent %}
+        {% if topos %}
+        <div class="mt-2">
+          <strong style="color:#e2e8f0;">Recent topologies:</strong>
+          {% for t in topos %}
+          <a href="{% url 'lab_topology_detail' t.id %}" class="btn btn-xs btn-outline-secondary ms-2">
+            {{ t.name|truncatechars:30 }}
+            <small class="text-muted ms-1">({{ t.nodes.count }} nodes)</small>
+          </a>
+          {% endfor %}
+          <a href="{% url 'lab_topology_list' %}" class="ms-2" style="font-size:0.72rem;">All →</a>
+        </div>
+        {% else %}
+        <div class="mt-1">No topologies yet. <a href="{% url 'lab_topology_new' %}">Create one</a> or build from LLDP above.</div>
+        {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

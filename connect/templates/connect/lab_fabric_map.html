@@ -1,0 +1,1068 @@
+{% extends 'connect/base.html' %}
+{% block title %}{{ topo.name }} — Fabric Map{% endblock %}
+{% block body_attrs %}class="lv-topology-page lv-topology-page--fabric"{% endblock %}
+{% block content_area_class %}content-area--topology{% endblock %}
+{% block topbar %}
+{% include "connect/includes/lab_topology_topbar.html" with active_view="fabric" sub_nav=sub_nav %}
+{% endblock %}
+
+{% block content %}
+<div class="lv-topo-workspace">
+<style>
+/* ───── full-viewport canvas ───── */
+#fm-wrap {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  position: relative;
+}
+#fm-canvas-col {
+  flex: 1 1 0;
+  position: relative;
+  overflow: hidden;
+  background: #050d1a;
+  border: none;
+  border-radius: 0;
+}
+#fm-svg {
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+}
+#fm-svg:active { cursor: grabbing; }
+
+/* ───── right panel ───── */
+#fm-side {
+  width: 320px;
+  min-width: 240px;
+  max-width: 40vw;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 10px;
+  overflow-y: auto;
+}
+.fm-panel {
+  background: #0d1b2a;
+  border: 1px solid #1e3a5f;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+}
+.fm-panel h6 { color: #93c5fd; font-size: 0.78rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: .05em; }
+.fm-legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.fm-stat { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #1e3a5f22; }
+.fm-stat:last-child { border-bottom: none; }
+.fm-stat-val { font-weight: 700; color: #f8fafc; }
+#fm-detail-panel { display: none; }
+#fm-detail-panel.visible { display: block; }
+.fm-detail-row { display: flex; justify-content: space-between; padding: 2px 0; border-bottom: 1px solid #1e3a5f22; word-break: break-all; }
+.fm-detail-row:last-child { border-bottom: none; }
+.fm-detail-label { color: #94a3b8; min-width: 80px; }
+.fm-detail-val { color: #f1f5f9; text-align: right; max-width: 180px; font-size: 0.75rem; }
+
+/* ───── edit panel overlay ───── */
+#fm-edit-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  z-index: 300;
+  background: rgba(5,13,26,.88);
+  flex-direction: column;
+  padding: 16px;
+  gap: 10px;
+}
+#fm-edit-overlay.visible { display: flex; }
+#fm-edit-tabs { display: flex; gap: 4px; }
+.fm-tab { padding: 4px 12px; border-radius: 4px; cursor: pointer; font-size: 0.78rem;
+  background: #1e3a5f22; border: 1px solid #1e3a5f; color: #94a3b8; }
+.fm-tab.active { background: #1e3a5f; color: #93c5fd; }
+#fm-edit-textarea {
+  flex: 1;
+  background: #0a1628;
+  border: 1px solid #1e3a5f;
+  color: #e2e8f0;
+  font-family: 'Fira Code', monospace;
+  font-size: 0.78rem;
+  padding: 10px;
+  border-radius: 4px;
+  resize: none;
+  outline: none;
+}
+#fm-edit-actions { display: flex; gap: 8px; }
+
+/* ───── node styling ───── */
+.fm-node { cursor: pointer; }
+.fm-node-box { rx: 6; ry: 6; }
+.fm-node-label { font-size: 11px; fill: #f1f5f9; font-family: Arial, sans-serif; pointer-events: none; }
+.fm-node-ip { font-size: 9px; fill: #64748b; font-family: monospace; pointer-events: none; }
+.fm-node-icon { font-size: 13px; pointer-events: none; }
+
+/* ───── link styling ───── */
+.fm-link { fill: none; stroke-linecap: round; }
+.fm-link-label { font-size: 9px; fill: #64748b; font-family: monospace; pointer-events: none; }
+.fm-link.active-ocs { stroke-width: 2.5; opacity: .85; }
+.fm-link.alarm-ocs  { stroke-width: 3; opacity: .95; stroke-dasharray: 6,3; }
+.fm-link.lldp-link  { stroke-width: 1.5; opacity: .55; stroke-dasharray: 4,3; }
+.fm-link.planned-link { stroke-width: 1.2; opacity: .3; stroke-dasharray: 2,4; }
+.fm-link.sel { stroke-width: 3 !important; filter: drop-shadow(0 0 4px currentColor); }
+.fm-link.hovered { stroke-width: 4 !important; opacity: 1 !important; }
+
+/* ───── status bar ───── */
+#fm-status {
+  position: absolute;
+  bottom: 8px; left: 8px;
+  background: rgba(5,13,26,.8);
+  border: 1px solid #1e3a5f;
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.72rem;
+  color: #64748b;
+  pointer-events: none;
+}
+#fm-loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5,13,26,.7);
+  z-index: 200;
+  color: #93c5fd;
+  font-size: 0.9rem;
+  flex-direction: column;
+  gap: 10px;
+}
+.fm-spinner {
+  width: 32px; height: 32px;
+  border: 3px solid #1e3a5f;
+  border-top-color: #22c55e;
+  border-radius: 50%;
+  animation: fm-spin 0.8s linear infinite;
+}
+@keyframes fm-spin { to { transform: rotate(360deg); } }
+</style>
+
+<div id="fm-wrap">
+  <!-- Canvas -->
+  <div id="fm-canvas-col">
+    <svg id="fm-svg">
+      <defs>
+        <marker id="arrow-green" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-5L10,0L0,5" fill="#22c55e"/>
+        </marker>
+        <marker id="arrow-red" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-5L10,0L0,5" fill="#ef4444"/>
+        </marker>
+        <marker id="arrow-amber" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-5L10,0L0,5" fill="#f59e0b"/>
+        </marker>
+        <marker id="arrow-grey" viewBox="0 -5 10 10" refX="22" refY="0" markerWidth="6" markerHeight="6" orient="auto">
+          <path d="M0,-5L10,0L0,5" fill="#64748b"/>
+        </marker>
+        <filter id="glow-green">
+          <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
+          <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="glow-red">
+          <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+          <feMerge><feMergeNode in="coloredBlur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+      <g id="fm-root">
+        <g id="fm-links-layer"></g>
+        <g id="fm-link-labels-layer"></g>
+        <g id="fm-nodes-layer"></g>
+      </g>
+    </svg>
+    <!-- Loading overlay -->
+    <div id="fm-loading">
+      <div class="fm-spinner"></div>
+      <span>Loading live fabric data…</span>
+    </div>
+    <!-- Status bar -->
+    <div id="fm-status">Ready</div>
+    <!-- Edit overlay -->
+    <div id="fm-edit-overlay">
+      <div id="fm-edit-tabs">
+        <div class="fm-tab active" data-fmt="json">JSON</div>
+        <div class="fm-tab" data-fmt="yaml">YAML</div>
+        <div class="fm-tab" data-fmt="csv">CSV (links)</div>
+      </div>
+      <textarea id="fm-edit-textarea" spellcheck="false" placeholder="Loading…"></textarea>
+      <div id="fm-edit-actions">
+        <button id="fm-edit-apply" class="btn btn-sm btn-success">Apply</button>
+        <button id="fm-edit-download" class="btn btn-sm btn-outline-secondary">Download</button>
+        <button id="fm-edit-close" class="btn btn-sm btn-outline-danger ms-auto">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div id="fm-side">
+    <!-- Legend -->
+    <div class="fm-panel">
+      <h6><i class="fas fa-circle-dot me-1"></i>Legend</h6>
+      <div><span class="fm-legend-dot" style="background:#22c55e;"></span>Active OCS path</div>
+      <div><span class="fm-legend-dot" style="background:#ef4444;"></span>OCS alarm / failed</div>
+      <div><span class="fm-legend-dot" style="background:#f59e0b;box-shadow:0 0 4px #f59e0b66"></span>LLDP adjacency</div>
+      <div><span class="fm-legend-dot" style="background:#64748b;"></span>Planned physical</div>
+      <div style="margin-top:6px;font-size:.72rem;color:#475569">Click a node or link for detail.</div>
+    </div>
+
+    <!-- Stats -->
+    <div class="fm-panel" id="fm-stats-panel">
+      <h6><i class="fas fa-chart-bar me-1"></i>OCS Summary</h6>
+      <div class="fm-stat"><span>Total paths</span><span class="fm-stat-val" id="st-total">—</span></div>
+      <div class="fm-stat"><span>Active</span><span class="fm-stat-val" style="color:#22c55e" id="st-active">—</span></div>
+      <div class="fm-stat"><span>Alarm</span><span class="fm-stat-val" style="color:#ef4444" id="st-alarm">—</span></div>
+      <div class="fm-stat"><span>Unmapped</span><span class="fm-stat-val" style="color:#f59e0b" id="st-unmapped">—</span></div>
+      <div class="fm-stat"><span>Planned links</span><span class="fm-stat-val" id="st-planned">—</span></div>
+      <div class="fm-stat" style="margin-top:6px;padding-top:6px;border-top:1px solid #1e3a5f">
+        <span style="color:#475569;font-size:.7rem" id="st-fetched">—</span>
+      </div>
+    </div>
+
+    <!-- Node/link detail -->
+    <div class="fm-panel" id="fm-detail-panel">
+      <h6 id="fm-detail-title">—</h6>
+      <div id="fm-detail-body"></div>
+    </div>
+
+    <!-- Filter -->
+    <div class="fm-panel">
+      <h6><i class="fas fa-filter me-1"></i>Filter / Search</h6>
+      <input id="fm-search" type="text" class="form-control form-control-sm"
+             placeholder="IP, hostname, port, triplet…"
+             style="background:#0a1628;border-color:#1e3a5f;color:#e2e8f0;font-size:.78rem;">
+      <div style="margin-top:8px;font-size:.75rem;color:#475569">
+        Matching nodes and their links are highlighted. Others dim.
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- D3 v7 (CDN) + dagre for hierarchical layout -->
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dagre@0.8.5/dist/dagre.min.js"></script>
+{% load static %}
+<script src="{% static 'js/topo-layout-modes.js' %}?v=20260528"></script>
+<script>
+(function () {
+'use strict';
+
+const TLM = window.TopoLayoutModes;
+const TOPO_ID = {{ topo.id }};
+const API_URL = `/lab-topology/${TOPO_ID}/fabric.json`;
+const DATA_URL = `/lab-topology/${TOPO_ID}/data/`;
+const IMPORT_URL = `/lab-topology/${TOPO_ID}/import/`;
+const VALIDATE_URL = `/lab-topology/${TOPO_ID}/validate-link/`;
+const DISCOVER_DAC_URL = `/lab-topology/${TOPO_ID}/discover-dac/`;
+const CSRF = (document.cookie.match('(^|;)\\s*csrftoken\\s*=\\s*([^;]+)') || [,,'']).pop();
+
+// ── state ────────────────────────────────────────────────────────────────────
+let _data = null;
+let _selLinkId = null;
+let _showLLDP = true;
+let _showPlanned = true;
+let _showOCS = true;
+let _filterQuery = '';
+let _fmLayoutMode = TLM ? TLM.loadMode(TOPO_ID, 'fabric', 'rack') : 'rack';
+let _fmNodePos = null;
+
+// ── layout constants ──────────────────────────────────────────────────────────
+const NODE_W = 120, NODE_H = 52;
+const _fmSizeOf = () => ({ w: NODE_W, h: NODE_H });
+
+// ── SVG setup ────────────────────────────────────────────────────────────────
+const svg = d3.select('#fm-svg');
+const root = svg.select('#fm-root');
+const linksLayer = root.select('#fm-links-layer');
+const linkLabelsLayer = root.select('#fm-link-labels-layer');
+const nodesLayer = root.select('#fm-nodes-layer');
+
+// Zoom & pan
+const zoom = d3.zoom()
+  .scaleExtent([0.08, 4])
+  .on('zoom', (e) => root.attr('transform', e.transform));
+svg.call(zoom);
+
+// ── drag behaviour ────────────────────────────────────────────────────────────
+function makeDrag(nodePos) {
+  return d3.drag()
+    .on('start', function (ev, d) {
+      d3.select(this).raise();
+    })
+    .on('drag', function (ev, d) {
+      nodePos[d.id] = { x: ev.x, y: ev.y };
+      updatePositions(nodePos);
+    })
+    .on('end', function (ev, d) {
+      // Persist position via topology data endpoint
+      const pk = d.db_pk;
+      if (!pk) return;
+      fetch(`/lab-topology/${TOPO_ID}/data/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        credentials: 'same-origin',
+        body: JSON.stringify({ nodes: [{ id: pk, x: ev.x, y: ev.y }] }),
+      }).catch(() => {});
+    });
+}
+
+// ── link health → color (mirrors topo-theme.js on server) ─────────────────────
+const LINK_COLORS = {
+  up: '#22c55e', active: '#22c55e',
+  stale: '#f59e0b', lldp_only: '#f59e0b',
+  down: '#ef4444', alarm: '#ef4444', conflict: '#ef4444',
+  planned: '#64748b',
+};
+function healthColor(lk) {
+  if (lk.color) return lk.color;
+  if (lk.type === 'ocs_active' || lk.type === 'ocs') {
+    return lk.health === 'active' || lk.health === 'up' ? '#fb923c' : '#64748b';
+  }
+  return LINK_COLORS[lk.health] || '#64748b';
+}
+
+// ── helper: pick marker per health ────────────────────────────────────────────
+function markerFor(health) {
+  if (health === 'active' || health === 'up') return 'url(#arrow-green)';
+  if (health === 'alarm' || health === 'down') return 'url(#arrow-red)';
+  if (health === 'stale' || health === 'lldp_only') return 'url(#arrow-amber)';
+  return 'url(#arrow-grey)';
+}
+
+function linkClass(lk) {
+  if ((lk.type === 'ocs_active' || lk.type === 'ocs') && lk.health === 'alarm') return 'fm-link alarm-ocs';
+  if (lk.type === 'ocs_active' || lk.type === 'ocs') return 'fm-link active-ocs';
+  if (lk.type === 'lldp') return lk.health === 'stale' ? 'fm-link lldp-link' : 'fm-link lldp-link';
+  if (lk.type === 'planned' || lk.health === 'planned') return 'fm-link planned-link';
+  return 'fm-link lldp-link';
+}
+
+// ── node colour by type ───────────────────────────────────────────────────────
+const nodeStyle = {
+  chassis:  { fill: '#0f2a1a', stroke: '#22c55e' },
+  switch:   { fill: '#0f1f3a', stroke: '#60a5fa' },
+  ocs:      { fill: '#1e1000', stroke: '#fb923c' },
+  server:   { fill: '#1a1000', stroke: '#fbbf24' },
+  firewall: { fill: '#1a000a', stroke: '#f43f5e' },
+  default:  { fill: '#1e293b', stroke: '#475569' },
+};
+function nStyle(nt) { return nodeStyle[nt] || nodeStyle.default; }
+
+// ── icon per type ─────────────────────────────────────────────────────────────
+const nodeIcon = {
+  chassis:  '\uf233',  // fa-server
+  switch:   '\uf0e8',  // fa-sitemap
+  ocs:      '\uf542',  // fa-circle-nodes (fa5 doesn't have it → use f0e8 variant)
+  server:   '\uf233',
+  firewall: '\uf3ed',  // fa-shield-alt
+};
+function nIcon(nt) { return nodeIcon[nt] || '\uf1eb'; }
+
+// ── auto-layout with dagre ─────────────────────────────────────────────────────
+function computeDagreLayout(nodes, links) {
+  const g = new dagre.graphlib.Graph();
+  g.setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 120, marginx: 60, marginy: 60 });
+
+  nodes.forEach(n => {
+    g.setNode(n.id, { width: NODE_W, height: NODE_H });
+  });
+
+  // Only OCS-active links drive the rank, to avoid DAC-mesh clutter
+  const rankLinks = links.filter(l => l.type === 'ocs_active' || l.type === 'planned');
+  rankLinks.forEach(l => {
+    if (l.source !== l.target) g.setEdge(l.source, l.target);
+  });
+
+  dagre.layout(g);
+
+  const pos = {};
+  nodes.forEach(n => {
+    const nd = g.node(n.id);
+    pos[n.id] = nd
+      ? { x: nd.x, y: nd.y }
+      : { x: Math.random() * 900 + 60, y: Math.random() * 600 + 60 };
+  });
+  return pos;
+}
+
+// ── use saved positions from DB if available ──────────────────────────────────
+function mergePositions(nodes, dagrePos) {
+  const pos = {};
+  nodes.forEach(n => {
+    if (n.x && n.y && (n.x !== 0 || n.y !== 0)) {
+      pos[n.id] = { x: n.x, y: n.y };
+    } else {
+      pos[n.id] = dagrePos[n.id] || { x: 200, y: 200 };
+    }
+  });
+  return pos;
+}
+
+// ── render ─────────────────────────────────────────────────────────────────────
+function render(data) {
+  _data = data;
+  updateStats(data);
+
+  const nodes = data.nodes || [];
+  const allLinks = data.links || [];
+
+  const vl = data.view_layouts && data.view_layouts.fabric;
+  if (vl && (vl.layout_mode || vl.layoutMode)) {
+    const raw = vl.layout_mode || vl.layoutMode;
+    _fmLayoutMode = raw === 'dc' ? 'rack' : raw;
+  }
+  if (TLM) TLM.setSegActive(_fmLayoutMode);
+
+  let nodePos;
+  if (_fmLayoutMode === 'tier' && TLM) {
+    nodePos = TLM.computeTierLayout(nodes, { sizeOf: _fmSizeOf });
+  } else if (_fmLayoutMode === 'rack' && TLM) {
+    nodePos = TLM.computeDCLayout(nodes, allLinks, { sizeOf: _fmSizeOf });
+  } else {
+    nodePos = mergePositions(nodes, {});
+  }
+  if (vl && vl.pos) {
+    nodes.forEach(n => { if (vl.pos[n.id]) nodePos[n.id] = vl.pos[n.id]; });
+  }
+  _fmNodePos = nodePos;
+
+  drawLinks(allLinks, nodePos, nodes);
+  drawNodes(nodes, nodePos, allLinks);
+  applyFilter(_filterQuery, nodes, allLinks, nodePos);
+}
+
+function visibleLinks(allLinks) {
+  return allLinks.filter(l => {
+    if (!_showLLDP && (l.type === 'lldp' || l.health === 'lldp_only' || l.health === 'stale')) return false;
+    if (!_showPlanned && l.type === 'planned') return false;
+    if (!_showOCS && (l.type === 'ocs_active' || l.type === 'ocs')) return false;
+    return true;
+  });
+}
+
+function drawLinks(allLinks, nodePos, nodes) {
+  const links = visibleLinks(allLinks);
+
+  const sel = linksLayer.selectAll('path.fm-link')
+    .data(links, d => d.id);
+
+  sel.exit().remove();
+
+  const enter = sel.enter().append('path')
+    .attr('class', d => linkClass(d))
+    .attr('stroke', d => healthColor(d))
+    .attr('marker-end', d => markerFor(d.health))
+    .attr('id', d => `link-${d.id.replace(/[^a-z0-9_-]/gi, '_')}`)
+    .on('mouseenter', function (ev, d) {
+      d3.select(this).classed('hovered', true);
+      showLinkDetail(d);
+    })
+    .on('mouseleave', function () {
+      d3.select(this).classed('hovered', false);
+    })
+    .on('click', function (ev, d) {
+      ev.stopPropagation();
+      _selLinkId = d.id;
+      linksLayer.selectAll('path.fm-link').classed('sel', false);
+      d3.select(this).classed('sel', true);
+      showLinkDetail(d);
+    });
+
+  const merged = enter.merge(sel);
+
+  // Labels
+  const labelSel = linkLabelsLayer.selectAll('text.fm-link-label')
+    .data(links.filter(l => l.type === 'ocs_active'), d => d.id);
+  labelSel.exit().remove();
+  labelSel.enter().append('text')
+    .attr('class', 'fm-link-label')
+    .merge(labelSel)
+    .text(d => {
+      const loss = d.loss_db != null ? `${(+d.loss_db).toFixed(1)}dB` : '';
+      return loss ? loss : '';
+    });
+
+  updatePositions(nodePos, nodes, allLinks);
+}
+
+function drawNodes(nodes, nodePos, allLinks) {
+  const sel = nodesLayer.selectAll('g.fm-node')
+    .data(nodes, d => d.id);
+
+  sel.exit().remove();
+
+  const enter = sel.enter().append('g')
+    .attr('class', 'fm-node')
+    .call(makeDrag(nodePos))
+    .on('click', function (ev, d) {
+      ev.stopPropagation();
+      showNodeDetail(d, allLinks);
+    });
+
+  // Box
+  enter.append('rect')
+    .attr('class', 'fm-node-box')
+    .attr('width', NODE_W)
+    .attr('height', NODE_H)
+    .attr('fill', d => nStyle(d.node_type).fill)
+    .attr('stroke', d => nStyle(d.node_type).stroke)
+    .attr('stroke-width', 1.5);
+
+  // Glow for alarm
+  enter.append('rect')
+    .attr('class', 'fm-node-alarm-glow')
+    .attr('width', NODE_W + 6).attr('height', NODE_H + 6)
+    .attr('x', -3).attr('y', -3)
+    .attr('rx', 8).attr('ry', 8)
+    .attr('fill', 'none')
+    .attr('stroke', '#ef4444')
+    .attr('stroke-width', 2)
+    .attr('opacity', 0)
+    .attr('filter', 'url(#glow-red)');
+
+  // Icon (FontAwesome unicode via text)
+  enter.append('text')
+    .attr('class', 'fm-node-icon')
+    .attr('x', 10)
+    .attr('y', 26)
+    .attr('font-family', "'Font Awesome 5 Free'")
+    .attr('font-weight', '900')
+    .attr('fill', d => nStyle(d.node_type).stroke)
+    .text(d => nIcon(d.node_type));
+
+  // Label
+  enter.append('text')
+    .attr('class', 'fm-node-label')
+    .attr('x', 28)
+    .attr('y', 22)
+    .text(d => truncate(d.label, 14));
+
+  // IP
+  enter.append('text')
+    .attr('class', 'fm-node-ip')
+    .attr('x', 28)
+    .attr('y', 38)
+    .text(d => d.ip || '');
+
+  // Status dot
+  enter.append('circle')
+    .attr('class', 'fm-node-status')
+    .attr('cx', NODE_W - 8).attr('cy', 8).attr('r', 4)
+    .attr('fill', '#334155');
+
+  updatePositions(nodePos, nodes, allLinks);
+  updateNodeStatus(nodes, allLinks);
+}
+
+function truncate(s, n) { return s && s.length > n ? s.slice(0, n) + '…' : (s || ''); }
+
+function updatePositions(nodePos, nodes, allLinks) {
+  // Update node positions
+  nodesLayer.selectAll('g.fm-node')
+    .attr('transform', d => {
+      const p = nodePos[d.id] || { x: 0, y: 0 };
+      return `translate(${p.x - NODE_W / 2}, ${p.y - NODE_H / 2})`;
+    });
+
+  // Update link paths
+  const links = _data ? visibleLinks(_data.links || []) : [];
+  linksLayer.selectAll('path.fm-link')
+    .attr('d', d => {
+      const s = nodePos[d.source] || { x: 0, y: 0 };
+      const t = nodePos[d.target] || { x: 0, y: 0 };
+      return curvePath(s, t);
+    });
+
+  // Update link labels
+  linkLabelsLayer.selectAll('text.fm-link-label')
+    .attr('x', d => {
+      const s = nodePos[d.source] || { x: 0, y: 0 };
+      const t = nodePos[d.target] || { x: 0, y: 0 };
+      return (s.x + t.x) / 2;
+    })
+    .attr('y', d => {
+      const s = nodePos[d.source] || { x: 0, y: 0 };
+      const t = nodePos[d.target] || { x: 0, y: 0 };
+      return (s.y + t.y) / 2 - 6;
+    });
+}
+
+function curvePath(s, t) {
+  if (!s || !t) return '';
+  const dx = t.x - s.x, dy = t.y - s.y;
+  const mx = (s.x + t.x) / 2, my = (s.y + t.y) / 2;
+  // Light cubic bezier
+  const cx = mx - dy * 0.12, cy = my + dx * 0.12;
+  return `M${s.x},${s.y} Q${cx},${cy} ${t.x},${t.y}`;
+}
+
+function updateNodeStatus(nodes, allLinks) {
+  // Highlight nodes that have alarm links
+  const alarmNodes = new Set();
+  (allLinks || []).filter(l => l.health === 'alarm').forEach(l => {
+    alarmNodes.add(l.source);
+    alarmNodes.add(l.target);
+  });
+
+  nodesLayer.selectAll('g.fm-node').each(function (d) {
+    const g = d3.select(this);
+    const hasAlarm = alarmNodes.has(d.id);
+    g.select('.fm-node-alarm-glow').attr('opacity', hasAlarm ? 0.6 : 0);
+    g.select('.fm-node-status')
+      .attr('fill', hasAlarm ? '#ef4444'
+        : (allLinks || []).some(l => (l.source === d.id || l.target === d.id) && l.type === 'ocs_active')
+          ? '#22c55e' : '#334155');
+  });
+}
+
+// ── filter / search ────────────────────────────────────────────────────────────
+function applyFilter(q, nodes, allLinks, nodePos) {
+  if (!q) {
+    nodesLayer.selectAll('g.fm-node').attr('opacity', 1);
+    linksLayer.selectAll('path.fm-link').attr('opacity', null);
+    return;
+  }
+  const lq = q.toLowerCase();
+  const matchNode = id => {
+    const n = (nodes || []).find(n => n.id === id);
+    if (!n) return false;
+    return [n.label, n.ip, n.vendor, n.node_type].some(v => v && v.toLowerCase().includes(lq));
+  };
+  const matchLink = l => {
+    return [l.label, l.port_a, l.port_b, ...(l.ocs_triplets || [])].some(v => v && v.toLowerCase().includes(lq));
+  };
+
+  nodesLayer.selectAll('g.fm-node')
+    .attr('opacity', d => matchNode(d.id) ? 1 : 0.12);
+
+  linksLayer.selectAll('path.fm-link')
+    .attr('opacity', d => (matchNode(d.source) || matchNode(d.target) || matchLink(d)) ? null : 0.06);
+}
+
+// ── detail panels ─────────────────────────────────────────────────────────────
+function showNodeDetail(d, allLinks) {
+  const myLinks = (allLinks || []).filter(l => l.source === d.id || l.target === d.id);
+  const activeOcs = myLinks.filter(l => l.type === 'ocs_active').length;
+  const alarmed   = myLinks.filter(l => l.health === 'alarm').length;
+  const rows = [
+    ['Type', d.node_type],
+    ['Vendor', d.vendor],
+    ['IP', d.ip || '—'],
+    ['OCS paths', activeOcs],
+    ['Alarms', alarmed],
+    ['Ports', (d.ports || []).length],
+  ];
+  setDetail(d.label, rows);
+}
+
+function showLinkDetail(d) {
+  const rows = [
+    ['Type', d.type],
+    ['Health', d.health],
+    ['Port A', d.port_a || '—'],
+    ['Port B', d.port_b || '—'],
+    ['Triplet A', (d.ocs_triplets || [])[0] || '—'],
+    ['Triplet B', (d.ocs_triplets || [])[1] || '—'],
+    ['Loss', d.loss_db != null ? `${(+d.loss_db).toFixed(2)} dB` : '—'],
+    ['OCS path', d.ocs_path_id || '—'],
+  ];
+  setDetail(d.label || d.id, rows);
+}
+
+function setDetail(title, rows) {
+  document.getElementById('fm-detail-title').textContent = truncate(title, 24);
+  const body = document.getElementById('fm-detail-body');
+  body.innerHTML = rows.map(([k, v]) =>
+    `<div class="fm-detail-row"><span class="fm-detail-label">${k}</span><span class="fm-detail-val">${v ?? '—'}</span></div>`
+  ).join('');
+  document.getElementById('fm-detail-panel').classList.add('visible');
+}
+
+svg.on('click', () => {
+  document.getElementById('fm-detail-panel').classList.remove('visible');
+});
+
+// ── stats ─────────────────────────────────────────────────────────────────────
+function updateStats(data) {
+  const s = data.ocs_summary || {};
+  const planned = (data.links || []).filter(l => l.type === 'planned').length;
+  document.getElementById('st-total').textContent = s.total ?? '—';
+  document.getElementById('st-active').textContent = s.active ?? '—';
+  document.getElementById('st-alarm').textContent = s.alarm ?? '—';
+  document.getElementById('st-unmapped').textContent = s.unmapped ?? '—';
+  document.getElementById('st-planned').textContent = planned;
+  const ft = data.fetched_at ? new Date(data.fetched_at).toLocaleTimeString() : '—';
+  document.getElementById('st-fetched').textContent = `Updated ${ft}`;
+  if (s.error) {
+    document.getElementById('st-fetched').textContent += ` · ⚠ ${s.error.slice(0, 60)}`;
+  }
+
+  // Source freshness LEDs in status bar (from graph meta when flag=1)
+  const meta = data.meta;
+  if (meta && meta.sources) {
+    const srcs = meta.sources;
+    const leds = [
+      { k: 'lldp_db', label: 'LLDP' },
+      { k: 'ocs_live', label: 'OCS' },
+      { k: 'planned', label: 'Planned' },
+      { k: 'chassis_links', label: 'Chassis' },
+    ].map(({ k, label }) => {
+      const ok = srcs[k] && srcs[k].ok !== false;
+      const color = srcs[k] ? (ok ? '#22c55e' : '#ef4444') : '#64748b';
+      const tip = srcs[k] ? (srcs[k].error || 'OK') : 'n/a';
+      return `<span title="${label}: ${tip}" style="cursor:help;margin-right:6px;">`
+           + `<span style="width:7px;height:7px;border-radius:50%;background:${color};display:inline-block;margin-right:2px;"></span>${label}</span>`;
+    }).join('');
+    const conflicts = (data.conflicts || []).length;
+    const conflictHtml = conflicts > 0
+      ? `<span style="color:#ef4444;margin-left:6px;">⚠ ${conflicts} conflict${conflicts > 1 ? 's' : ''}</span>`
+      : '';
+    document.getElementById('fm-status').innerHTML = leds + conflictHtml;
+  } else {
+    const n = (data.nodes || []).length, l = (data.links || []).length;
+    document.getElementById('fm-status').textContent = `${n} nodes · ${l} links · OCS: ${s.active ?? 0} active`;
+  }
+}
+
+// ── fit / zoom ────────────────────────────────────────────────────────────────
+function fitAll() {
+  const svgEl = document.getElementById('fm-svg');
+  const rootEl = document.getElementById('fm-root');
+  const bb = rootEl.getBBox();
+  if (!bb || !bb.width) return;
+  const vw = svgEl.clientWidth || 1200, vh = svgEl.clientHeight || 700;
+  const scale = Math.min(0.95 * vw / bb.width, 0.95 * vh / bb.height, 2);
+  const tx = (vw - scale * (bb.x * 2 + bb.width)) / 2;
+  const ty = (vh - scale * (bb.y * 2 + bb.height)) / 2;
+  svg.transition().duration(500)
+    .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+}
+
+// ── load data ─────────────────────────────────────────────────────────────────
+function fmFetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms || 60000);
+  return fetch(url, { credentials: 'same-origin', signal: ctrl.signal })
+    .finally(() => clearTimeout(timer));
+}
+
+async function loadData(opts = {}) {
+  const live = opts.live !== false;
+  const force = opts.force_refresh === true;
+  document.getElementById('fm-loading').style.display = 'flex';
+  document.getElementById('fm-status').textContent = force ? 'Fetching live OCS + LLDP (forcing refresh)…' : 'Fetching live OCS + LLDP…';
+  try {
+    const params = new URLSearchParams({ live: live ? '1' : '0', lldp: _showLLDP ? '1' : '0', force_refresh: force ? '1' : '0' });
+    const timeoutMs = live ? 120000 : 30000;
+    const res = await fmFetchWithTimeout(`${API_URL}?${params}`, timeoutMs);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    render(data);
+    setTimeout(fitAll, 100);
+    document.getElementById('fm-status').textContent =
+      `${(data.nodes || []).length} nodes · ${(data.links || []).length} links · OCS: ${data.ocs_summary?.active ?? 0} active`;
+  } catch (e) {
+    const msg = (e && e.name === 'AbortError') ? 'Request timed out — try Refresh with live off or fewer devices' : e.message;
+    document.getElementById('fm-status').textContent = `Error: ${msg}`;
+    console.error(e);
+  } finally {
+    document.getElementById('fm-loading').style.display = 'none';
+  }
+}
+
+function applyFmLayout(uiMode) {
+  _fmLayoutMode = uiMode;
+  if (TLM) TLM.saveMode(TOPO_ID, 'fabric', uiMode);
+  if (TLM) TLM.setSegActive(uiMode);
+  if (!_data) return;
+  const nodes = _data.nodes || [];
+  const allLinks = _data.links || [];
+  if (uiMode === 'tier' && TLM) {
+    _fmNodePos = TLM.computeTierLayout(nodes, { sizeOf: _fmSizeOf });
+  } else if (uiMode === 'rack' && TLM) {
+    _fmNodePos = TLM.computeDCLayout(nodes, allLinks, { sizeOf: _fmSizeOf });
+  } else {
+    _fmNodePos = mergePositions(nodes, _fmNodePos || {});
+  }
+  drawLinks(allLinks, _fmNodePos, nodes);
+  drawNodes(nodes, _fmNodePos, allLinks);
+  applyFilter(_filterQuery, nodes, allLinks, _fmNodePos);
+  setTimeout(fitAll, 80);
+}
+
+if (TLM && TLM.bindLayoutToolbar) {
+  TLM.bindLayoutToolbar({
+    topoId: TOPO_ID,
+    view: 'fabric',
+    getMode: () => _fmLayoutMode,
+    onSelect: (m) => applyFmLayout(m),
+  });
+}
+
+// ── auto layout button (dagre) ────────────────────────────────────────────────
+document.getElementById('fm-auto-layout').addEventListener('click', () => {
+  if (!_data) return;
+  const nodes = _data.nodes || [];
+  const allLinks = _data.links || [];
+  const nodePos = computeDagreLayout(nodes, allLinks);
+  _fmNodePos = nodePos;
+  drawLinks(allLinks, nodePos, nodes);
+  drawNodes(nodes, nodePos, allLinks);
+  setTimeout(fitAll, 80);
+});
+
+// ── fit button ────────────────────────────────────────────────────────────────
+document.getElementById('fm-fit').addEventListener('click', fitAll);
+
+// ── refresh button ────────────────────────────────────────────────────────────
+document.getElementById('fm-refresh').addEventListener('click', () => loadData({ live: true, force_refresh: true }));
+
+// ── LLDP toggle ───────────────────────────────────────────────────────────────
+function _applyToggleClass(btn, on){
+  if(!btn) return;
+  btn.dataset.active = on ? '1' : '0';
+  btn.classList.toggle('lv-active-toggle', on);
+  btn.style.opacity = '';  // CSS handles visuals
+}
+
+document.getElementById('fm-toggle-lldp')?.addEventListener('click', function () {
+  _showLLDP = !_showLLDP;
+  _applyToggleClass(this, _showLLDP);
+  if (_data) linksLayer.selectAll('path.fm-link.lldp-link').attr('display', _showLLDP ? null : 'none');
+});
+
+document.getElementById('fm-toggle-planned')?.addEventListener('click', function () {
+  _showPlanned = !_showPlanned;
+  _applyToggleClass(this, _showPlanned);
+  if (_data) linksLayer.selectAll('path.fm-link.planned-link').attr('display', _showPlanned ? null : 'none');
+});
+
+document.getElementById('fm-toggle-ocs')?.addEventListener('click', function () {
+  _showOCS = !_showOCS;
+  _applyToggleClass(this, _showOCS);
+  if (_data) linksLayer.selectAll('path.fm-link.active-ocs, path.fm-link.alarm-ocs').attr('display', _showOCS ? null : 'none');
+});
+
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+// Fullscreen now handled by shared lv-fullscreen-btn in topbar include
+
+// ── search ────────────────────────────────────────────────────────────────────
+let _searchTimer;
+document.getElementById('fm-search').addEventListener('input', function () {
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    _filterQuery = this.value.trim();
+    if (_data) applyFilter(_filterQuery, _data.nodes, _data.links);
+  }, 200);
+});
+
+// ── edit panel ────────────────────────────────────────────────────────────────
+let _editFmt = 'json';
+
+document.getElementById('fm-edit-panel-btn').addEventListener('click', openEditPanel);
+document.getElementById('fm-edit-close').addEventListener('click', () => {
+  document.getElementById('fm-edit-overlay').classList.remove('visible');
+});
+
+document.querySelectorAll('.fm-tab').forEach(tab => {
+  tab.addEventListener('click', function () {
+    _editFmt = this.dataset.fmt;
+    document.querySelectorAll('.fm-tab').forEach(t => t.classList.remove('active'));
+    this.classList.add('active');
+    populateEditArea();
+  });
+});
+
+function openEditPanel() {
+  document.getElementById('fm-edit-overlay').classList.add('visible');
+  populateEditArea();
+}
+
+function dataToJSON() {
+  if (!_data) return '{}';
+  // Export topology-importable format (nodes + links stripped of live OCS)
+  const nodes = (_data.nodes || []).map(n => ({
+    id: n.db_pk, label: n.label, device_ip: n.ip,
+    node_type: n.node_type, x: n.x, y: n.y,
+    ports: n.ports,
+  }));
+  const links = (_data.links || []).filter(l => l.type === 'planned').map(l => ({
+    node_a: l.source.replace('node_', ''),
+    node_b: l.target.replace('node_', ''),
+    port_a: l.port_a, port_b: l.port_b,
+    cable_type: l.cable_type, label: l.label,
+  }));
+  return JSON.stringify({ nodes, links }, null, 2);
+}
+
+function dataToYAML() {
+  const json = JSON.parse(dataToJSON());
+  function objToYaml(obj, indent) {
+    if (Array.isArray(obj)) return obj.map(v => indent + '- ' + (typeof v === 'object' ? '\n' + objToYaml(v, indent + '  ') : v)).join('\n');
+    return Object.entries(obj).map(([k, v]) => {
+      if (v === null || v === undefined) return `${indent}${k}: ~`;
+      if (typeof v === 'object') return `${indent}${k}:\n${objToYaml(v, indent + '  ')}`;
+      return `${indent}${k}: ${JSON.stringify(v)}`;
+    }).join('\n');
+  }
+  return objToYaml(json, '');
+}
+
+function dataToCSV() {
+  const links = (_data?.links || []).map(l =>
+    [l.id, l.type, l.source, l.target, l.port_a, l.port_b,
+     l.health, l.cable_type, (l.ocs_triplets || []).join('|'), l.loss_db ?? ''].join(',')
+  );
+  return ['id,type,source,target,port_a,port_b,health,cable_type,ocs_triplets,loss_db', ...links].join('\n');
+}
+
+function populateEditArea() {
+  const ta = document.getElementById('fm-edit-textarea');
+  if (_editFmt === 'json') ta.value = dataToJSON();
+  else if (_editFmt === 'yaml') ta.value = dataToYAML();
+  else ta.value = dataToCSV();
+}
+
+document.getElementById('fm-edit-apply').addEventListener('click', async () => {
+  const ta = document.getElementById('fm-edit-textarea');
+  let payload;
+  try {
+    if (_editFmt === 'json') payload = JSON.parse(ta.value);
+    else { alert('Apply only supported for JSON. Switch to JSON tab to apply changes.'); return; }
+  } catch (e) { alert('Invalid JSON: ' + e.message); return; }
+
+  const btn = document.getElementById('fm-edit-apply');
+  btn.disabled = true; btn.textContent = 'Applying…';
+  try {
+    const r = await fetch(IMPORT_URL, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify(payload),
+    });
+    const d = await r.json();
+    if (d.ok) { document.getElementById('fm-edit-overlay').classList.remove('visible'); loadData(); }
+    else alert('Import error: ' + (d.error || JSON.stringify(d)));
+  } catch (e) { alert('Error: ' + e.message); }
+  finally { btn.disabled = false; btn.textContent = 'Apply'; }
+});
+
+document.getElementById('fm-edit-download').addEventListener('click', () => {
+  const ta = document.getElementById('fm-edit-textarea');
+  const ext = _editFmt === 'json' ? 'json' : _editFmt === 'yaml' ? 'yaml' : 'csv';
+  const blob = new Blob([ta.value], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `lab_fabric.${ext}`;
+  a.click();
+});
+
+// ── keyboard shortcuts ────────────────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'f' || e.key === 'F') fitAll();
+  if (e.key === 'r' && !e.ctrlKey) loadData({ live: true });
+  if (e.key === 'Escape') document.getElementById('fm-edit-overlay').classList.remove('visible');
+});
+
+// ── side-by-side graph validation (additive; does not change fabric.json path) ─
+document.getElementById('fm-validate-graph').addEventListener('click', async () => {
+  const badge = document.getElementById('fm-validate-badge');
+  badge.classList.remove('d-none', 'bg-success', 'bg-danger', 'bg-warning');
+  badge.textContent = '…';
+  try {
+    const live = document.getElementById('fm-refresh').dataset.live !== '0';
+    const r = await fetch(`/lab-topology/${TOPO_ID}/graph/compare.json?live=1&lldp=1`);
+    const j = await r.json();
+    if (j.ok) {
+      badge.classList.add('bg-success');
+      badge.textContent = `Graph OK Δlinks ${j.delta && j.delta.links != null ? j.delta.links : 0}`;
+    } else {
+      badge.classList.add('bg-warning');
+      badge.textContent = `Drift L${j.legacy && j.legacy.links} G${j.graph && j.graph.links}`;
+    }
+    console.info('graph/compare', j);
+  } catch (e) {
+    badge.classList.add('bg-danger');
+    badge.textContent = 'Compare failed';
+    console.error(e);
+  }
+});
+
+async function saveFmLayout() {
+  if (!_data) return;
+  const pos = {};
+  (_data.nodes || []).forEach(n => {
+    const el = nodesLayer.select(`g.fm-node`).filter(d => d.id === n.id);
+    if (!el.empty()) {
+      const t = el.attr('transform') || '';
+      const m = /translate\(([-\d.]+),([-\d.]+)\)/.exec(t);
+      if (m) pos[n.id] = { x: parseFloat(m[1]) + NODE_W / 2, y: parseFloat(m[2]) + NODE_H / 2 };
+    }
+  });
+  const viewLayouts = {
+    fabric: { pos, layout_mode: _fmLayoutMode, saved_at: new Date().toISOString() },
+  };
+  try {
+    const r = await fetch(DATA_URL, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({ view_layouts: viewLayouts }),
+    });
+    const j = await r.json();
+    alert(j.ok ? 'Fabric layout saved.' : ('Save failed: ' + (j.error || '')));
+  } catch (e) { alert('Save error: ' + e.message); }
+}
+
+document.getElementById('fm-save-layout').addEventListener('click', saveFmLayout);
+
+document.getElementById('fm-validate-link').addEventListener('click', async () => {
+  if (!_selLinkId) { alert('Click a link first.'); return; }
+  const m = String(_selLinkId).match(/^plan_(\d+)$/);
+  if (!m) { alert('Select a planned topology link (from editor).'); return; }
+  if (!confirm('Flap switch port to validate this link?')) return;
+  try {
+    const r = await fetch(VALIDATE_URL, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({ link_id: parseInt(m[1], 10), refresh_peer: true }),
+    });
+    const d = await r.json();
+    alert(d.message || d.error || 'Done');
+    loadData({ live: true });
+  } catch (e) { alert('Validate error: ' + e.message); }
+});
+
+document.getElementById('fm-discover-dac').addEventListener('click', async () => {
+  if (!confirm('Find DAC/B2B by transceiver serial and apply links?')) return;
+  try {
+    const prev = await fetch(DISCOVER_DAC_URL, { credentials: 'same-origin' });
+    const p = await prev.json();
+    if (!p.ok || !p.pairs || !p.pairs.length) { alert(p.error || 'No serial pairs found.'); return; }
+    const r = await fetch(DISCOVER_DAC_URL, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({ apply: true }),
+    });
+    const d = await r.json();
+    alert((d.created || 0) + ' link(s) created.');
+    loadData({ live: true });
+  } catch (e) { alert('DAC discover error: ' + e.message); }
+});
+
+// ── initial load ──────────────────────────────────────────────────────────────
+loadData({ live: false });
+
+// Auto-refresh every 60s
+setInterval(() => loadData({ live: true }), 60000);
+
+})();
+</script>
+{% endblock %}

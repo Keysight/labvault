@@ -1,0 +1,823 @@
+{% extends "connect/base.html" %}
+{% load ip_display %}
+{% block title %}KS Dashboard - LabVault{% endblock %}
+{% block page_title %}Keysight Dashboard{% endblock %}
+
+{% block extra_css %}
+<style>
+.ks-stats-bar {
+    display: flex; gap: 16px; align-items: center; flex-wrap: wrap;
+    background: #fff; border-radius: 8px; padding: 10px 18px; margin-bottom: 16px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06); border-top: 3px solid var(--ks-red, #E31937);
+}
+.ks-stat { text-align: center; min-width: 60px; }
+.ks-stat .val { font-size: 1.2rem; font-weight: 700; }
+.ks-stat .lbl { font-size: .65rem; color: #888; text-transform: uppercase; letter-spacing: .5px; }
+.ks-table { font-size: .8rem; }
+.ks-table th { font-size: .68rem; text-transform: uppercase; letter-spacing: .5px; color: #888; font-weight: 600; border-bottom: 2px solid var(--ks-red, #E31937); }
+.ks-table td { vertical-align: middle; padding: 6px 10px; }
+.ks-table tr { transition: background .1s; }
+.ks-table tr:hover { background: #fff5f6; }
+.ks-table .hostname-cell { font-weight: 600; }
+.ks-table .hostname-cell a { color: #333; text-decoration: none; }
+.ks-table .hostname-cell a:hover { color: var(--ks-red); }
+.port-bar { display: inline-flex; gap: 2px; align-items: center; font-size: .68rem; }
+.port-bar .pb { display: inline-block; border-radius: 2px; height: 14px; min-width: 3px; }
+.health-mini { font-size: .65rem; }
+.health-mini .progress { height: 4px; width: 60px; display: inline-block; vertical-align: middle; margin-left: 4px; border-radius: 2px; }
+/* Orange blinking indicator for chassis with current/future reservations */
+.status-dot.orange { background: #f97316; box-shadow: 0 0 0 2px rgba(249,115,22,.3); }
+.status-dot.orange.blink { animation: ks-orange-blink 1.4s ease-in-out infinite; }
+@keyframes ks-orange-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+.ks-reservation-cell { font-size: .7rem; }
+.ks-res-item { padding: 2px 0; border-bottom: 1px solid #f3f4f6; white-space: nowrap; }
+.ks-res-item:last-child { border-bottom: none; }
+.ks-res-badge { font-size: .6rem; padding: 1px 6px; border-radius: 4px; }
+.ks-res-badge.active { background: #dcfce7; color: #166534; }
+.ks-res-badge.upcoming { background: #dbeafe; color: #1d4ed8; }
+.cn-list { display: inline-flex; flex-wrap: nowrap; gap: 3px; align-items: center; }
+.ks-hscroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+.ks-hscroll-top { border-bottom: 1px solid #e5e7eb; max-height: 14px; }
+.ks-hscroll-bottom { border-top: 1px solid #e5e7eb; max-height: 14px; }
+.ks-hscroll-spacer { height: 1px; }
+/* Main table scrolls horizontally but hides its bar — only top/bottom mirrors show scrollbars */
+.ks-table-scroll-main {
+    overflow-x: auto;
+    overflow-y: visible;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+}
+.ks-table-scroll-main::-webkit-scrollbar {
+    height: 0;
+    display: none;
+}
+.ks-table.ks-table-wide {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+}
+.ks-table.ks-table-wide th,
+.ks-table.ks-table-wide td {
+    white-space: nowrap;
+    vertical-align: middle;
+}
+.ks-team-cell { position: relative; }
+.ks-team-wrap {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    align-items: center;
+}
+.ks-team-badges {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 4px;
+    align-items: center;
+}
+.ks-team-badges .badge {
+    font-size: .62rem;
+    background: #ede9fe;
+    color: #5b21b6;
+    white-space: nowrap;
+}
+.ks-reserved-cell { white-space: nowrap; }
+.ks-reserved-cell .mb-0 { display: inline; margin-right: 10px; }
+.ks-team-badges .ks-team-more {
+    font-size: .6rem;
+    background: #e5e7eb;
+    color: #4b5563;
+    cursor: help;
+}
+.ks-team-edit-btn { flex-shrink: 0; font-size: .65rem; color: #9ca3af; vertical-align: middle; padding: 0; }
+.cn-tag {
+    display:inline-flex; align-items:center; gap:2px;
+    padding:1px 6px; border-radius:3px; font-size:.64rem; font-weight:500;
+    border:1px solid #e8e8e8; background:#f8f9fa; white-space:nowrap;
+}
+.cn-tag.up { border-left:2px solid #2e7d32; }
+.cn-tag.dn { border-left:2px solid #c62828; color:#c62828; }
+.cn-tag.o2 { border-color:#b91c1c; background:#fef2f2; color:#991b1b; }
+.mgmt-pill { font-weight:700; color:#b71c1c; font-size:.68rem; }
+/* Model summary: full-width chip strip (uses horizontal space, minimal height) */
+.ks-selection-summary {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,.06);
+    border-top: 3px solid #7c3aed;
+    padding: .4rem .75rem .5rem;
+    margin-bottom: .65rem;
+}
+.ks-selection-summary-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .35rem .5rem;
+    margin-bottom: .3rem;
+}
+.ks-selection-summary-head .ks-selection-title {
+    font-size: .74rem;
+    font-weight: 600;
+    color: #5b21b6;
+}
+.ks-selection-summary-head .ks-selection-refresh {
+    margin-left: auto;
+    font-size: .72rem;
+}
+.ks-selection-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .3rem .4rem;
+    align-items: stretch;
+}
+.ks-model-chip {
+    display: inline-flex;
+    align-items: baseline;
+    gap: .4rem;
+    max-width: 100%;
+    padding: .18rem .5rem;
+    border-radius: 6px;
+    border: 1px solid #e5e7eb;
+    background: #f9fafb;
+    font-size: .74rem;
+    line-height: 1.25;
+}
+.ks-model-chip-cn {
+    border-color: #ddd6fe;
+    background: #f5f3ff;
+}
+.ks-model-chip-standalone-cn {
+    border-color: #c4b5fd;
+    background: #ede9fe;
+}
+.cn-tag.standalone-capable { border-right: 2px solid #7c3aed; }
+.cn-tag.paired-standalone { box-shadow: inset 0 0 0 1px #7c3aed; }
+.mgmt-cn-identity {
+    display: inline-block;
+    margin-top: 2px;
+    font-size: .62rem;
+    max-width: 10rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ks-model-chip-name {
+    color: #374151;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 14rem;
+}
+.ks-model-chip-cn .ks-model-chip-name { max-width: 11rem; }
+.ks-model-chip-meta {
+    font-size: .6rem;
+    color: #9ca3af;
+    font-weight: 400;
+}
+.ks-model-chip-n {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #5b21b6;
+    flex-shrink: 0;
+}
+.ks-hw-bad {
+    color: #dc2626;
+    font-weight: 800;
+}
+.ks-model-chip .ks-hw-bad {
+    color: #b91c1c;
+}
+.badge.bg-dark .ks-hw-bad {
+    color: #fecaca;
+    margin-left: 1px;
+}
+.ks-fleet-hw-summary .ks-hw-bad {
+    color: #b91c1c;
+}
+.ks-fleet-hw-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: center;
+    gap: .15rem .35rem;
+    font-variant-numeric: tabular-nums;
+    font-size: .95rem;
+}
+.ks-fleet-sep {
+    color: #9ca3af;
+    font-weight: 400;
+}
+.ks-fleet-hw-summary .ks-fleet-lbl {
+    font-size: .55rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: .02em;
+    margin-right: 1px;
+}
+.ks-selection-toolbar-only {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: .65rem;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- Stats bar -->
+<div class="ks-stats-bar">
+    <div class="ks-stat">
+        <div class="val">{{ total_chassis }}</div>
+        <div class="lbl">Chassis</div>
+    </div>
+    {% if hw_summary %}
+    <div class="ks-stat" title="Total − reported hardware issues (chassis · CN 1.5 · CN 1.0 in current filter)">
+        <div class="val ks-fleet-hw-summary">
+            <span><span class="ks-fleet-lbl">Ch</span> {{ hw_summary.chassis_total }}{% if hw_summary.chassis_bad %}<span class="ks-hw-bad">-{{ hw_summary.chassis_bad }}</span>{% endif %}</span>
+            {% if hw_summary.cn15_total %}
+            <span class="ks-fleet-sep">·</span>
+            <span><span class="ks-fleet-lbl">1.5</span> {{ hw_summary.cn15_total }}{% if hw_summary.cn15_bad %}<span class="ks-hw-bad">-{{ hw_summary.cn15_bad }}</span>{% endif %}</span>
+            {% endif %}
+            {% if hw_summary.cn10_total %}
+            <span class="ks-fleet-sep">·</span>
+            <span><span class="ks-fleet-lbl">1.0</span> {{ hw_summary.cn10_total }}{% if hw_summary.cn10_bad %}<span class="ks-hw-bad">-{{ hw_summary.cn10_bad }}</span>{% endif %}</span>
+            {% endif %}
+        </div>
+        <div class="lbl">Fleet · bad</div>
+    </div>
+    {% endif %}
+    <div class="ks-stat">
+        <div class="val" style="color:#22c55e;">{{ total_online }}</div>
+        <div class="lbl">Online</div>
+    </div>
+    <div class="ks-stat">
+        <div class="val" style="color:#ef4444;">{{ total_offline }}</div>
+        <div class="lbl">Offline</div>
+    </div>
+    {% if hw_error_count %}
+    <div class="ks-stat" title="Individual CN/mgmt nodes or chassis flagged with reported hardware errors">
+        <div class="val" style="color:#f59e0b;">{{ hw_error_count }}</div>
+        <div class="lbl">HW units</div>
+    </div>
+    {% endif %}
+    <div class="ks-stat" id="totalPortsStat">
+        <div class="val">-</div>
+        <div class="lbl">Ports</div>
+    </div>
+    {% if total_compute %}
+    <div class="ks-stat">
+        <div class="val" style="color:#b91c1c;">{{ total_mgmt }}</div>
+        <div class="lbl">Mgmt</div>
+    </div>
+    <div class="ks-stat">
+        <div class="val">{{ total_compute }}</div>
+        <div class="lbl">Compute</div>
+    </div>
+    <div class="ks-stat">
+        <div class="val" style="color:#22c55e;">{{ total_nodes_up }}</div>
+        <div class="lbl">Nodes up</div>
+    </div>
+    {% endif %}
+    {% if hv_alarm_count %}
+    <a href="{% url 'hyperview_alarms' %}" class="ks-stat text-decoration-none" title="Active environment alarms">
+        <div class="val" style="color:{% if hv_alarm_critical %}#ef4444{% else %}#f59e0b{% endif %};">{{ hv_alarm_count }}</div>
+        <div class="lbl"><i class="fas fa-thermometer-half me-1"></i>Env Alarms</div>
+    </a>
+    {% endif %}
+    <div style="margin-left:auto;">
+        <a href="{% url 'keysight_deploy_page' %}" class="btn btn-sm" style="background:var(--ks-red,#E31937);color:#fff;font-size:.78rem;">
+            <i class="fas fa-rocket me-1"></i>Deploy / Upgrade
+        </a>
+        <a href="{% url 'keysight_add_chassis' %}" class="btn btn-sm btn-outline-dark" style="font-size:.78rem;">
+            <i class="fas fa-plus me-1"></i>Add Chassis
+        </a>
+        <a href="{% url 'keysight_discover' %}" class="btn btn-sm btn-outline-secondary" style="font-size:.78rem;">
+            <i class="fas fa-search-location me-1"></i>Discover
+        </a>
+        <button class="btn btn-sm btn-outline-warning" style="font-size:.78rem;" id="btnBulkRedetect" title="Re-detect chassis types for all KCOS chassis using deployment chart names">
+            <i class="fas fa-sync-alt me-1"></i>Re-detect Types
+        </button>
+    </div>
+</div>
+
+{% include "connect/keysight/_dashboard_filters.html" %}
+{% if type_breakdown %}
+<div class="ks-selection-summary" role="region" aria-label="Models in current selection">
+    <div class="ks-selection-summary-head">
+        <span class="badge bg-dark">{{ total_chassis }} chassis{% if hw_summary.chassis_bad %}<span class="ks-hw-bad">-{{ hw_summary.chassis_bad }}</span>{% endif %}</span>
+        <span class="ks-selection-title">Models in current selection</span>
+        <a href="{{ node_refresh_url }}" class="btn btn-sm btn-outline-secondary ks-selection-refresh">
+            <i class="fas fa-sync-alt me-1"></i>Refresh node slots
+        </a>
+    </div>
+    <div class="ks-selection-chips">
+        {% for row in type_breakdown %}
+        <span class="ks-model-chip{% if row.row_kind == 'compute_node' %} ks-model-chip-cn{% elif row.row_kind == 'standalone_cn' %} ks-model-chip-standalone-cn{% endif %}" title="{{ row.label }}: {{ row.count }}{% if row.bad_count %} ({{ row.bad_count }} reported bad){% endif %}">
+            <span class="ks-model-chip-name">
+                {{ row.label }}{% if row.row_kind == 'compute_node' %}<span class="ks-model-chip-meta"> · CN</span>{% elif row.row_kind == 'standalone_cn' %}<span class="ks-model-chip-meta"> · mgmt+CN</span>{% endif %}
+            </span>
+            <span class="ks-model-chip-n">{{ row.count }}{% if row.bad_count %}<span class="ks-hw-bad">-{{ row.bad_count }}</span>{% endif %}</span>
+        </span>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="ks-selection-toolbar-only">
+    <a href="{{ node_refresh_url }}" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem;">
+        <i class="fas fa-sync-alt me-1"></i>Refresh node slots
+    </a>
+</div>
+{% endif %}
+
+<!-- Reserved chassis summary (current/upcoming reservations) -->
+{% if reserved_chassis_count %}
+<div class="d-flex align-items-center gap-2 mb-2 py-2 px-3 rounded" style="background:#fff7ed;border:1px solid #fed7aa;">
+    <span class="status-dot orange blink" style="flex-shrink:0;" title="Chassis has reservation"></span>
+    <span style="font-size:.78rem;font-weight:600;color:#9a3412;">{{ reserved_chassis_count }} chassis with current or upcoming reservations — listed first below</span>
+</div>
+{% endif %}
+
+<!-- Chassis table -->
+{% if chassis_list %}
+<div class="card-custom" style="border-top:3px solid var(--ks-red,#E31937);">
+    <div class="card-body p-0" id="ksChassisTableWrap">
+        <div class="ks-hscroll ks-hscroll-top" id="ksHscrollTop" aria-hidden="true"><div class="ks-hscroll-spacer"></div></div>
+        <div class="ks-table-scroll-main" id="ksHscrollMain">
+        <table class="table table-hover ks-table ks-table-wide mb-0" id="ksChassisTable">
+            <thead>
+                <tr>
+                    <th style="width:30px;"></th>
+                    <th style="width:60px;"></th>
+                    <th data-sortable>Name / IP</th>
+                    <th data-sortable>Type</th>
+                    <th data-sortable>Team</th>
+                    <th data-sortable>Version</th>
+                    <th data-sortable>Serial</th>
+                    <th>Mgmt node</th>
+                    <th>Compute nodes</th>
+                    <th data-sortable data-sort-type="number">Ports</th>
+                    <th data-sortable data-sort-type="number" title="SNMP LLDP neighbors with remote data">LLDP</th>
+                    <th>Reservations</th>
+                    <th data-sortable>Health</th>
+                    <th>Reserved</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in chassis_list %}
+                {% with ch=entry.chassis d=entry.data %}
+                <tr>
+                    <td class="text-nowrap">
+                        <span class="status-dot {% if ch.status == 'online' %}green{% elif ch.status == 'offline' %}red{% elif ch.status == 'auth_failed' %}yellow{% else %}amber{% endif %}"></span>
+                        {% if entry.has_reservations %}
+                        <span class="status-dot orange blink ms-1" title="Has current or upcoming reservation"></span>
+                        {% endif %}
+                    </td>
+                    <td class="text-nowrap">
+                        <a href="{% url 'keysight_chassis_detail' ch.id %}" class="btn btn-sm btn-outline-secondary" style="font-size:.65rem;padding:2px 6px;" title="View">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                        <button class="btn btn-sm btn-outline-warning quick-reserve-btn" style="font-size:.65rem;padding:2px 6px;"
+                                data-chassis-id="{{ ch.id }}" data-chassis-name="{{ ch.hostname|default:ch.ip_address }}" title="Quick Reserve">
+                            <i class="fas fa-calendar-plus"></i>
+                        </button>
+                    </td>
+                    <td class="hostname-cell">
+                        {% if entry.hardware_error_reported %}
+                        <i class="fas fa-exclamation-triangle text-warning me-1" title="Reported hardware error{% if ch.notes %}: {{ ch.notes|truncatechars:80 }}{% endif %}{% if entry.hw_error_nodes %}; nodes: {{ entry.hw_error_nodes|join:', ' }}{% endif %}"></i>
+                        {% endif %}
+                        {% mgmt_address_links object=ch fqdn=entry.fqdn label=entry.fqdn|default:ch.hostname|default:ch.ip_address %}
+                        {% if ch.mgmt_ipv6 and ch.ip_address or ch.hostname and entry.fqdn and ch.hostname != entry.fqdn %}
+                        <span style="font-size:.68rem;color:#999;font-weight:400;">
+                            {% if ch.mgmt_ipv6 and ch.ip_address %}v4 {{ ch.ip_address }}{% endif %}
+                            {% if ch.hostname and entry.fqdn and ch.hostname != entry.fqdn %}{% if ch.mgmt_ipv6 and ch.ip_address %} · {% endif %}{{ ch.hostname }}{% endif %}
+                        </span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="badge" style="font-size:.65rem;background:#f3f4f6;color:#333;">{{ ch.get_chassis_type_display }}</span>
+                        {% if entry.node_assoc.standalone %}
+                        <span class="badge" style="font-size:.6rem;background:#ede9fe;color:#5b21b6;margin-left:2px;" title="Combined mgmt+CN on one box (1 CN only)">1×CN</span>
+                        {% endif %}
+                    </td>
+                    <td class="ks-team-cell" data-chassis-id="{{ ch.id }}" data-team-tags="{{ ch.team_tags }}">
+                        <div class="ks-team-wrap">
+                        <span class="ks-team-badges">
+                        {% for t in ch.team_tags_list %}
+                        <span class="badge" title="{{ t }}">{{ t }}</span>
+                        {% empty %}
+                        <span class="text-muted" style="font-size:.7rem;">—</span>
+                        {% endfor %}
+                        </span>
+                        <button type="button" class="btn btn-link ks-tag-edit-btn ks-team-edit-btn" title="Edit team tags"
+                                data-chassis-id="{{ ch.id }}" data-team-tags="{{ ch.team_tags }}">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        </div>
+                    </td>
+                    <td style="font-size:.75rem;">
+                        {% if ch.os_platform == 'kcos' %}{{ ch.kcos_version|default:"-" }}{% else %}{{ ch.ixos_version|default:"-" }}{% endif %}
+                    </td>
+                    <td style="font-size:.72rem;color:#888;">{{ ch.serial_number|default:"-" }}</td>
+                    <td style="font-size:.7rem;min-width:90px;">
+                        {% if entry.node_assoc and entry.node_assoc.mgmt_node %}
+                        <span class="mgmt-pill"><span class="status-dot {% if entry.node_assoc.mgmt_node.is_ready %}green{% else %}red{% endif %}" style="width:6px;height:6px;"></span>{% if entry.node_assoc.standalone %} mgmt+CN{% if entry.node_assoc.mgmt_node.aps_gen == '15' %} <span class="badge" style="font-size:.55rem;background:#fee2e2;color:#991b1b;">1.5</span>{% elif entry.node_assoc.mgmt_node.aps_gen == '10' %} <span class="badge" style="font-size:.55rem;background:#e0f2fe;color:#0369a1;">1.0</span>{% endif %}{% else %} mgmt{% endif %}</span>
+                        {% if entry.node_assoc.standalone and entry.node_assoc.cn_identity %}
+                        <div class="mgmt-cn-identity cn-tag {% if entry.node_assoc.mgmt_node.is_ready %}up{% else %}dn{% endif %}{% if entry.node_assoc.mgmt_node.aps_gen == '15' %} o2{% endif %}" title="Standalone CN identity · APS {% if entry.node_assoc.mgmt_node.aps_gen == '15' %}1.5{% else %}1.0{% endif %}">{{ entry.node_assoc.cn_identity }}</div>
+                        {% else %}
+                        <div class="text-muted" style="font-size:.62rem;">{{ entry.node_assoc.mgmt_node.name }}</div>
+                        {% endif %}
+                        {% elif entry.node_assoc and entry.node_assoc.error %}
+                        <span class="text-warning" style="font-size:.65rem;">{{ entry.node_assoc.error|truncatechars:24 }}</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td style="font-size:.7rem;">
+                        {% if entry.node_assoc and entry.node_assoc.compute_nodes %}
+                        <div class="cn-list">
+                        {% for cn in entry.node_assoc.compute_nodes %}
+                        <span class="cn-tag {% if cn.is_ready %}up{% else %}dn{% endif %}{% if cn.aps_gen == '15' %} o2{% endif %}{% if cn.standalone_capable %} standalone-capable{% endif %}{% if cn.paired_standalone_hostname %} paired-standalone{% endif %}" title="{% if cn.aps_gen == '15' %}APS 1.5{% else %}APS 1.0{% endif %} · {{ cn.status }}{% if cn.paired_standalone_hostname %} · paired standalone {{ cn.paired_standalone_hostname }}{% elif cn.standalone_capable %} · standalone-capable CN{% endif %}">
+                            <span class="status-dot {% if cn.is_ready %}green{% else %}red{% endif %}" style="width:5px;height:5px;"></span>{{ cn.name }}
+                        </span>
+                        {% endfor %}
+                        </div>
+                        {% elif entry.node_assoc and entry.node_assoc.error %}{% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if d %}
+                        <div class="port-bar">
+                            <span style="color:#22c55e;" title="Up">{{ d.ports_up|default:"0" }}</span>/
+                            <span title="Total">{{ d.total_ports|default:"0" }}</span>
+                            {% if d.ports_owned %}
+                            <span style="color:#f59e0b;margin-left:3px;" title="Owned">({{ d.ports_owned }} owned)</span>
+                            {% endif %}
+                        </div>
+                        {% else %}<span class="text-muted">-</span>{% endif %}
+                    </td>
+                    <td style="font-size:.72rem;" data-sort-value="{{ d.lldp_count|default:0 }}">
+                        {% if d.lldp_count %}
+                        <span class="badge bg-primary" style="font-size:.62rem;" title="LLDP neighbors (see chassis detail)">{{ d.lldp_count }}</span>
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td class="ks-reservation-cell">
+                        {% if entry.reservations %}
+                        {% for res_entry in entry.reservations %}
+                        <div class="ks-res-item">
+                            <span class="ks-res-badge {{ res_entry.status }}">{{ res_entry.status|title }}</span>
+                            <a href="{% url 'keysight_reservation_detail' res_entry.reservation.id %}" class="text-decoration-none" style="font-size:.68rem;">{{ res_entry.reservation.title }}</a>
+                            <span class="text-muted" style="font-size:.62rem;"> · {{ res_entry.reservation.user.username }} · {{ res_entry.reservation.start_time|date:"M j H:i" }}–{{ res_entry.reservation.end_time|date:"H:i" }}</span>
+                        </div>
+                        {% endfor %}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                    <td>
+                        {% if d and d.health %}
+                        <div class="health-mini">
+                            {% if d.is_kcos %}
+                            {% if d.health.cluster_health == 'healthy' %}<span class="text-success"><i class="fas fa-check-circle"></i></span>{% else %}<span class="text-warning"><i class="fas fa-exclamation-triangle"></i></span>{% endif %}
+                            {{ d.health.nodes_ready|default:"0" }}/{{ d.health.nodes_total|default:"0" }}
+                            {% else %}
+                            CPU {{ d.health.cpu_utilization|floatformat:0 }}%
+                            <div class="progress"><div class="progress-bar {% if d.health.cpu_utilization > 80 %}bg-danger{% else %}bg-success{% endif %}" style="width:{{ d.health.cpu_utilization|floatformat:0 }}%;"></div></div>
+                            {% endif %}
+                        </div>
+                        {% else %}<span class="text-muted" style="font-size:.7rem;">-</span>{% endif %}
+                    </td>
+                    <td class="ks-reserved-cell" style="font-size:.7rem;">
+                        {% if d.owners_summary %}
+                        {% for o in d.owners_summary %}{% if not forloop.first %} · {% endif %}<span title="{{ o.locations|join:', ' }}">{{ o.owner }}: {{ o.count }} port{{ o.count|pluralize }}{% if o.locations %} <span class="text-muted">({{ o.locations|join:', ' }})</span>{% endif %}</span>{% endfor %}
+                        {% else %}<span class="text-muted">—</span>{% endif %}
+                    </td>
+                </tr>
+                {% endwith %}
+                {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        <div class="ks-hscroll ks-hscroll-bottom" id="ksHscrollBottom" aria-hidden="true"><div class="ks-hscroll-spacer"></div></div>
+    </div>
+</div>
+{% else %}
+<div class="text-center py-5">
+    <i class="fas fa-server" style="font-size:3rem;color:#ccc;"></i>
+    {% if has_lab_chassis and dashboard_filters_active %}
+    <h5 class="mt-3 text-muted">No chassis match the current filters</h5>
+    <a href="{{ clear_filter_url }}" class="btn btn-sm btn-outline-secondary mt-2">Clear filters</a>
+    {% else %}
+    <h5 class="mt-3 text-muted">No chassis added yet</h5>
+    <a href="{% url 'keysight_add_chassis' %}" class="btn mt-2" style="background:var(--ks-red,#E31937);color:#fff;">
+        <i class="fas fa-plus me-1"></i>Add Your First Chassis
+    </a>
+    {% endif %}
+</div>
+{% endif %}
+<!-- Quick Reserve Modal (inside content block so it is rendered) -->
+<div class="modal fade" id="quickReserveModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content" style="border-top:3px solid var(--ks-red,#E31937);">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="fas fa-calendar-plus me-2"></i>Quick Reserve</h6>
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                {% csrf_token %}
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Chassis</label>
+                    <div id="qr-chassis-label" style="font-weight:600;font-size:.85rem;"></div>
+                    <input type="hidden" id="qr-chassis-id">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Title</label>
+                    <input type="text" id="qr-title" class="form-control form-control-sm" placeholder="Auto-generated if blank">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">User</label>
+                    <div style="font-size:.85rem;">{{ request.user.username }} ({{ request.user.email|default:"no email" }})</div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Slot <span class="text-muted">(opt)</span></label>
+                        <input type="number" id="qr-slot" class="form-control form-control-sm" placeholder="All">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Port <span class="text-muted">(opt)</span></label>
+                        <input type="number" id="qr-port" class="form-control form-control-sm" placeholder="All">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Duration</label>
+                    <select id="qr-duration" class="form-select form-select-sm">
+                        <option value="1h">1 Hour</option>
+                        <option value="4h" selected>4 Hours</option>
+                        <option value="8h">8 Hours</option>
+                        <option value="24h">24 Hours</option>
+                        <option value="1w">1 Week</option>
+                        <option value="custom">Custom End Time</option>
+                    </select>
+                </div>
+                <div class="mb-2 d-none" id="qr-custom-end-wrap">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">End Time</label>
+                    <input type="datetime-local" id="qr-custom-end" class="form-control form-control-sm">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Notes <span class="text-muted">(opt)</span></label>
+                    <input type="text" id="qr-notes" class="form-control form-control-sm" placeholder="Optional notes">
+                </div>
+                <div id="qr-result" class="d-none mt-2" style="font-size:.8rem;"></div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm" style="background:var(--ks-red,#E31937);color:#fff;" id="qr-submit">
+                    <i class="fas fa-check me-1"></i>Reserve
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+/* Sync top / main / bottom horizontal scrollbars for chassis table */
+(function() {
+    var main = document.getElementById('ksHscrollMain');
+    var top = document.getElementById('ksHscrollTop');
+    var bottom = document.getElementById('ksHscrollBottom');
+    if (!main || !top || !bottom) return;
+
+    var syncing = false;
+    function setSpacerWidth() {
+        var w = main.scrollWidth;
+        top.querySelector('.ks-hscroll-spacer').style.width = w + 'px';
+        bottom.querySelector('.ks-hscroll-spacer').style.width = w + 'px';
+    }
+    function syncScroll(source, scrollLeft) {
+        if (syncing) return;
+        syncing = true;
+        [main, top, bottom].forEach(function(el) {
+            if (el !== source) el.scrollLeft = scrollLeft;
+        });
+        syncing = false;
+    }
+    [main, top, bottom].forEach(function(el) {
+        el.addEventListener('scroll', function() { syncScroll(el, el.scrollLeft); });
+    });
+    setSpacerWidth();
+    window.addEventListener('resize', setSpacerWidth);
+    if (typeof ResizeObserver !== 'undefined') {
+        var ro = new ResizeObserver(setSpacerWidth);
+        ro.observe(main);
+        var table = document.getElementById('ksChassisTable');
+        if (table) ro.observe(table);
+    }
+})();
+
+setInterval(function() {
+    fetch('{% url "keysight_dashboard_data_json" %}')
+        .then(r => r.json())
+        .then(data => {
+            let total = 0;
+            data.chassis_list.forEach(function(ch) { total += ch.total_ports; });
+            var el = document.querySelector('#totalPortsStat .val');
+            if (el) el.textContent = total;
+        })
+        .catch(function() {});
+}, 30000);
+
+/* Bulk re-detect chassis types */
+document.addEventListener('DOMContentLoaded', function() {
+    var btn = document.getElementById('btnBulkRedetect');
+    if (!btn) return;
+    btn.addEventListener('click', function() {
+        if (!confirm('This will re-detect M1010/M8400 types for all KCOS chassis in the background. Continue?')) return;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Detecting...';
+        fetch('{% url "keysight_bulk_redetect" %}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+        })
+        .then(r => r.json())
+        .then(data => {
+            alert(data.message || 'Re-detection started.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Re-detect Types';
+            setTimeout(function() { location.reload(); }, 5000);
+        })
+        .catch(function() {
+            alert('Request failed.');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt me-1"></i>Re-detect Types';
+        });
+    });
+});
+
+/* ---- Quick Reserve ---- */
+document.addEventListener('DOMContentLoaded', function() {
+    var modal = document.getElementById('quickReserveModal');
+    if (!modal) return;
+    var bsModal = new bootstrap.Modal(modal);
+
+    document.querySelectorAll('.quick-reserve-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('qr-chassis-id').value = btn.dataset.chassisId;
+            document.getElementById('qr-chassis-label').textContent = btn.dataset.chassisName;
+            document.getElementById('qr-title').value = '';
+            document.getElementById('qr-slot').value = '';
+            document.getElementById('qr-port').value = '';
+            document.getElementById('qr-notes').value = '';
+            document.getElementById('qr-result').classList.add('d-none');
+            document.getElementById('qr-submit').disabled = false;
+            bsModal.show();
+        });
+    });
+
+    document.getElementById('qr-duration').addEventListener('change', function() {
+        document.getElementById('qr-custom-end-wrap').classList.toggle('d-none', this.value !== 'custom');
+    });
+
+    document.getElementById('qr-submit').addEventListener('click', function() {
+        var submitBtn = this;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Reserving...';
+        var resultDiv = document.getElementById('qr-result');
+
+        var csrfInput = document.querySelector('#quickReserveModal [name=csrfmiddlewaretoken]');
+        var token = (csrfInput && csrfInput.value) ? csrfInput.value : '{{ csrf_token|escapejs }}';
+
+        var formData = new FormData();
+        formData.append('csrfmiddlewaretoken', token);
+        formData.append('chassis_id', document.getElementById('qr-chassis-id').value);
+        formData.append('title', document.getElementById('qr-title').value);
+        formData.append('slot_number', document.getElementById('qr-slot').value);
+        formData.append('port_number', document.getElementById('qr-port').value);
+        formData.append('duration', document.getElementById('qr-duration').value);
+        formData.append('custom_end', document.getElementById('qr-custom-end').value);
+        formData.append('notes', document.getElementById('qr-notes').value);
+
+        fetch('{% url "keysight_quick_reserve" %}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': token, 'Accept': 'application/json'},
+            body: formData,
+            credentials: 'same-origin',
+        })
+        .then(function(r) {
+            if (!r.ok && r.status === 403) {
+                return { ok: false, error: 'Session expired or invalid. Please refresh the page and try again.' };
+            }
+            return r.json();
+        })
+        .then(function(data) {
+            resultDiv.classList.remove('d-none');
+            if (data.ok) {
+                resultDiv.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>Reserved! Ends ' + data.end_time + '</span>';
+                setTimeout(function() { bsModal.hide(); }, 2000);
+            } else {
+                resultDiv.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>' + (data.error || 'Failed') + '</span>';
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-check me-1"></i>Reserve';
+            }
+        })
+        .catch(function() {
+            resultDiv.classList.remove('d-none');
+            resultDiv.innerHTML = '<span class="text-danger">Request failed.</span>';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-check me-1"></i>Reserve';
+        });
+    });
+});
+
+/* ---- Team Tag inline edit ---- */
+document.addEventListener('DOMContentLoaded', function() {
+    var csrfToken = '{{ csrf_token }}';
+
+    document.querySelectorAll('.ks-tag-edit-btn').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            var chassisId  = btn.dataset.chassisId;
+            var currentVal = btn.dataset.teamTags || '';
+            var cell       = btn.closest('td.ks-team-cell');
+
+            // Avoid double popover
+            if (cell.querySelector('.ks-tag-popover')) return;
+
+            var pop = document.createElement('div');
+            pop.className = 'ks-tag-popover';
+            pop.style.cssText = 'position:absolute;z-index:9999;background:#fff;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;box-shadow:0 4px 12px rgba(0,0,0,.12);min-width:220px;';
+            pop.innerHTML =
+                '<div style="font-size:.7rem;color:#6b7280;margin-bottom:4px;">Team Tags <span style="color:#9ca3af;">(comma-separated)</span></div>' +
+                '<input type="text" class="form-control form-control-sm ks-tag-input" value="' + currentVal.replace(/"/g,'&quot;') + '" style="font-size:.75rem;margin-bottom:6px;" placeholder="QA, QA/L47, KCOS-Team">' +
+                '<div class="d-flex gap-1 justify-content-end">' +
+                  '<button class="btn btn-sm btn-outline-secondary ks-tag-cancel" style="font-size:.65rem;padding:2px 8px;">Cancel</button>' +
+                  '<button class="btn btn-sm ks-tag-save" style="font-size:.65rem;padding:2px 8px;background:#7c3aed;color:#fff;">Save</button>' +
+                '</div>';
+
+            // Position relative to button
+            cell.style.position = 'relative';
+            cell.appendChild(pop);
+            pop.querySelector('.ks-tag-input').focus();
+
+            pop.querySelector('.ks-tag-cancel').addEventListener('click', function() { pop.remove(); });
+
+            pop.querySelector('.ks-tag-save').addEventListener('click', function() {
+                var newTags = pop.querySelector('.ks-tag-input').value;
+                var saveBtn = this;
+                saveBtn.disabled = true;
+                saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+                var fd = new FormData();
+                fd.append('team_tags', newTags);
+
+                fetch('/keysight/api/chassis/' + chassisId + '/team-tags/', {
+                    method: 'POST',
+                    headers: {'X-CSRFToken': csrfToken},
+                    body: fd,
+                    credentials: 'same-origin',
+                })
+                .then(function(r) {
+                    if (!r.ok) {
+                        return r.text().then(function(t) {
+                            throw new Error(r.status + ': ' + (t || r.statusText).slice(0, 200));
+                        });
+                    }
+                    return r.json();
+                })
+                .then(function(data) {
+                    if (data.ok) {
+                        // Update button data attribute
+                        btn.dataset.teamTags = data.team_tags;
+                        var badgesSpan = cell.querySelector('.ks-team-badges');
+                        if (data.team_tags_list && data.team_tags_list.length > 0) {
+                            var html = data.team_tags_list.map(function(t) {
+                                var esc = t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+                                return '<span class="badge" title="' + esc + '">' + esc + '</span>';
+                            }).join('');
+                            badgesSpan.innerHTML = html;
+                        } else {
+                            badgesSpan.innerHTML = '<span class="text-muted" style="font-size:.7rem;">\u2014</span>';
+                        }
+                        pop.remove();
+                    } else {
+                        alert('Failed to save tags.');
+                        saveBtn.disabled = false;
+                        saveBtn.innerHTML = 'Save';
+                    }
+                })
+                .catch(function(err) {
+                    alert('Request failed: ' + (err && err.message ? err.message : 'network error'));
+                    saveBtn.disabled = false;
+                    saveBtn.innerHTML = 'Save';
+                });
+            });
+
+            // Close on click outside
+            setTimeout(function() {
+                document.addEventListener('click', function onOutside(ev) {
+                    if (!pop.contains(ev.target) && ev.target !== btn) {
+                        pop.remove();
+                        document.removeEventListener('click', onOutside);
+                    }
+                });
+            }, 50);
+        });
+    });
+});
+</script>
+{% endblock %}

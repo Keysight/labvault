@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+<div id="tabs">
+    <ul id="tab-list">
+        <!-- Tabs will be dynamically added here -->
+    </ul>
+    <button id="add-tab">+</button>
+</div>
+<div id="tab-content">
+    <!-- Tab content will be dynamically added here -->
+</div>
+
+<h3>Saved Devices</h3>
+<ul>
+    {% for device in saved_devices %}
+    <li><a href="#" onclick="addTab('{{ device.name }}', {{ device.id }})">{{ device.name }}</a></li>
+    {% endfor %}
+</ul>
+
+<script>
+    let tabCounter = 0;
+
+    function addTab(deviceName, deviceId) {
+        tabCounter++;
+        const tabId = `tab-${tabCounter}`;
+        
+        // Add tab to list
+        const tabList = document.getElementById('tab-list');
+        const newTab = document.createElement('li');
+        newTab.innerHTML = `
+            <a href="#${tabId}">${deviceName}</a>
+            <span class="close-tab" data-tab-id="${tabId}">×</span>
+        `;
+        tabList.appendChild(newTab);
+
+        // Add tab content
+        const tabContent = document.getElementById('tab-content');
+        const newTabContent = document.createElement('div');
+        newTabContent.id = tabId;
+        newTabContent.innerHTML = `<h3>Loading ${deviceName}...</h3>`;
+        tabContent.appendChild(newTabContent);
+
+        // Load device data
+        loadDeviceData(deviceId, tabId);
+    }
+
+    function loadDeviceData(deviceId, tabId) {
+        // AJAX call to fetch device data
+        fetch(`/api/device/${deviceId}/`)
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById(tabId).innerHTML = `
+                    <h3>${data.name}</h3>
+                    <pre>${data.configuration}</pre>
+                `;
+            });
+    }
+
+    document.getElementById('tab-list').addEventListener('click', (event) => {
+        if (event.target.classList.contains('close-tab')) {
+            const tabId = event.target.getAttribute('data-tab-id');
+            document.getElementById(tabId).remove();
+            event.target.parentElement.remove();
+        }
+    });
+</script>
+{% endblock %}

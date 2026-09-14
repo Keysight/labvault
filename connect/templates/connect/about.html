@@ -1,0 +1,72 @@
+{% extends "connect/base.html" %}
+{% block title %}About LabVault{% endblock %}
+{% block page_title %}About{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card card-custom h-100">
+      <div class="card-header">
+        <i class="fas fa-info-circle me-2"></i>LabVault
+      </div>
+      <div class="card-body">
+        <p class="mb-3" style="color:#555;line-height:1.5;">
+          LabVault — lab asset management for network and test infrastructure:
+          inventory, topology, heartbeats, reservations, diagnostics, and fleet APIs.
+        </p>
+        <div class="p-3 rounded" style="background:#f8fafc;border:1px solid #e2e8f0;">
+          <div class="text-muted text-uppercase" style="font-size:.7rem;letter-spacing:.04em;font-weight:600;">
+            Maintained by
+          </div>
+          <div class="mt-1" style="font-size:1.05rem;font-weight:600;color:#0f172a;">
+            {{ design_credit_name|default:"LabVault contributors" }}
+          </div>
+          {% if design_credit_email %}
+          <a href="mailto:{{ design_credit_email }}" class="text-decoration-none" style="font-size:.9rem;">
+            {{ design_credit_email }}
+          </a>
+          {% endif %}
+        </div>
+        <hr class="my-4">
+        <h6 class="text-muted text-uppercase mb-3" style="font-size:.72rem;letter-spacing:.04em;">Runtime</h6>
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td class="text-muted">Python</td><td><code>{{ runtime.python }}</code> <span class="text-muted">({{ runtime.python_impl }})</span></td></tr>
+            <tr><td class="text-muted">Django</td><td><code>{{ runtime.django }}</code></td></tr>
+            <tr><td class="text-muted">Platform</td><td style="font-size:.82rem;word-break:break-all;">{{ runtime.platform }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="card card-custom h-100">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-cubes me-2"></i>Installed libraries</span>
+        <span class="badge bg-secondary">{{ libraries|length }} packages</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-devices table-sm mb-0">
+            <thead>
+              <tr>
+                <th>Package</th>
+                <th style="width:140px;">Version</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for lib in libraries %}
+              <tr>
+                <td><code>{{ lib.name }}</code></td>
+                <td>{{ lib.version }}</td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="2" class="text-muted p-3">No package metadata available.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

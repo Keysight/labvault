@@ -1,0 +1,788 @@
+{% extends "connect/base.html" %}
+{% block title %}Deploy / Upgrade - LabVault{% endblock %}
+{% block page_title %}KCOS Deploy / Upgrade{% endblock %}
+
+{% block extra_css %}
+<style>
+:root { --ks-red: #E31937; }
+.deploy-card {
+    background: #fff; border-radius: 8px; box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    border-top: 3px solid var(--ks-red); margin-bottom: 16px; overflow: hidden;
+}
+.deploy-card .card-header {
+    background: #fafafa; border-bottom: 1px solid #eee; padding: 10px 16px;
+    font-weight: 700; font-size: .85rem; display: flex; align-items: center; justify-content: space-between;
+}
+.deploy-card .card-body { padding: 14px 16px; }
+.deploy-card .card-header i { color: var(--ks-red); margin-right: 6px; }
+
+/* Chassis selector table */
+.ch-table { font-size: .78rem; width: 100%; border-collapse: collapse; }
+.ch-table th {
+    font-size: .65rem; text-transform: uppercase; letter-spacing: .4px; color: #888;
+    font-weight: 600; border-bottom: 2px solid var(--ks-red); padding: 6px 8px; text-align: left;
+    position: sticky; top: 0; background: #fff; z-index: 1;
+}
+.ch-table td { padding: 5px 8px; border-bottom: 1px solid #f0f0f0; vertical-align: middle; }
+.ch-table tr:hover td { background: #fff5f6; }
+.ch-table .host { font-weight: 600; color: #333; }
+.ch-table .ver { font-size: .7rem; color: #666; font-family: monospace; }
+.ch-scroll { max-height: 520px; overflow-y: auto; border: 1px solid #eee; border-radius: 6px; }
+
+/* Form controls */
+.deploy-form label { font-size: .72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .3px; color: #666; margin-bottom: 4px; }
+.deploy-form select, .deploy-form input[type="text"] {
+    font-size: .82rem; border-radius: 5px; border: 1px solid #d1d5db; padding: 6px 10px;
+}
+.mode-toggle { display: inline-flex; border: 1px solid #d1d5db; border-radius: 6px; overflow: hidden; }
+.mode-toggle label {
+    padding: 6px 16px; font-size: .78rem; cursor: pointer; margin: 0; font-weight: 600;
+    color: #666; background: #fff; transition: all .15s; text-transform: none; letter-spacing: 0;
+}
+.mode-toggle input { display: none; }
+.mode-toggle input:checked + label { background: var(--ks-red); color: #fff; }
+
+/* Upload zone */
+.upload-zone {
+    border: 2px dashed #d1d5db; border-radius: 8px; padding: 20px; text-align: center;
+    color: #999; cursor: pointer; transition: all .15s; font-size: .82rem;
+}
+.upload-zone:hover, .upload-zone.dragover { border-color: var(--ks-red); color: var(--ks-red); background: #fff5f6; }
+.upload-zone i { font-size: 1.5rem; display: block; margin-bottom: 6px; }
+.upload-progress { display: none; margin-top: 10px; }
+.upload-result { display: none; margin-top: 10px; font-size: .78rem; }
+.upload-result .filename { font-weight: 700; color: #333; }
+
+/* Job dashboard */
+.job-table { font-size: .75rem; width: 100%; border-collapse: collapse; }
+.job-table th {
+    font-size: .62rem; text-transform: uppercase; letter-spacing: .4px; color: #888;
+    font-weight: 600; border-bottom: 2px solid #e5e7eb; padding: 6px 8px; text-align: left;
+}
+.job-table td { padding: 5px 8px; border-bottom: 1px solid #f5f5f5; vertical-align: middle; }
+.job-table tr:hover td { background: #fafafa; }
+.job-badge {
+    font-size: .62rem; font-weight: 700; padding: 2px 8px; border-radius: 3px;
+    text-transform: uppercase; letter-spacing: .3px;
+}
+.job-badge.pending { background: #e5e7eb; color: #6b7280; }
+.job-badge.staging { background: #dbeafe; color: #1d4ed8; }
+.job-badge.staged { background: #e0e7ff; color: #4338ca; }
+.job-badge.deploying { background: #fef3c7; color: #92400e; }
+.job-badge.success { background: #d1fae5; color: #065f46; }
+.job-badge.error { background: #fee2e2; color: #991b1b; }
+.job-badge.cancelled { background: #f3f4f6; color: #9ca3af; }
+.job-progress {
+    width: 80px; height: 6px; background: #e5e7eb; border-radius: 3px; display: inline-block;
+    vertical-align: middle; overflow: hidden;
+}
+.job-progress-bar { height: 100%; border-radius: 3px; transition: width .3s; }
+.btn-deploy {
+    background: var(--ks-red); color: #fff; font-weight: 700; font-size: .82rem;
+    border: none; border-radius: 6px; padding: 8px 24px; cursor: pointer;
+    transition: all .15s;
+}
+.btn-deploy:hover { background: #c01530; color: #fff; }
+.btn-deploy:disabled { background: #d1d5db; cursor: not-allowed; }
+.sel-count { font-size: .7rem; color: #666; font-weight: 400; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex gap-2 mb-3" style="align-items:center;">
+    <a href="{% url 'keysight_dashboard' %}" class="btn btn-sm btn-outline-secondary" style="font-size:.78rem;">
+        <i class="fas fa-arrow-left me-1"></i>Dashboard
+    </a>
+    <h5 class="mb-0" style="font-weight:700;"><i class="fas fa-rocket me-2" style="color:var(--ks-red);"></i>Deploy / Upgrade Console</h5>
+</div>
+
+<div class="row">
+<!-- LEFT: Configuration -->
+<div class="col-lg-6">
+
+    <!-- Chassis Selector -->
+    <div class="deploy-card">
+        <div class="card-header">
+            <span><i class="fas fa-server"></i>Select Chassis <span class="sel-count" id="selCount">(0 selected)</span></span>
+            <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-primary" style="font-size:.68rem;" onclick="refreshBuilds()" id="btnRefreshBuilds" title="Refresh installed builds from all chassis"><i class="fas fa-sync-alt me-1"></i>Refresh Builds</button>
+                <button class="btn btn-sm btn-outline-secondary" style="font-size:.68rem;" onclick="toggleAllChassis()"><i class="fas fa-check-double me-1"></i>Toggle All</button>
+            </div>
+        </div>
+        <div class="card-body p-0">
+            <div class="ch-scroll">
+                <table class="ch-table">
+                    <thead><tr>
+                        <th style="width:30px;"><input type="checkbox" id="chCheckAll" onchange="toggleAllChassis()"></th>
+                        <th>Chassis</th>
+                        <th>Type</th>
+                        <th>KCOS</th>
+                        <th>BPS</th>
+                        <th>IxLoad</th>
+                        <th>Status</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for entry in chassis_list %}
+                    <tr data-chassis-id="{{ entry.chassis.id }}">
+                        <td><input type="checkbox" class="ch-check" value="{{ entry.chassis.id }}" data-ip="{{ entry.chassis.ip_address }}" onchange="updateSelCount()"></td>
+                        <td>
+                            <span class="host">{{ entry.chassis.hostname|default:entry.chassis.ip_address }}</span>
+                            {% if entry.chassis.hostname %}<br><span style="font-size:.65rem;color:#999;">{{ entry.chassis.ip_address }}</span>{% endif %}
+                        </td>
+                        <td><span class="badge bg-dark" style="font-size:.6rem;">{{ entry.chassis.get_chassis_type_display }}</span></td>
+                        <td class="ver ver-kcos">{{ entry.versions.kcos|default:"-" }}</td>
+                        <td class="ver ver-bps">{{ entry.versions.bps|default:"-" }}</td>
+                        <td class="ver ver-ixload">{{ entry.versions.ixload|default:"-" }}</td>
+                        <td>
+                            {% if entry.chassis.status == 'online' %}
+                            <span class="badge bg-success" style="font-size:.6rem;">Online</span>
+                            {% else %}
+                            <span class="badge bg-secondary" style="font-size:.6rem;">{{ entry.chassis.status }}</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted" style="padding:20px;">No KCOS chassis found</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Package & Mode Configuration -->
+    <div class="deploy-card">
+        <div class="card-header"><i class="fas fa-box-open"></i>Package Configuration</div>
+        <div class="card-body deploy-form">
+            <div class="row g-3">
+                <div class="col-6">
+                    <label>Package Type</label>
+                    <select class="form-select" id="pkgType" onchange="onPkgTypeChange()">
+                        <option value="kcos">KCOS</option>
+                        <option value="bps">BPS (BreakingPoint)</option>
+                        <option value="ixload">IxLoad</option>
+                        <option value="ixload-drv">IxLoad Driver Package</option>
+                        <option value="cyperf">CyPerf Agent</option>
+                        <option value="cyperf-ati">CyPerf ATI Update</option>
+                        <option value="cyperf-ctrl">CyPerf Controller</option>
+                    </select>
+                </div>
+                <div class="col-6">
+                    <label>Mode</label><br>
+                    <div class="mode-toggle">
+                        <input type="radio" name="deployMode" id="modeOnline" value="online" checked onchange="onModeChange()">
+                        <label for="modeOnline"><i class="fas fa-cloud-download-alt me-1"></i>Online</label>
+                        <input type="radio" name="deployMode" id="modeOffline" value="offline" onchange="onModeChange()">
+                        <label for="modeOffline"><i class="fas fa-file-archive me-1"></i>Offline</label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Online: Version selector -->
+            <div id="onlineSection" class="mt-3">
+                <label>Version</label>
+                <div class="d-flex gap-2 align-items-center">
+                    <select class="form-select" id="versionSelect" style="flex:1;">
+                        <option value="">-- Select a chassis first, then fetch versions --</option>
+                    </select>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="fetchVersions()" id="btnFetchVer" style="font-size:.75rem;white-space:nowrap;">
+                        <i class="fas fa-sync-alt me-1"></i>Fetch
+                    </button>
+                </div>
+                <div id="versionLoading" style="display:none;font-size:.72rem;color:#888;margin-top:4px;">
+                    <i class="fas fa-spinner fa-spin me-1"></i>Fetching available versions (may take ~20s)...
+                </div>
+                <div id="versionHint" style="font-size:.66rem;color:#888;margin-top:4px;"></div>
+                <div style="font-size:.66rem;color:#999;margin-top:4px;">
+                    <i class="fas fa-info-circle me-1"></i>Online deploy uses SSH <code>kcos deployment online-install</code> to pull from the repository. Only GA releases and EB builds newer than currently installed are shown.
+                </div>
+            </div>
+
+            <!-- Offline: File upload + package library -->
+            <div id="offlineSection" class="mt-3" style="display:none;">
+                <label>Upload Package (.enc.tar / .tar)</label>
+                <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()">
+                    <i class="fas fa-cloud-upload-alt"></i>
+                    Drag &amp; drop .enc.tar / .tar file here or click to browse
+                </div>
+                <input type="file" id="fileInput" accept=".tar,.enc.tar" style="display:none;" onchange="uploadFile(this)">
+                <div class="upload-progress" id="uploadProgress">
+                    <div class="progress" style="height:8px;">
+                        <div class="progress-bar" id="uploadBar" style="width:0%;background:var(--ks-red);"></div>
+                    </div>
+                    <span style="font-size:.7rem;color:#888;" id="uploadPct">0%</span>
+                </div>
+                <div class="upload-result" id="uploadResult">
+                    <i class="fas fa-check-circle text-success me-1"></i>
+                    <span class="filename" id="uploadFilename"></span>
+                    <span style="color:#888;" id="uploadSize"></span>
+                    <span class="badge ms-2" style="font-size:.6rem;" id="uploadDetectedType"></span>
+                </div>
+                <input type="hidden" id="offlineUrl" value="">
+
+                <!-- Previously uploaded packages -->
+                <div class="mt-3" id="pkgLibrarySection">
+                    <label style="font-size:.78rem;font-weight:600;">
+                        <i class="fas fa-archive me-1"></i>Previously Uploaded Packages
+                        <button class="btn btn-sm btn-outline-secondary ms-1" style="font-size:.6rem;padding:0 4px;" onclick="loadPackageLibrary()">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </label>
+                    <div id="pkgLibraryList" style="max-height:160px;overflow-y:auto;font-size:.72rem;margin-top:4px;">
+                        <span class="text-muted">Loading...</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Deploy button -->
+            <div class="mt-3 d-flex justify-content-between align-items-center">
+                <button class="btn-deploy" id="btnDeploy" onclick="startDeploy()" disabled>
+                    <i class="fas fa-rocket me-1"></i>Deploy to <span id="deployCount">0</span> Chassis
+                </button>
+                <span style="font-size:.68rem;color:#999;" id="deployHint">Select chassis and configure package first</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- RIGHT: Live Job Dashboard -->
+<div class="col-lg-6">
+    <div class="deploy-card">
+        <div class="card-header">
+            <span><i class="fas fa-tasks"></i>Deployment Jobs</span>
+            <span style="font-size:.68rem;color:#888;" id="jobRefreshInfo">Auto-refreshes every 10s</span>
+        </div>
+        <div class="card-body p-0" style="max-height:600px;overflow-y:auto;">
+            <table class="job-table" id="jobTable">
+                <thead><tr>
+                    <th>Chassis</th>
+                    <th>Package</th>
+                    <th>Version</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Progress</th>
+                    <th>Message</th>
+                    <th></th>
+                </tr></thead>
+                <tbody id="jobBody">
+                {% for job in recent_jobs %}
+                <tr data-job-id="{{ job.id }}">
+                    <td style="font-weight:600;">{{ job.chassis.hostname|default:job.chassis.ip_address }}</td>
+                    <td>{{ job.get_package_type_display }}</td>
+                    <td class="ver">{{ job.target_version|truncatechars:20 }}</td>
+                    <td>{{ job.job_type }}</td>
+                    <td><span class="job-badge {{ job.status }}">{{ job.status }}</span></td>
+                    <td>
+                        <div class="job-progress">
+                            <div class="job-progress-bar" style="width:{{ job.progress }}%;background:{% if job.status == 'success' %}#22c55e{% elif job.status == 'error' %}#ef4444{% elif job.status == 'deploying' %}#f59e0b{% else %}var(--ks-red){% endif %};"></div>
+                        </div>
+                        <span style="font-size:.6rem;color:#888;margin-left:4px;">{{ job.progress }}%</span>
+                    </td>
+                    <td style="font-size:.65rem;color:#666;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ job.message }}">{{ job.message|truncatechars:40 }}</td>
+                    <td style="white-space:nowrap;">
+                        {% if job.status == 'pending' or job.status == 'staging' or job.status == 'staged' %}
+                        <button class="btn btn-sm btn-outline-danger" style="font-size:.6rem;padding:1px 6px;" onclick="cancelJob({{ job.id }})">Cancel</button>
+                        {% elif job.status == 'error' or job.status == 'cancelled' %}
+                        <button class="btn btn-sm btn-outline-warning" style="font-size:.6rem;padding:1px 6px;" onclick="retryJob({{ job.id }})"><i class="fas fa-redo me-1"></i>Retry</button>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% empty %}
+                <tr id="noJobsRow"><td colspan="8" class="text-center text-muted" style="padding:30px;">No deployment jobs yet</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const CSRF = '{{ csrf_token }}';
+let currentBatchId = '';
+let refreshTimer = null;
+
+// --- Chassis selection ---
+function toggleAllChassis() {
+    const all = document.getElementById('chCheckAll');
+    document.querySelectorAll('.ch-check').forEach(cb => cb.checked = all.checked);
+    updateSelCount();
+}
+function updateSelCount() {
+    const checked = document.querySelectorAll('.ch-check:checked');
+    document.getElementById('selCount').textContent = `(${checked.length} selected)`;
+    document.getElementById('deployCount').textContent = checked.length;
+    validateForm();
+}
+function getSelectedIds() {
+    return Array.from(document.querySelectorAll('.ch-check:checked')).map(cb => parseInt(cb.value));
+}
+
+// --- Refresh installed builds ---
+function refreshBuilds() {
+    const btn = document.getElementById('btnRefreshBuilds');
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Refreshing...';
+
+    // Collect all chassis IDs from the table
+    const allIds = Array.from(document.querySelectorAll('tr[data-chassis-id]'))
+        .map(tr => tr.dataset.chassisId);
+
+    fetch(`/keysight/api/deploy/refresh-builds/?ids=${allIds.join(',')}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.builds) {
+                // Update the version cells in the table
+                document.querySelectorAll('tr[data-chassis-id]').forEach(tr => {
+                    const cid = tr.dataset.chassisId;
+                    const builds = data.builds[cid];
+                    if (builds) {
+                        const kcosCell = tr.querySelector('.ver-kcos');
+                        const bpsCell = tr.querySelector('.ver-bps');
+                        const ixloadCell = tr.querySelector('.ver-ixload');
+                        if (kcosCell) kcosCell.textContent = builds.kcos || '-';
+                        if (bpsCell) bpsCell.textContent = builds.bps || '-';
+                        if (ixloadCell) ixloadCell.textContent = builds.ixload || '-';
+                    }
+                });
+            }
+        })
+        .catch(err => {
+            console.error('Refresh builds error:', err);
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.innerHTML = origHtml;
+        });
+}
+
+// --- Mode toggle ---
+function onModeChange() {
+    const online = document.getElementById('modeOnline').checked;
+    document.getElementById('onlineSection').style.display = online ? '' : 'none';
+    document.getElementById('offlineSection').style.display = online ? 'none' : '';
+    if (!online) loadPackageLibrary(); // Load package library when switching to offline
+    validateForm();
+}
+
+function onPkgTypeChange() {
+    // Clear version list when package type changes
+    document.getElementById('versionSelect').innerHTML = '<option value="">-- Fetch versions --</option>';
+    validateForm();
+}
+
+// --- Get installed version for selected chassis + package type ---
+function getInstalledVersion(pkgType) {
+    const rows = document.querySelectorAll('.ch-check:checked');
+    if (!rows.length) return '';
+    // Use the first selected chassis row to read installed version
+    const row = rows[0].closest('tr');
+    const mapping = { kcos: 3, bps: 4, ixload: 5 };
+    const colIdx = mapping[pkgType];
+    if (colIdx !== undefined) {
+        const cells = row.querySelectorAll('td');
+        const txt = (cells[colIdx] || {}).textContent || '';
+        return txt.trim() === '-' ? '' : txt.trim();
+    }
+    return '';
+}
+
+// --- Fetch available versions ---
+function fetchVersions() {
+    const ids = getSelectedIds();
+    if (!ids.length) { alert('Select at least one chassis first'); return; }
+    const pkgType = document.getElementById('pkgType').value;
+    const chassisId = ids[0]; // Use first selected chassis to query versions
+    const installed = getInstalledVersion(pkgType);
+    const btn = document.getElementById('btnFetchVer');
+    const loading = document.getElementById('versionLoading');
+
+    btn.disabled = true;
+    loading.style.display = '';
+
+    let url = `/keysight/api/chassis/${chassisId}/deploy/versions/?package=${pkgType}`;
+    if (installed) url += `&installed=${encodeURIComponent(installed)}`;
+
+    fetch(url)
+        .then(r => r.json())
+        .then(data => {
+            const sel = document.getElementById('versionSelect');
+            sel.innerHTML = '';
+            const hint = document.getElementById('versionHint');
+            if (data.success && data.versions.length) {
+                let lastCategory = '';
+                data.versions.forEach(v => {
+                    // Add optgroup separators for EB vs GA
+                    const cat = v.is_ga ? 'GA' : 'EB';
+                    if (cat !== lastCategory) {
+                        const grp = document.createElement('optgroup');
+                        grp.label = cat === 'EB'
+                            ? `\u2b06 Engineering Builds (newer than ${data.installed_version || '?'})`
+                            : '\u2705 GA / Released Builds';
+                        sel.appendChild(grp);
+                        lastCategory = cat;
+                    }
+                    const opt = document.createElement('option');
+                    opt.value = v.version;
+                    const tag = v.is_ga ? 'GA' : 'EB';
+                    opt.textContent = `${v.display || v.version}`;
+                    sel.lastElementChild.appendChild(opt);
+                });
+                // Show summary
+                if (hint) hint.textContent = `${data.ga_count} GA + ${data.eb_count} EB builds (installed: ${data.installed_version || 'unknown'})`;
+            } else {
+                sel.innerHTML = `<option value="">No versions found${data.error ? ': ' + data.error : ''}</option>`;
+                if (hint) hint.textContent = data.error || '';
+            }
+            validateForm();
+        })
+        .catch(err => {
+            document.getElementById('versionSelect').innerHTML = `<option value="">Error: ${err}</option>`;
+        })
+        .finally(() => { btn.disabled = false; loading.style.display = 'none'; });
+}
+
+// --- File upload ---
+const uploadZone = document.getElementById('uploadZone');
+uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+uploadZone.addEventListener('drop', e => {
+    e.preventDefault();
+    uploadZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) uploadFile({files: e.dataTransfer.files});
+});
+
+function uploadFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    if (!file.name.endsWith('.tar')) {
+        alert('Please select a .tar or .enc.tar file');
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('package', file);
+
+    const progDiv = document.getElementById('uploadProgress');
+    const resultDiv = document.getElementById('uploadResult');
+    progDiv.style.display = 'block';
+    resultDiv.style.display = 'none';
+    document.getElementById('uploadBar').style.width = '0%';
+    document.getElementById('uploadPct').textContent = '0%';
+
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/keysight/api/deploy/upload/');
+    xhr.setRequestHeader('X-CSRFToken', CSRF);
+
+    xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            document.getElementById('uploadBar').style.width = pct + '%';
+            document.getElementById('uploadPct').textContent = pct + '%';
+        }
+    };
+
+    xhr.onload = () => {
+        progDiv.style.display = 'none';
+        try {
+            const data = JSON.parse(xhr.responseText);
+            if (data.success) {
+                resultDiv.style.display = 'block';
+                document.getElementById('uploadFilename').textContent = data.filename;
+                document.getElementById('uploadSize').textContent = ` (${(data.size / 1048576).toFixed(1)} MB)`;
+                document.getElementById('offlineUrl').value = data.url;
+                // Show detected type badge
+                const typeBadge = document.getElementById('uploadDetectedType');
+                if (typeBadge && data.detected_type) {
+                    typeBadge.textContent = data.detected_type.toUpperCase();
+                    typeBadge.className = 'badge ms-2';
+                    typeBadge.style.fontSize = '.6rem';
+                    typeBadge.style.background = data.detected_type === 'other' ? '#6b7280' : 'var(--ks-red,#E31937)';
+                    typeBadge.style.color = '#fff';
+                }
+                validateForm();
+                loadPackageLibrary(); // Refresh library after upload
+            } else {
+                alert('Upload failed: ' + (data.error || 'Unknown error'));
+            }
+        } catch (e) {
+            alert('Upload error: ' + e);
+        }
+    };
+    xhr.onerror = () => { progDiv.style.display = 'none'; alert('Upload network error'); };
+    xhr.send(formData);
+}
+
+// --- Package Library: list previously uploaded packages ---
+function loadPackageLibrary() {
+    const listDiv = document.getElementById('pkgLibraryList');
+    if (!listDiv) return;
+    listDiv.innerHTML = '<span class="text-muted"><i class="fas fa-spinner fa-spin me-1"></i>Loading...</span>';
+    fetch('{% url "keysight_deploy_list_packages" %}')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !data.packages.length) {
+                listDiv.innerHTML = '<span class="text-muted">No packages uploaded yet.</span>';
+                return;
+            }
+            let html = '<table class="table table-sm table-hover mb-0" style="font-size:.7rem;"><thead><tr><th>Filename</th><th>Type</th><th>Size</th><th>Date</th><th></th></tr></thead><tbody>';
+            data.packages.forEach((pkg, idx) => {
+                const typeBg = pkg.detected_type === 'other' ? '#6b7280' : 'var(--ks-red,#E31937)';
+                html += `<tr>
+                    <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${pkg.filename}">${pkg.filename}</td>
+                    <td><span class="badge" style="font-size:.55rem;background:${typeBg};color:#fff;">${pkg.detected_type.toUpperCase()}</span></td>
+                    <td>${pkg.size_display}</td>
+                    <td>${pkg.modified}</td>
+                    <td><button class="btn btn-sm btn-outline-primary pkg-use-btn" style="font-size:.58rem;padding:0 4px;" data-pkg-idx="${idx}">Use</button></td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            listDiv.innerHTML = html;
+            // Attach click handlers (avoids inline onclick with URL quoting issues)
+            listDiv.querySelectorAll('.pkg-use-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const p = data.packages[parseInt(this.dataset.pkgIdx)];
+                    selectPackage(p.url, p.filename, p.size_display, p.detected_type);
+                });
+            });
+        })
+        .catch(() => { listDiv.innerHTML = '<span class="text-danger">Failed to load packages.</span>'; });
+}
+
+function selectPackage(url, filename, sizeDisplay, detectedType) {
+    document.getElementById('offlineUrl').value = url;
+    const resultDiv = document.getElementById('uploadResult');
+    resultDiv.style.display = 'block';
+    document.getElementById('uploadFilename').textContent = filename;
+    document.getElementById('uploadSize').textContent = ` (${sizeDisplay})`;
+    const typeBadge = document.getElementById('uploadDetectedType');
+    if (typeBadge) {
+        typeBadge.textContent = detectedType.toUpperCase();
+        typeBadge.className = 'badge ms-2';
+        typeBadge.style.fontSize = '.6rem';
+        typeBadge.style.background = detectedType === 'other' ? '#6b7280' : 'var(--ks-red,#E31937)';
+        typeBadge.style.color = '#fff';
+    }
+    validateForm();
+}
+
+// --- Validate form ---
+function validateForm() {
+    const ids = getSelectedIds();
+    const mode = document.getElementById('modeOnline').checked ? 'online' : 'offline';
+    const pkg = document.getElementById('pkgType').value;
+    let valid = ids.length > 0;
+
+    if (mode === 'online') {
+        const ver = document.getElementById('versionSelect').value;
+        valid = valid && !!ver;
+    } else {
+        const url = document.getElementById('offlineUrl').value;
+        valid = valid && !!url;
+    }
+
+    const btn = document.getElementById('btnDeploy');
+    btn.disabled = !valid;
+    document.getElementById('deployHint').textContent = valid
+        ? `Ready: ${pkg.toUpperCase()} ${mode} on ${ids.length} chassis`
+        : 'Select chassis and configure package first';
+}
+
+// --- Start deploy ---
+function startDeploy() {
+    const ids = getSelectedIds();
+    const mode = document.getElementById('modeOnline').checked ? 'online' : 'offline';
+    const pkg = document.getElementById('pkgType').value;
+    const version = mode === 'online' ? document.getElementById('versionSelect').value : '';
+    const pkgUrl = mode === 'offline' ? document.getElementById('offlineUrl').value : '';
+
+    if (!ids.length) return;
+
+    // Check installed versions per chassis and warn if already present
+    document.getElementById('deployHint').textContent = 'Checking installed versions...';
+    const checks = ids.map(id => fetch(`/keysight/api/chassis/${id}/deploy/installed/`).then(r => r.json()).catch(() => null));
+    Promise.all(checks).then(results => {
+        let warnings = [];
+        results.forEach((res, idx) => {
+            if (!res || !res.success) return;
+            const apps = res.apps || [];
+            apps.forEach(app => {
+                const cn = (app.chart_name || '').toLowerCase();
+                if (cn.includes(pkg)) {
+                    const ver = app.chart_version_display || app.chart_version || '?';
+                    warnings.push(`Chassis ${ids[idx]}: ${pkg.toUpperCase()} already installed (v${ver})`);
+                }
+            });
+        });
+        let msg = `Deploy ${pkg.toUpperCase()} (${mode}) to ${ids.length} chassis?`;
+        if (warnings.length) {
+            msg += '\n\nWARNING - Already installed on some chassis:\n' + warnings.join('\n');
+        }
+        if (!confirm(msg)) {
+            document.getElementById('deployHint').textContent = 'Deploy cancelled.';
+            return;
+        }
+        _doStartDeploy(ids, mode, pkg, version, pkgUrl);
+    });
+}
+
+function _doStartDeploy(ids, mode, pkg, version, pkgUrl) {
+    document.getElementById('btnDeploy').disabled = true;
+    document.getElementById('deployHint').textContent = 'Starting deployment...';
+
+    fetch('/keysight/api/deploy/start/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+        body: JSON.stringify({
+            chassis_ids: ids,
+            package_type: pkg,
+            job_type: mode,
+            target_version: version,
+            package_url: pkgUrl,
+        }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            currentBatchId = data.batch_id;
+            document.getElementById('deployHint').textContent = `Batch ${data.batch_id} started (${data.count} jobs)`;
+            startJobPolling();
+        } else {
+            alert('Deploy failed: ' + (data.error || 'Unknown'));
+            document.getElementById('btnDeploy').disabled = false;
+        }
+    })
+    .catch(err => {
+        alert('Deploy error: ' + err);
+        document.getElementById('btnDeploy').disabled = false;
+    });
+}
+
+// --- Job polling ---
+function startJobPolling() {
+    if (refreshTimer) clearInterval(refreshTimer);
+    refreshJobTable();
+    refreshTimer = setInterval(refreshJobTable, 10000);
+}
+
+function refreshJobTable() {
+    const url = currentBatchId
+        ? `/keysight/api/deploy/status/?batch_id=${currentBatchId}`
+        : '/keysight/api/deploy/status/';
+
+    fetch(url).then(r => r.json()).then(data => {
+        if (!data.success) return;
+        const tbody = document.getElementById('jobBody');
+        const noRow = document.getElementById('noJobsRow');
+        if (noRow) noRow.remove();
+
+        // Build a set of existing rows
+        const existing = {};
+        tbody.querySelectorAll('tr[data-job-id]').forEach(tr => existing[tr.dataset.jobId] = tr);
+
+        data.jobs.forEach(job => {
+            let tr = existing[job.id];
+            if (!tr) {
+                tr = document.createElement('tr');
+                tr.dataset.jobId = job.id;
+                tbody.insertBefore(tr, tbody.firstChild);
+            }
+            const pColor = job.status === 'success' ? '#22c55e'
+                : job.status === 'error' ? '#ef4444'
+                : job.status === 'deploying' ? '#f59e0b'
+                : 'var(--ks-red)';
+            let actionBtn = '';
+            if (['pending','staging','staged'].includes(job.status)) {
+                actionBtn = `<button class="btn btn-sm btn-outline-danger" style="font-size:.6rem;padding:1px 6px;" onclick="cancelJob(${job.id})">Cancel</button>`;
+            } else if (['error','cancelled'].includes(job.status)) {
+                actionBtn = `<button class="btn btn-sm btn-outline-warning" style="font-size:.6rem;padding:1px 6px;" onclick="retryJob(${job.id})"><i class="fas fa-redo me-1"></i>Retry</button>`;
+            }
+            const msgShort = (job.message || '').substring(0, 50);
+            const msgFull = (job.message || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+            const hasMore = (job.message || '').length > 50;
+            tr.innerHTML = `
+                <td style="font-weight:600;">${job.chassis_hostname}</td>
+                <td>${job.package_type}</td>
+                <td class="ver">${(job.target_version || '').substring(0, 20)}</td>
+                <td>${job.job_type}</td>
+                <td><span class="job-badge ${job.status}">${job.status}</span></td>
+                <td>
+                    <div class="job-progress">
+                        <div class="job-progress-bar" style="width:${job.progress}%;background:${pColor};"></div>
+                    </div>
+                    <span style="font-size:.6rem;color:#888;margin-left:4px;">${job.progress}%</span>
+                </td>
+                <td style="font-size:.65rem;color:#666;max-width:220px;">
+                    <span class="job-msg-short">${msgShort}${hasMore ? '...' : ''}</span>
+                    ${hasMore ? `<a href="#" class="job-msg-toggle" style="font-size:.58rem;color:var(--ks-red);text-decoration:none;margin-left:2px;" title="Show full log">[more]</a>` : ''}
+                    <div class="job-msg-full" style="display:none;white-space:pre-wrap;word-break:break-all;max-height:120px;overflow-y:auto;background:#f9fafb;border:1px solid #e5e7eb;border-radius:4px;padding:4px 6px;margin-top:3px;font-size:.62rem;color:#333;">${msgFull}</div>
+                </td>
+                <td style="white-space:nowrap;">${actionBtn}</td>
+            `;
+            // Attach toggle for full message
+            const toggle = tr.querySelector('.job-msg-toggle');
+            if (toggle) {
+                toggle.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const full = tr.querySelector('.job-msg-full');
+                    const short = tr.querySelector('.job-msg-short');
+                    if (full.style.display === 'none') {
+                        full.style.display = 'block'; short.style.display = 'none';
+                        this.textContent = '[less]';
+                    } else {
+                        full.style.display = 'none'; short.style.display = '';
+                        this.textContent = '[more]';
+                    }
+                });
+            }
+        });
+
+        // Check if all jobs are terminal — stop polling
+        const allDone = data.jobs.every(j => ['success','error','cancelled'].includes(j.status));
+        if (allDone && data.jobs.length > 0 && refreshTimer) {
+            // Keep polling a bit longer then stop
+            setTimeout(() => {
+                if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+                document.getElementById('btnDeploy').disabled = false;
+                document.getElementById('jobRefreshInfo').textContent = 'Polling stopped — all jobs complete';
+            }, 5000);
+        }
+    }).catch(() => {});
+}
+
+function cancelJob(jobId) {
+    if (!confirm('Cancel this deployment job?')) return;
+    fetch(`/keysight/api/deploy/cancel/${jobId}/`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+    }).then(r => r.json()).then(data => {
+        if (data.success) refreshJobTable();
+        else alert('Cancel failed: ' + (data.error || ''));
+    });
+}
+
+function retryJob(jobId) {
+    if (!confirm('Retry this deployment job?')) return;
+    fetch(`/keysight/api/deploy/retry/${jobId}/`, {
+        method: 'POST',
+        headers: {'X-CSRFToken': CSRF},
+    }).then(r => r.json()).then(data => {
+        if (data.success) {
+            currentBatchId = data.batch_id;
+            startJobPolling();
+        } else {
+            alert('Retry failed: ' + (data.error || ''));
+        }
+    }).catch(err => alert('Retry error: ' + err));
+}
+
+// Start auto-refresh if there are jobs
+{% if recent_jobs %}
+startJobPolling();
+{% endif %}
+</script>
+{% endblock %}

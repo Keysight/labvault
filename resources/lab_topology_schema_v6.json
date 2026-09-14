@@ -1,0 +1,70 @@
+{
+  "_comment": "Example IPv6-mgmt DC layout using RFC 5737 / RFC 3849 documentation addresses.",
+  "version": 2,
+  "label": "Example DC topology (IPv6 mgmt)",
+  "description": "Minimal OCS + spine + chassis layout with documentation IPv6 management addresses.",
+  "site_json": "ocs_photonic_site.json",
+  "layout": {
+    "nodes": [
+      {
+        "id": "ocs",
+        "label": "OCS",
+        "node_type": "ocs",
+        "device_ip": "192.0.2.10",
+        "x": 400,
+        "y": 200,
+        "ports": ["shelf-1"],
+        "extra": {
+          "model": "S320",
+          "port_count": 320,
+          "mgmt_ipv6": "2001:db8::10",
+          "mgmt_ipv6_source": "static",
+          "preferred_ip_version": "ipv6"
+        },
+        "mgmt_ipv6": "2001:db8::10",
+        "preferred_ip_version": "ipv6"
+      },
+      {
+        "id": "spine1",
+        "label": "Spine-1",
+        "node_type": "switch",
+        "device_ip": "192.0.2.20",
+        "x": 200,
+        "y": 80,
+        "ports": ["port_9"],
+        "extra": {
+          "mgmt_ipv6": "2001:db8::20",
+          "preferred_ip_version": "ipv6"
+        },
+        "mgmt_ipv6": "2001:db8::20",
+        "preferred_ip_version": "ipv6"
+      },
+      {
+        "id": "chassis1",
+        "label": "AresONE-1",
+        "node_type": "chassis",
+        "device_ip": "192.0.2.31",
+        "x": 200,
+        "y": 320,
+        "ports": ["port_1"],
+        "extra": {
+          "mgmt_ipv6": "2001:db8::31",
+          "preferred_ip_version": "ipv6"
+        },
+        "mgmt_ipv6": "2001:db8::31",
+        "preferred_ip_version": "ipv6"
+      }
+    ],
+    "links": [
+      {
+        "from": "spine1",
+        "to": "ocs",
+        "cable_type": "optic",
+        "count": 1,
+        "port_range_a": "port_9",
+        "port_range_b": "1.1.1",
+        "label": "optic"
+      }
+    ]
+  }
+}

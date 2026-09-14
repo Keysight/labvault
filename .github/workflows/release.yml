@@ -1,0 +1,35 @@
+name: release
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Gates
+        run: |
+          export DJANGO_SECRET_KEY=ci-secret-key-must-be-at-least-32-chars-long
+          export DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+          bash tools/run_release_gates.sh
+      - name: SBOM
+        run: bash tools/generate_sbom.sh
+      - name: Checksums
+        run: |
+          mkdir -p dist
+          find dist -type f -print0 | sort -z | xargs -0 sha256sum > dist/SHA256SUMS
+      - name: Upload
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*
+            THIRD_PARTY_NOTICES.md
+            requirements.lock
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

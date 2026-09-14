@@ -1,0 +1,22 @@
+{% load ip_display %}
+<div class="lv-mgmt-links {{ css_class }}">
+    {% if primary_label %}
+        {% if internal_url and show_internal %}
+        <a href="{{ internal_url }}" class="lv-mgmt-links__primary fw-bold text-decoration-none">{{ primary_label }}</a>
+        {% else %}
+        <span class="lv-mgmt-links__primary fw-bold">{{ primary_label }}</span>
+        {% endif %}
+    {% endif %}
+    {% if mgmt_addr %}
+    <div class="lv-mgmt-links__ip text-muted" style="font-size:.68rem;line-height:1.35;">
+        {% if show_hardware %}
+        <a href="{{ hardware_login_href }}" target="_blank" rel="noopener noreferrer"
+           class="lv-mgmt-links__hw text-decoration-none" title="Open hardware web UI (HTTPS)">
+            {{ mgmt_addr }}<i class="fas fa-external-link-alt ms-1" style="font-size:.58rem;opacity:.85;"></i>
+        </a>
+        {% else %}
+        <span>{{ mgmt_addr }}</span>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>

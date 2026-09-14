@@ -1,0 +1,57 @@
+{% extends "connect/base.html" %}
+{% block title %}Config Timeline - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}{{ device.hostname|default:device.ip_address }} - Config Timeline{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'device_config' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Config</a>
+</div>
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-history me-2"></i>Configuration Backup History</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0">
+            <thead><tr><th>Date</th><th>Type</th><th>Backed Up By</th><th>Has Changes</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for b in backups %}
+            <tr>
+                <td>{{ b.created_at|date:"Y-m-d H:i" }}</td>
+                <td><span class="badge bg-primary">{{ b.config_type }}</span></td>
+                <td>{{ b.created_by|default:"System" }}</td>
+                <td>{% if b.diff_from_previous %}<span class="badge bg-warning">Changed</span>{% else %}<span class="badge bg-secondary">No diff</span>{% endif %}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-primary" onclick="showDiff({{ b.id }})"><i class="fas fa-code-branch"></i> Diff</button>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-center text-muted py-4">No backups found</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+<div id="diff-modal" class="modal fade" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header"><h5 class="modal-title">Config Diff</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+            <div class="modal-body"><pre id="diff-content" class="terminal-output" style="background:#fff;color:#333;"></pre></div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+<script>
+function showDiff(backupId) {
+    fetch(`/config/diff/${backupId}/`).then(r=>r.json()).then(data=>{
+        let html = '';
+        data.diff.split('\n').forEach(line => {
+            if (line.startsWith('+') && !line.startsWith('+++')) html += `<span class="diff-add">${escHtml(line)}</span>\n`;
+            else if (line.startsWith('-') && !line.startsWith('---')) html += `<span class="diff-remove">${escHtml(line)}</span>\n`;
+            else if (line.startsWith('@@')) html += `<span class="diff-header">${escHtml(line)}</span>\n`;
+            else html += escHtml(line) + '\n';
+        });
+        document.getElementById('diff-content').innerHTML = html || 'No differences';
+        new bootstrap.Modal(document.getElementById('diff-modal')).show();
+    });
+}
+function escHtml(t){return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+</script>
+{% endblock %}

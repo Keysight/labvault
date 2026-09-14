@@ -1,0 +1,60 @@
+{% extends 'connect/base.html' %}
+{% block title %}Export - LabVault{% endblock %}
+{% block page_title %}LabVault Export{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-8">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-file-export me-2"></i> Full LabVault export</div>
+            <div class="card-body">
+                <p style="font-size:.85rem;color:#555;">
+                    Download a single JSON file with devices, Keysight chassis and reservations,
+                    audit logs, change-log events, lab topology, and related records.
+                    Use this to replicate or move the deployment to another host.
+                </p>
+                <a href="{% url 'export_labvault_dataset' %}?download=1" class="btn btn-sm mb-3" style="background:var(--ks-red,#E31937);color:#fff;">
+                    <i class="fas fa-download me-1"></i> Download full export (JSON)
+                </a>
+                <p class="text-muted mb-0" style="font-size:.75rem;">
+                    After export, copy <code>MEDIA_ROOT</code> to the target server if needed.
+                    Import the file from <a href="{% url 'import_devices' %}">DATA → Import</a> or run
+                    <code>python manage.py import_labvault_dataset /path/to/file.json</code> on the target.
+                </p>
+            </div>
+        </div>
+        <div class="card-custom mt-4">
+            <div class="card-header"><i class="fas fa-box-archive me-2"></i> Multibundle export (backup / migration)</div>
+            <div class="card-body">
+                <p style="font-size:.85rem;color:#555;">
+                    Single <code>.tar.gz</code> package: scoped or full inventory JSON, topology v3 files,
+                    OCS site + layout schemas, and LLDP cache. Optional SQLite DBs and secrets via CLI flags.
+                </p>
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    <a href="{% url 'export_labvault_bundle' %}?download=1" class="btn btn-sm btn-outline-secondary">
+                        <i class="fas fa-download me-1"></i> Full multibundle
+                    </a>
+                    <a href="{% url 'export_labvault_bundle' %}?download=1" class="btn btn-sm" style="background:var(--ks-red,#E31937);color:#fff;">
+                        <i class="fas fa-download me-1"></i> Download bundle
+                    </a>
+                </div>
+                <p class="text-muted mb-0" style="font-size:.75rem;">
+                    Restore via <a href="{% url 'import_devices' %}">DATA → Import</a> (upload bundle) or
+                    <code>python manage.py import_labvault_bundle /path/to/bundle.tar.gz</code>.
+                </p>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-4">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-file-csv me-2"></i> Devices only (CSV)</div>
+            <div class="card-body">
+                <p style="font-size:.85rem;color:#555;">Export network devices as CSV without Keysight data.</p>
+                <a href="{% url 'export_devices' %}" class="btn btn-sm btn-outline-secondary">
+                    <i class="fas fa-file-csv me-1"></i> Download devices CSV
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

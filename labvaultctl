@@ -1,0 +1,500 @@
+#!/usr/bin/env python3
+"""LabVault lifecycle controller — install/check/update/rollback/backup/restore/status."""
+from __future__ import annotations
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+DEFAULT_STATE = Path(os.environ.get("LABVAULT_STATE_DIR", "/var/lib/labvault"))
+COMPONENTS = ("web", "refresh", "heartbeat", "collector", "jobs", "opsd", "cli-ssh", "nginx")
+UNIT_MAP = {
+    "web": "labvault-web.service",
+    "refresh": "labvault-refresh.service",
+    "heartbeat": "labvault-heartbeat.service",
+    "collector": "labvault-collector.service",
+    "jobs": "labvault-cli-worker.service",
+    "opsd": "labvault-opsd.service",
+    "cli-ssh": "labvault-cli-ssh.service",
+    "nginx": "nginx.service",
+}
+
+
+def _load_dotenv() -> None:
+    """Load env files into os.environ.
+
+    Tree `.env` is first (defaults / examples). `/etc/labvault/labvault.env`
+    loads second and overrides so systemd/airgap installs are not poisoned by
+    the Compose example DATABASE_URL hosts (`db` / `metrics_db`).
+    Explicit process env always wins.
+    """
+    for path, override in (
+        (ROOT / ".env", False),
+        (Path("/etc/labvault/labvault.env"), True),
+    ):
+        if not path.is_file():
+            continue
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip().strip("'").strip('"')
+            if override or key not in os.environ:
+                os.environ[key] = val
+
+
+def _run(cmd: list[str], *, check: bool = True, env: dict | None = None) -> subprocess.CompletedProcess:
+    print("+", " ".join(cmd), flush=True)
+    return subprocess.run(cmd, check=check, env=env or os.environ.copy())
+
+
+def _python() -> str:
+    """Prefer the install-tree venv so `./labvaultctl` works without activation."""
+    for candidate in (
+        ROOT / ".venv" / "bin" / "python",
+        ROOT / ".venv" / "bin" / "python3",
+    ):
+        if candidate.is_file():
+            return str(candidate)
+    return sys.executable
+
+
+def _manage(*args: str) -> None:
+    _run([_python(), str(ROOT / "manage.py"), *args])
+
+
+def _health_ok(url: str = "http://127.0.0.1:8000/health/ready", timeout: float = 2.0) -> bool:
+    try:
+        with urllib.request.urlopen(url, timeout=timeout) as resp:
+            return 200 <= resp.status < 300
+    except (urllib.error.URLError, TimeoutError, OSError):
+        return False
+
+
+def _systemctl_is_active(unit: str) -> str:
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", unit],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        return (r.stdout or r.stderr or "unknown").strip() or "unknown"
+    except FileNotFoundError:
+        return "no-systemctl"
+
+
+def cmd_host_deps(args: argparse.Namespace) -> int:
+    """Print / optionally install OS packages needed to build python-ldap etc."""
+    script = ROOT / "deploy" / "install" / "oneshot-systemd.sh"
+    print("Native packages required for requirements.txt (esp. django-auth-ldap / python-ldap):")
+    print("  Rocky/RHEL 9: dnf install -y python3-devel gcc openldap-devel openssl-devel cyrus-sasl-devel libpq-devel")
+    print("  Ubuntu/Debian: apt-get install -y python3-dev build-essential libldap2-dev libsasl2-dev libpq-dev")
+    print("One-shot installers:")
+    print("  sudo ./deploy/install/oneshot-compose.sh")
+    print("  sudo ./deploy/install/oneshot-systemd.sh")
+    print("  sudo ./deploy/install/oneshot-airgap.sh /path/to/wheelhouse")
+    print("  ./deploy/install/build-wheelhouse.sh   # on a networked builder")
+    if args.install:
+        if Path("/usr/bin/dnf").exists() or shutil.which("dnf"):
+            return _run([
+                "dnf", "install", "-y",
+                "python3", "python3-pip", "python3-devel", "gcc", "git",
+                "openldap-devel", "openssl-devel", "cyrus-sasl-devel", "libpq-devel",
+            ], check=False).returncode
+        if shutil.which("apt-get"):
+            _run(["apt-get", "update", "-y"], check=False)
+            return _run([
+                "apt-get", "install", "-y",
+                "python3", "python3-venv", "python3-pip", "python3-dev",
+                "build-essential", "git", "libldap2-dev", "libsasl2-dev",
+                "libssl-dev", "libpq-dev",
+            ], check=False).returncode
+        print("No dnf/apt-get — install packages listed above manually.", file=sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_check(args: argparse.Namespace) -> int:
+    _manage("check", "--deploy")
+    _manage("validate_external_config")
+    live = _health_ok("http://127.0.0.1:8000/health/live")
+    ready = _health_ok("http://127.0.0.1:8000/health/ready")
+    print(f"health.live={'ok' if live else 'down'}")
+    print(f"health.ready={'ok' if ready else 'down'}")
+    return 0 if ready or args.allow_down else (0 if not any([live, ready]) else 1)
+
+
+def _install_systemd_units() -> None:
+    unit_dir = ROOT / "deploy" / "systemd"
+    if not unit_dir.is_dir():
+        return
+    for unit in sorted(unit_dir.glob("*.service")):
+        text = unit.read_text(encoding="utf-8")
+        text = text.replace("/opt/labvault/current", str(ROOT))
+        dest = Path("/etc/systemd/system") / unit.name
+        try:
+            dest.write_text(text, encoding="utf-8")
+            print(f"+ wrote {dest}", flush=True)
+        except PermissionError:
+            print(f"WARN: cannot write {dest} (need root)", flush=True)
+            return
+    _run(["systemctl", "daemon-reload"], check=False)
+
+
+def cmd_install(args: argparse.Namespace) -> int:
+    state = Path(args.state_dir)
+    state.mkdir(parents=True, exist_ok=True)
+    cred = state / "bootstrap-credentials"
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "connect.settings")
+    # migrate both DBs
+    _manage("migrate", "--database", "default", "--noinput")
+    _manage("migrate", "--database", "np_timeseries", "--noinput")
+    _manage("ensure_topology_insights")
+    _manage("validate_external_config")
+    _manage("collectstatic", "--noinput")
+    boot = ["bootstrap_labvault"]
+    if os.environ.get("LABVAULT_WORKER_MODE", "").strip().lower() == "live":
+        boot.append("--live")
+    restore = os.environ.get("LABVAULT_RESTORE_DATASET", "").strip()
+    if restore:
+        boot.extend(["--restore", restore])
+    try:
+        _manage(*boot)
+    except subprocess.CalledProcessError:
+        print("ERROR: bootstrap_labvault failed", flush=True)
+        return 1
+    else:
+        for src_name, dest_name in (
+            ("/tmp/bootstrap-credentials", "bootstrap-credentials"),
+            ("/tmp/labvault-fleet-token", "fleet-token"),
+        ):
+            src = Path(src_name)
+            if src.is_file():
+                dest = state / dest_name
+                dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+                os.chmod(dest, 0o600)
+                print(f"Bootstrap file written to {dest}")
+        print("credential_file_hint=sudo cat /var/lib/labvault/bootstrap-credentials")
+        if os.environ.get("LABVAULT_DEMO_DEFAULTS", "").strip().lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        ):
+            print("demo_defaults=1 (rotate immediately)")
+    if args.adapter == "compose":
+        Path("/run/labvault").mkdir(parents=True, exist_ok=True)
+        _run(
+            [
+                "docker",
+                "compose",
+                "-f",
+                str(ROOT / "deploy/compose/docker-compose.yml"),
+                "up",
+                "-d",
+                "--build",
+            ]
+        )
+    elif args.adapter == "systemd":
+        _install_systemd_units()
+        _run(["systemctl", "daemon-reload"])
+        for unit in (
+            "labvault-opsd",
+            "labvault-cli-ssh",
+            "labvault-web",
+            "labvault-refresh",
+            "labvault-heartbeat",
+            "labvault-collector",
+            "labvault-cli-worker",
+        ):
+            _run(["systemctl", "enable", "--now", unit])
+    print("READY")
+    print("login=http://127.0.0.1:8000/login/")
+    print("cli=http://127.0.0.1:8000/cli/")
+    print("ssh_cli=ssh -p ${LABVAULT_CLI_SSH_PORT:-2222} <staff-user>@127.0.0.1")
+    if cred.exists():
+        print(f"credential_file={cred}")
+    return 0
+
+
+def _pg_dump_to(dest_file: Path, *, compose_service: str | None, db_url: str, db_name: str) -> None:
+    """Dump Postgres from host tools or Compose db container."""
+    dest_file.parent.mkdir(parents=True, exist_ok=True)
+    if compose_service:
+        compose = [
+            "docker",
+            "compose",
+            "-f",
+            str(ROOT / "deploy/compose/docker-compose.yml"),
+            "exec",
+            "-T",
+            compose_service,
+            "pg_dump",
+            "-U",
+            "labvault",
+            db_name,
+        ]
+        with dest_file.open("wb") as fh:
+            subprocess.run(compose, check=True, stdout=fh)
+        return
+    _run(["pg_dump", db_url, "-f", str(dest_file)])
+
+
+def cmd_backup(args: argparse.Namespace) -> int:
+    state = Path(args.state_dir)
+    backup_root = state / "backups"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dest = backup_root / f"labvault-{stamp}"
+    dest.mkdir(parents=True)
+    db_url = os.environ.get("DATABASE_URL", "")
+    use_compose = args.adapter == "compose"
+    if db_url.startswith("postgres") or use_compose:
+        _pg_dump_to(
+            dest / "default.sql",
+            compose_service="db" if use_compose else None,
+            db_url=db_url,
+            db_name="labvault",
+        )
+    else:
+        for name in ("db.sqlite3",):
+            src = ROOT / name
+            if src.exists():
+                shutil.copy2(src, dest / name)
+            alt = Path(db_url.replace("sqlite:///", "")) if db_url.startswith("sqlite") else None
+            if alt and alt.exists():
+                shutil.copy2(alt, dest / alt.name)
+    metrics = os.environ.get("NP_TIMESERIES_DATABASE_URL", "")
+    if metrics.startswith("postgres") or use_compose:
+        _pg_dump_to(
+            dest / "metrics.sql",
+            compose_service="metrics-db" if use_compose else None,
+            db_url=metrics,
+            db_name="labvault_metrics",
+        )  # compose service name matches docker-compose.yml
+    else:
+        for name in ("np_timeseries.sqlite3",):
+            src = ROOT / name
+            if src.exists():
+                shutil.copy2(src, dest / name)
+    (dest / "MANIFEST.txt").write_text(
+        f"created={stamp}\nroot={ROOT}\nadapter={args.adapter}\n",
+        encoding="utf-8",
+    )
+    print(dest)
+    return 0
+
+
+def _pg_restore_from(sql_file: Path, *, compose_service: str | None, db_url: str, db_name: str) -> None:
+    if not sql_file.is_file():
+        raise FileNotFoundError(sql_file)
+    if compose_service:
+        with sql_file.open("rb") as fh:
+            subprocess.run(
+                [
+                    "docker",
+                    "compose",
+                    "-f",
+                    str(ROOT / "deploy/compose/docker-compose.yml"),
+                    "exec",
+                    "-T",
+                    compose_service,
+                    "psql",
+                    "-U",
+                    "labvault",
+                    "-d",
+                    db_name,
+                ],
+                check=True,
+                stdin=fh,
+            )
+        return
+    _run(["psql", db_url, "-f", str(sql_file)])
+
+
+def cmd_restore(args: argparse.Namespace) -> int:
+    src = Path(args.backup)
+    if not src.is_dir():
+        print(f"backup not found: {src}", file=sys.stderr)
+        return 2
+    needed = ["MANIFEST.txt"]
+    missing = [n for n in needed if not (src / n).exists()]
+    if missing:
+        print(f"RESTORE DRILL FAIL missing={missing}", file=sys.stderr)
+        return 1
+    if args.drill:
+        print(f"RESTORE DRILL OK (validated layout at {src})")
+        return 0
+    use_compose = args.adapter == "compose"
+    db_url = os.environ.get("DATABASE_URL", "")
+    metrics = os.environ.get("NP_TIMESERIES_DATABASE_URL", "")
+    if (src / "default.sql").is_file():
+        _pg_restore_from(
+            src / "default.sql",
+            compose_service="db" if use_compose else None,
+            db_url=db_url,
+            db_name="labvault",
+        )
+    if (src / "metrics.sql").is_file():
+        _pg_restore_from(
+            src / "metrics.sql",
+            compose_service="metrics-db" if use_compose else None,
+            db_url=metrics,
+            db_name="labvault_metrics",
+        )
+    for name in ("db.sqlite3", "np_timeseries.sqlite3"):
+        if (src / name).is_file():
+            shutil.copy2(src / name, ROOT / name)
+    print(f"RESTORE OK {src}")
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    print("adapter=", args.adapter)
+    print("root=", ROOT)
+    print("health.live=", "ok" if _health_ok("http://127.0.0.1:8000/health/live") else "down")
+    print("health.ready=", "ok" if _health_ok("http://127.0.0.1:8000/health/ready") else "down")
+    if args.adapter == "compose":
+        _run(
+            ["docker", "compose", "-f", str(ROOT / "deploy/compose/docker-compose.yml"), "ps"],
+            check=False,
+        )
+        print("note=compose adapter: systemd unit names are n/a")
+        return 0
+    for c in COMPONENTS:
+        unit = UNIT_MAP.get(c, "")
+        print(f"component.{c}={_systemctl_is_active(unit) if unit else 'n/a'}")
+    return 0
+
+
+def _switch_release(release: str) -> int:
+    """Stage a release directory and atomically retarget /opt/labvault/current when used."""
+    src = Path(release)
+    if not src.exists():
+        print(f"release not found: {src}", file=sys.stderr)
+        return 2
+    releases = Path(os.environ.get("LABVAULT_RELEASES_DIR", "/opt/labvault/releases"))
+    current = Path(os.environ.get("LABVAULT_CURRENT", "/opt/labvault/current"))
+    if src.is_dir() and src.resolve() != ROOT.resolve():
+        dest = releases / src.name
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src, dest, symlinks=True, ignore=shutil.ignore_patterns(".venv", "__pycache__", ".git"))
+        tmp = current.parent / f".current.{os.getpid()}"
+        if tmp.exists() or tmp.is_symlink():
+            tmp.unlink()
+        tmp.symlink_to(dest)
+        tmp.replace(current)
+        print(f"current -> {dest}")
+    return 0
+
+
+def cmd_update(args: argparse.Namespace) -> int:
+    print("update: backup then stage release", args.release)
+    rc = cmd_backup(args)
+    if rc != 0:
+        return rc
+    rc = _switch_release(args.release)
+    if rc != 0:
+        return rc
+    return cmd_install(args)
+
+
+def cmd_rollback(args: argparse.Namespace) -> int:
+    print("rollback target:", args.backup_or_release)
+    target = Path(args.backup_or_release)
+    if target.is_dir() and (target / "MANIFEST.txt").is_file():
+        return cmd_restore(
+            argparse.Namespace(
+                backup=str(target),
+                drill=False,
+                state_dir=args.state_dir,
+                adapter=args.adapter,
+            )
+        )
+    rc = _switch_release(args.backup_or_release)
+    if rc != 0:
+        return rc
+    return cmd_install(args)
+
+
+def main() -> int:
+    _load_dotenv()
+    ap = argparse.ArgumentParser(
+        prog="labvaultctl",
+        description="LabVault lifecycle controller. Prefer deploy/install/oneshot-*.sh for first install.",
+    )
+    ap.add_argument(
+        "--adapter",
+        choices=("systemd", "compose"),
+        default=os.environ.get("LABVAULT_ADAPTER", "systemd"),
+    )
+    ap.add_argument("--state-dir", default=str(DEFAULT_STATE))
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p = sub.add_parser("host-deps", help="Show (or install) OS packages for native Python deps")
+    p.add_argument("--install", action="store_true", help="Run oneshot-systemd (needs root)")
+    p.set_defaults(func=cmd_host_deps)
+
+    p = sub.add_parser("check")
+    p.add_argument("--allow-down", action="store_true")
+    p.set_defaults(func=cmd_check)
+
+    p = sub.add_parser("install")
+    p.add_argument("--skip-health", action="store_true")
+    p.set_defaults(func=cmd_install)
+
+    p = sub.add_parser("backup")
+    p.set_defaults(func=cmd_backup)
+
+    p = sub.add_parser("restore")
+    p.add_argument("backup")
+    p.add_argument("--drill", action="store_true")
+    p.set_defaults(func=cmd_restore)
+
+    p = sub.add_parser("status")
+    p.set_defaults(func=cmd_status)
+
+    p = sub.add_parser("update")
+    p.add_argument("release")
+    p.set_defaults(func=cmd_update)
+
+    p = sub.add_parser("rollback")
+    p.add_argument("backup_or_release")
+    p.set_defaults(func=cmd_rollback)
+
+    p = sub.add_parser("cli")
+    p.add_argument("cli_args", nargs=argparse.REMAINDER)
+
+    def _cli(_a: argparse.Namespace) -> int:
+        print("Primary: ssh -p 2222 <staff-user>@<host>  (appliance CLI, no OS shell)")
+        print("Browser: http://127.0.0.1:8000/cli/ (staff)")
+        print("API: GET /api/cli/v1/commands/  POST /api/cli/v1/confirm/  POST /api/cli/v1/invoke/")
+        print("Commands: help, whoami, show devices|chassis|topologies|fleet|settings|insights|services,")
+        print("          settings set, service start|stop|restart <name|all> reason=\"...\", diag cheap")
+        return 0
+
+    p.set_defaults(func=_cli)
+
+    args = ap.parse_args()
+    try:
+        return int(args.func(args) or 0)
+    except subprocess.CalledProcessError as exc:
+        print(f"command failed: {exc}", file=sys.stderr)
+        return exc.returncode or 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

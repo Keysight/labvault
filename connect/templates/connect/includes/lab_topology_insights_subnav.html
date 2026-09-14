@@ -1,0 +1,28 @@
+{# Sub-navigation for Lab Pulse + graph views (row 2) #}
+<nav class="lv-insights-subnav" aria-label="Lab Pulse views">
+  <a href="{% url 'lab_topology_usage_insights' topo.id %}"
+     class="lv-insights-tab{% if active_view == 'usage_insights' %} on{% endif %}"
+     title="Lab Pulse dashboard">
+    <i class="fas fa-heart-pulse"></i> Lab Pulse
+  </a>
+  <a href="{% url 'lab_topology_graph_pulse_radial' topo.id %}"
+     class="lv-insights-tab{% if active_view == 'graph_pulse_radial' %} on{% endif %}">
+    <i class="fas fa-circle-notch"></i> Radial
+  </a>
+  <a href="{% url 'lab_topology_graph_stream_wave' topo.id %}"
+     class="lv-insights-tab{% if active_view == 'graph_stream_wave' %} on{% endif %}">
+    <i class="fas fa-water"></i> Stream
+  </a>
+  <a href="{% url 'lab_topology_graph_radar_health' topo.id %}"
+     class="lv-insights-tab{% if active_view == 'graph_radar_health' %} on{% endif %}">
+    <i class="fas fa-spider"></i> Radar
+  </a>
+  <a href="{% url 'lab_topology_graph_matrix_heat' topo.id %}"
+     class="lv-insights-tab{% if active_view == 'graph_matrix_heat' %} on{% endif %}">
+    <i class="fas fa-th"></i> Matrix
+  </a>
+  <a href="{% url 'lab_topology_graph_topology_pulse' topo.id %}"
+     class="lv-insights-tab{% if active_view == 'graph_topology_pulse' %} on{% endif %}">
+    <i class="fas fa-project-diagram"></i> Topo
+  </a>
+</nav>

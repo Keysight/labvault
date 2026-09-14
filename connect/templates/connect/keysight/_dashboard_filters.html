@@ -1,0 +1,74 @@
+<div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+    {% for ts in type_stats %}
+    <a href="{{ ts.toggle_url }}" class="badge text-decoration-none {% if ts.is_selected %}text-white{% else %}text-dark{% endif %}"
+       style="font-size:.78rem;padding:5px 12px;{% if ts.is_selected %}background:var(--ks-red,#E31937);{% else %}background:#f3f4f6;{% endif %}">
+        {{ ts.label }} &middot; {{ ts.count }}
+    </a>
+    {% endfor %}
+    {% if aps_gen_stats %}
+    <span style="border-left:1px solid #d1d5db;height:18px;margin:0 4px;"></span>
+    {% for ag in aps_gen_stats %}
+    <a href="{{ ag.toggle_url }}" class="badge text-decoration-none {% if ag.is_selected %}text-white{% else %}text-dark{% endif %}"
+       style="font-size:.78rem;padding:5px 12px;{% if ag.is_selected %}background:#b91c1c;{% else %}background:#fee2e2;color:#991b1b;{% endif %}"
+       title="Chassis with ≥1 node of this gen; mgmt+compute node counts {{ ag.subtitle }} (1.5 = FRU O15/O2 or cn-aps-o2/o15-)">
+        {{ ag.label }} &middot; {{ ag.chassis_count }} ({{ ag.subtitle }})
+    </a>
+    {% endfor %}
+    {% endif %}
+    <span style="border-left:1px solid #d1d5db;height:18px;margin:0 4px;"></span>
+    {% for ss in status_stats %}
+    <a href="{{ ss.toggle_url }}" class="badge text-decoration-none {% if ss.is_selected %}text-white{% else %}text-dark{% endif %}"
+       style="font-size:.78rem;padding:5px 12px;{% if ss.is_selected %}background:#1f2937;{% elif ss.value == 'online' %}background:#dcfce7;color:#166534;{% elif ss.value == 'offline' %}background:#fee2e2;color:#991b1b;{% else %}background:#fef3c7;color:#92400e;{% endif %}">
+        {{ ss.label }} &middot; {{ ss.count }}
+    </a>
+    {% endfor %}
+    {% if dashboard_filters_active %}
+    <a href="{{ clear_filter_url }}" class="badge bg-secondary text-decoration-none" style="font-size:.78rem;padding:5px 12px;">Clear filter</a>
+    {% endif %}
+    <form method="get" class="d-flex gap-1 ms-auto" style="max-width:240px;">
+        {% if hw_view_filter %}<input type="hidden" name="view" value="{{ hw_view_filter }}">{% endif %}
+        {% if hw_type_filter %}<input type="hidden" name="type" value="{{ hw_type_filter }}">{% endif %}
+        {% if hw_chassis_filter %}<input type="hidden" name="chassis" value="{{ hw_chassis_filter }}">{% endif %}
+        {% if chassis_type_filter %}<input type="hidden" name="chassis_type" value="{{ chassis_type_filter }}">{% endif %}
+        {% if aps_gen_filter %}<input type="hidden" name="aps_gen" value="{{ aps_gen_filter }}">{% endif %}
+        {% if status_filter %}<input type="hidden" name="status" value="{{ status_filter }}">{% endif %}
+        {% if team_tags_selected %}<input type="hidden" name="team_tag" value="{{ team_tag_filter }}">{% endif %}
+        {% if geo_filter %}<input type="hidden" name="geo" value="{{ geo_filter }}">{% endif %}
+        {% if lab_filter %}<input type="hidden" name="lab" value="{{ lab_filter }}">{% endif %}
+        <input type="text" name="q" value="{{ search_q }}" class="form-control form-control-sm" placeholder="Search..." style="font-size:.75rem;">
+        <button type="submit" class="btn btn-sm btn-outline-secondary" style="font-size:.7rem;padding:2px 8px;"><i class="fas fa-search"></i></button>
+    </form>
+</div>
+{% if tag_stats %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center" style="padding:6px 0;border-top:1px solid #eee;">
+    <span style="font-size:.7rem;color:#888;font-weight:600;margin-right:4px;">Team:</span>
+    {% for ts in tag_stats %}
+    <a href="{{ ts.toggle_url }}" class="badge text-decoration-none"
+       style="font-size:.78rem;padding:5px 12px;{% if ts.is_selected %}background:#7c3aed;color:#fff;{% else %}background:#ede9fe;color:#5b21b6;{% endif %}">
+        {{ ts.value }} &middot; {{ ts.count }}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% if geo_stats %}
+<div class="d-flex flex-wrap gap-2 mb-2 align-items-center" style="padding:6px 0;border-top:1px solid #eee;">
+    <span style="font-size:.7rem;color:#888;font-weight:600;margin-right:4px;"><i class="fas fa-globe-americas me-1"></i>Geo:</span>
+    {% for gs in geo_stats %}
+    <a href="{{ gs.toggle_url }}" class="badge text-decoration-none"
+       style="font-size:.78rem;padding:5px 12px;{% if gs.is_selected %}background:#059669;color:#fff;{% else %}background:#d1fae5;color:#065f46;{% endif %}">
+        {{ gs.value }} &middot; {{ gs.count }}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+{% if lab_stats %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center" style="padding:6px 0;border-top:1px solid #eee;">
+    <span style="font-size:.7rem;color:#888;font-weight:600;margin-right:4px;"><i class="fas fa-flask me-1"></i>Lab:</span>
+    {% for ls in lab_stats %}
+    <a href="{{ ls.toggle_url }}" class="badge text-decoration-none"
+       style="font-size:.78rem;padding:5px 12px;{% if ls.is_selected %}background:#d97706;color:#fff;{% else %}background:#fef3c7;color:#92400e;{% endif %}">
+        {{ ls.value }} &middot; {{ ls.count }}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}

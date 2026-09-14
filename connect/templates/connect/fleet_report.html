@@ -1,0 +1,122 @@
+{% extends "connect/base.html" %}
+{% block title %}Fleet Report{% endblock %}
+{% block page_title %}Fleet Report{% endblock %}
+{% block content %}
+<div class="row g-3 mb-4">
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:rgba(34,197,94,0.1);color:#22c55e;"><i class="fas fa-server"></i></div>
+                <div><div class="stat-value">{{ total }}</div><div class="stat-label">Total Devices</div></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:rgba(34,197,94,0.1);color:#22c55e;"><i class="fas fa-check-circle"></i></div>
+                <div><div class="stat-value">{{ online }}</div><div class="stat-label">Online</div></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:rgba(239,68,68,0.1);color:#ef4444;"><i class="fas fa-times-circle"></i></div>
+                <div><div class="stat-value">{{ offline }}</div><div class="stat-label">Offline</div></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex align-items-center gap-3">
+                <div class="stat-icon" style="background:rgba(99,102,241,0.1);color:#6366f1;"><i class="fas fa-percentage"></i></div>
+                <div><div class="stat-value">{% if total > 0 %}{{ online|floatformat:0 }}%{% else %}N/A{% endif %}</div><div class="stat-label">Availability</div></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4">
+    <div class="col-md-6">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-chart-pie me-2"></i>Devices by Vendor</div>
+            <div class="card-body">
+                {% for vs in vendor_stats %}
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span><span class="badge badge-{{ vs.vendor_type }}">{{ vs.vendor_type|upper }}</span></span>
+                    <span class="fw-bold">{{ vs.count }}</span>
+                </div>
+                <div class="progress mb-3" style="height:6px;">
+                    <div class="progress-bar" style="width:{% widthratio vs.count total 100 %}%;background:{% if vs.vendor_type == 'arista' %}#2196F3{% elif vs.vendor_type == 'sonic' %}#4CAF50{% elif vs.vendor_type == 'fortigate' %}#FF5722{% else %}#FF9800{% endif %};"></div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-map-marker-alt me-2"></i>Devices by Site</div>
+            <div class="card-body">
+                {% for ss in site_stats %}
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span>{{ ss.site }}</span>
+                    <span class="fw-bold">{{ ss.count }}</span>
+                </div>
+                {% empty %}
+                <p class="text-muted">No sites configured</p>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row g-4 mt-2">
+    <div class="col-md-6">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-microchip me-2"></i>Firmware Versions</div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Vendor</th><th>Version</th><th>Model</th><th>Count</th></tr></thead>
+                    <tbody>
+                    {% for f in firmware_list %}
+                    <tr>
+                        <td><span class="badge badge-{{ f.vendor_type }}">{{ f.vendor_type }}</span></td>
+                        <td><code>{{ f.version }}</code></td>
+                        <td>{{ f.model_name }}</td>
+                        <td><span class="badge bg-secondary">{{ f.count }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-center text-muted py-3">No firmware data</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-fire me-2 text-danger"></i>Top CPU Consumers (Last Hour)</div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Device</th><th>Avg CPU</th></tr></thead>
+                    <tbody>
+                    {% for tc in top_consumers %}
+                    <tr>
+                        <td><a href="{% url 'device_detail' tc.device__id %}">{{ tc.device__hostname|default:tc.device__ip_address }}</a></td>
+                        <td>
+                            <div class="progress" style="height:16px;">
+                                <div class="progress-bar {% if tc.avg_cpu > 80 %}bg-danger{% elif tc.avg_cpu > 60 %}bg-warning{% else %}bg-success{% endif %}" style="width:{{ tc.avg_cpu|floatformat:0 }}%;">{{ tc.avg_cpu|floatformat:1 }}%</div>
+                            </div>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="2" class="text-center text-muted py-3">No snapshot data yet</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,218 @@
+{% extends "connect/base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block content %}
+<ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#webhooks-tab">Webhooks</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tokens-tab">API Tokens</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#jobs-tab">Scheduled Jobs</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#maintenance-tab">Maintenance</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#groups-tab">Device Groups</a></li>
+</ul>
+
+<div class="tab-content">
+    <!-- Webhooks -->
+    <div class="tab-pane fade show active" id="webhooks-tab">
+        <div class="card card-custom mb-3">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="fas fa-satellite-dish me-2"></i>Webhook Endpoints</span>
+                <button class="btn btn-sm btn-nc" data-bs-toggle="collapse" data-bs-target="#webhook-form">+ Add Webhook</button>
+            </div>
+            <div class="collapse" id="webhook-form">
+                <div class="card-body border-bottom">
+                    <form method="post" action="{% url 'create_webhook' %}">{% csrf_token %}
+                        <div class="row g-2">
+                            <div class="col-md-3"><input type="text" name="name" class="form-control" placeholder="Name" required></div>
+                            <div class="col-md-4"><input type="url" name="url" class="form-control" placeholder="https://hooks.slack.com/..." required></div>
+                            <div class="col-md-2">
+                                <select name="webhook_type" class="form-control">
+                                    <option value="slack">Slack</option><option value="teams">Teams</option>
+                                    <option value="pagerduty">PagerDuty</option><option value="generic">Generic</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2"><input type="text" name="severity_filter" class="form-control" placeholder="critical,warning"></div>
+                            <div class="col-md-1"><button type="submit" class="btn btn-nc">Save</button></div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Name</th><th>Type</th><th>URL</th><th>Filter</th><th>Last Triggered</th><th></th></tr></thead>
+                    <tbody>
+                    {% for w in webhooks %}
+                    <tr>
+                        <td>{{ w.name }}</td><td><span class="badge bg-info">{{ w.get_webhook_type_display }}</span></td>
+                        <td><code style="font-size:0.75rem;">{{ w.url|truncatechars:50 }}</code></td>
+                        <td>{{ w.severity_filter|default:"all" }}</td>
+                        <td>{% if w.last_triggered %}{{ w.last_triggered|date:"m/d H:i" }}{% else %}-{% endif %}</td>
+                        <td><form method="post" action="{% url 'delete_webhook' w.id %}" style="display:inline;">{% csrf_token %}<button class="btn btn-sm btn-outline-danger"><i class="fas fa-trash"></i></button></form></td>
+                    </tr>
+                    {% empty %}<tr><td colspan="6" class="text-center text-muted py-3">No webhooks configured</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Tokens -->
+    <div class="tab-pane fade" id="tokens-tab">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="fas fa-key me-2"></i>API Tokens</span>
+                <form method="post" action="{% url 'create_api_token' %}" class="d-inline-flex gap-2">{% csrf_token %}
+                    <input type="text" name="name" class="form-control form-control-sm" placeholder="Token name" style="width:200px;">
+                    <button type="submit" class="btn btn-sm btn-nc">Generate</button>
+                </form>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Name</th><th>Token</th><th>Status</th><th>Created</th><th>Last Used</th><th></th></tr></thead>
+                    <tbody>
+                    {% for t in api_tokens %}
+                    <tr>
+                        <td>{{ t.name }}</td>
+                        <td><code>{{ t.token|truncatechars:20 }}...</code></td>
+                        <td>{% if t.is_valid %}<span class="badge bg-success">Active</span>{% else %}<span class="badge bg-danger">Revoked</span>{% endif %}</td>
+                        <td>{{ t.created_at|date:"m/d/Y" }}</td>
+                        <td>{% if t.last_used %}{{ t.last_used|date:"m/d H:i" }}{% else %}-{% endif %}</td>
+                        <td>{% if t.enabled %}<form method="post" action="{% url 'revoke_api_token' t.id %}" style="display:inline;">{% csrf_token %}<button class="btn btn-sm btn-outline-danger">Revoke</button></form>{% endif %}</td>
+                    </tr>
+                    {% empty %}<tr><td colspan="6" class="text-center text-muted py-3">No API tokens</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Jobs -->
+    <div class="tab-pane fade" id="jobs-tab">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="fas fa-clock me-2"></i>Scheduled Jobs</span>
+                <button class="btn btn-sm btn-nc" data-bs-toggle="collapse" data-bs-target="#job-form">+ Add Job</button>
+            </div>
+            <div class="collapse" id="job-form">
+                <div class="card-body border-bottom">
+                    <form method="post" action="{% url 'create_scheduled_job' %}">{% csrf_token %}
+                        <div class="row g-2">
+                            <div class="col-md-4"><input type="text" name="name" class="form-control" placeholder="Job name" required></div>
+                            <div class="col-md-3">
+                                <select name="job_type" class="form-control">
+                                    <option value="config_backup">Config Backup</option>
+                                    <option value="compliance_check">Compliance Check</option>
+                                    <option value="topology_scan">Topology Scan</option>
+                                    <option value="health_snapshot">Health Snapshot</option>
+                                    <option value="interface_counters">Interface Counters</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <select name="schedule" class="form-control">
+                                    <option value="15min">Every 15 min</option><option value="hourly">Hourly</option>
+                                    <option value="daily">Daily</option><option value="weekly">Weekly</option>
+                                </select>
+                            </div>
+                            <div class="col-md-2"><button type="submit" class="btn btn-nc">Create</button></div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Name</th><th>Type</th><th>Schedule</th><th>Last Run</th><th>Enabled</th></tr></thead>
+                    <tbody>
+                    {% for j in scheduled_jobs %}
+                    <tr>
+                        <td>{{ j.name }}</td><td><span class="badge bg-primary">{{ j.get_job_type_display }}</span></td>
+                        <td>{{ j.get_schedule_display }}</td>
+                        <td>{% if j.last_run %}{{ j.last_run|date:"m/d H:i" }}{% else %}-{% endif %}</td>
+                        <td>{% if j.enabled %}<span class="badge bg-success">Yes</span>{% else %}<span class="badge bg-secondary">No</span>{% endif %}</td>
+                    </tr>
+                    {% empty %}<tr><td colspan="5" class="text-center text-muted py-3">No scheduled jobs</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Maintenance Windows -->
+    <div class="tab-pane fade" id="maintenance-tab">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="fas fa-tools me-2"></i>Maintenance Windows</span>
+                <button class="btn btn-sm btn-nc" data-bs-toggle="collapse" data-bs-target="#maint-form">+ Schedule</button>
+            </div>
+            <div class="collapse" id="maint-form">
+                <div class="card-body border-bottom">
+                    <form method="post" action="{% url 'create_maintenance_window' %}">{% csrf_token %}
+                        <div class="row g-2">
+                            <div class="col-md-3"><input type="text" name="name" class="form-control" placeholder="Window name" required></div>
+                            <div class="col-md-3"><input type="datetime-local" name="start_time" class="form-control" required></div>
+                            <div class="col-md-3"><input type="datetime-local" name="end_time" class="form-control" required></div>
+                            <div class="col-md-3"><button type="submit" class="btn btn-nc">Create</button></div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Name</th><th>Start</th><th>End</th><th>Status</th><th>Created By</th></tr></thead>
+                    <tbody>
+                    {% for w in maintenance_windows %}
+                    <tr>
+                        <td>{{ w.name }}</td>
+                        <td>{{ w.start_time|date:"m/d H:i" }}</td>
+                        <td>{{ w.end_time|date:"m/d H:i" }}</td>
+                        <td>{% if w.is_active %}<span class="badge bg-warning text-dark">Active</span>{% else %}<span class="badge bg-secondary">Scheduled</span>{% endif %}</td>
+                        <td>{{ w.created_by|default:"-" }}</td>
+                    </tr>
+                    {% empty %}<tr><td colspan="5" class="text-center text-muted py-3">No maintenance windows</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Device Groups -->
+    <div class="tab-pane fade" id="groups-tab">
+        <div class="card card-custom">
+            <div class="card-header d-flex justify-content-between">
+                <span><i class="fas fa-layer-group me-2"></i>Device Groups</span>
+                <button class="btn btn-sm btn-nc" data-bs-toggle="collapse" data-bs-target="#group-form">+ Add Group</button>
+            </div>
+            <div class="collapse" id="group-form">
+                <div class="card-body border-bottom">
+                    <form method="post" action="{% url 'create_device_group' %}">{% csrf_token %}
+                        <div class="row g-2">
+                            <div class="col-md-4"><input type="text" name="name" class="form-control" placeholder="Group name" required></div>
+                            <div class="col-md-4"><input type="text" name="description" class="form-control" placeholder="Description"></div>
+                            <div class="col-md-2">
+                                <select name="parent_group" class="form-control">
+                                    <option value="">No parent</option>
+                                    {% for g in device_groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+                                </select>
+                            </div>
+                            <div class="col-md-2"><button type="submit" class="btn btn-nc">Create</button></div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Name</th><th>Path</th><th>Description</th><th>Devices</th></tr></thead>
+                    <tbody>
+                    {% for g in device_groups %}
+                    <tr>
+                        <td><strong>{{ g.name }}</strong></td>
+                        <td><code>{{ g.full_path }}</code></td>
+                        <td>{{ g.description|default:"-" }}</td>
+                        <td><span class="badge bg-secondary">{{ g.device_count }}</span></td>
+                    </tr>
+                    {% empty %}<tr><td colspan="4" class="text-center text-muted py-3">No device groups</td></tr>{% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

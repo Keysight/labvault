@@ -1,0 +1,38 @@
+{% extends "connect/base.html" %}
+{% block title %}BGP - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}{{ device.hostname|default:device.ip_address }} - BGP Peers{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Device</a>
+    <a href="{% url 'device_ospf' device.id %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-route"></i> OSPF</a>
+    <a href="{% url 'device_routing' device.id %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-directions"></i> Routes</a>
+</div>
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-network-wired me-2"></i>BGP Peer Summary</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0">
+            <thead><tr><th>Neighbor</th><th>ASN</th><th>State</th><th>Prefixes Received</th><th>Uptime</th><th>VRF</th></tr></thead>
+            <tbody>
+            {% for p in peers %}
+            <tr>
+                <td><code>{{ p.neighbor }}</code></td>
+                <td>{{ p.asn }}</td>
+                <td>
+                    {% if p.state == 'Established' or p.state == 'established' %}
+                    <span class="badge bg-success">{{ p.state }}</span>
+                    {% else %}
+                    <span class="badge bg-danger">{{ p.state }}</span>
+                    {% endif %}
+                </td>
+                <td>{{ p.prefixes_received }}</td>
+                <td>{{ p.uptime }}</td>
+                <td>{{ p.vrf }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" class="text-center text-muted py-4">No BGP peers found</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

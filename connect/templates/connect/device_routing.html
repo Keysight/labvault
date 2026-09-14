@@ -1,0 +1,45 @@
+{% extends 'connect/base.html' %}
+{% block title %}Routes - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}Routing: {{ device.hostname|default:device.ip_address }}{% endblock %}
+
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a>
+</div>
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-route me-2"></i> Routing Table ({{ routes|length }} routes)</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>Prefix</th><th>Protocol</th><th>Next Hop</th><th>Interface</th><th>VRF</th><th>Metric</th></tr></thead>
+                <tbody>
+                    {% for r in routes %}
+                    <tr>
+                        <td class="fw-bold">{{ r.prefix }}</td>
+                        <td>
+                            {% if r.protocol == 'connected' or r.protocol == 'C' %}
+                            <span class="badge bg-success">{{ r.protocol }}</span>
+                            {% elif r.protocol == 'static' or r.protocol == 'S' %}
+                            <span class="badge bg-primary">{{ r.protocol }}</span>
+                            {% elif 'bgp' in r.protocol|lower or r.protocol == 'B' %}
+                            <span class="badge bg-info">{{ r.protocol }}</span>
+                            {% elif 'ospf' in r.protocol|lower or r.protocol == 'O' %}
+                            <span class="badge bg-warning text-dark">{{ r.protocol }}</span>
+                            {% else %}
+                            <span class="badge bg-secondary">{{ r.protocol }}</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ r.next_hop }}</td>
+                        <td>{{ r.interface }}</td>
+                        <td>{{ r.vrf }}</td>
+                        <td>{{ r.metric }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="6" class="text-center text-muted py-3">No routes available</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

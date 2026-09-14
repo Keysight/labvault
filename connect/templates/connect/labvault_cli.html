@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>LabVault CLI</title>
+  <style>
+    body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background:#0f1419; color:#e7ecf1; margin:0; }
+    header { padding:1rem 1.25rem; border-bottom:1px solid #243044; }
+    main { padding:1.25rem; max-width:960px; margin:0 auto; }
+    #out { white-space:pre-wrap; background:#161b22; padding:1rem; border-radius:8px; min-height:220px; }
+    input, button { font: inherit; padding:.5rem .75rem; margin:.25rem 0; }
+    input { width:72%; background:#0b0f14; color:#e7ecf1; border:1px solid #30363d; border-radius:6px; }
+    button { background:#238636; color:#fff; border:0; border-radius:6px; cursor:pointer; }
+    button.secondary { background:#30363d; }
+    .hint { color:#8b949e; font-size:.85rem; margin-top:.5rem; }
+    .err { color:#ff7b72; }
+    #pending { display:none; margin:.75rem 0; padding:.75rem; border:1px solid #30363d; border-radius:8px; background:#0b0f14; }
+  </style>
+</head>
+<body>
+  <header><strong>labvault&gt;</strong> appliance CLI (staff)</header>
+  <main>
+    <form id="f">
+      <input id="cmd" list="cmdlist" placeholder='help | whoami | show services | service restart heartbeat reason="stale"' autocomplete="off"/>
+      <datalist id="cmdlist">
+        {% for c in commands %}<option value="{{ c.name|escape }}"></option>{% endfor %}
+      </datalist>
+      <button type="submit">Run</button>
+    </form>
+    <div id="pending">
+      <div id="pending-detail"></div>
+      <button type="button" id="confirm-btn">Confirm</button>
+      <button type="button" class="secondary" id="cancel-btn">Cancel</button>
+    </div>
+    <p class="hint">Staff login required. Mutating service commands need a reason and a one-time confirmation nonce from the server. Primary interface: <code>ssh -p 2222 admin@&lt;host&gt;</code>.</p>
+    <div id="out">Type help and press Enter.</div>
+  </main>
+  <script>
+    function getCookie(n) {
+      const m = document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]*)'));
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    function show(obj, isErr) {
+      const el = document.getElementById('out');
+      el.className = isErr ? 'err' : '';
+      el.textContent = typeof obj === 'string' ? obj : JSON.stringify(obj, null, 2);
+    }
+
+    async function postJson(url, body) {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRFToken': getCookie('csrftoken'),
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      let data;
+      try { data = JSON.parse(text); }
+      catch (_) {
+        return { status: res.status, data: { error: 'non_json_response', detail: text.slice(0, 400), state: 'failed' } };
+      }
+      return { status: res.status, data };
+    }
+
+    let pending = null;
+
+    function clearPending() {
+      pending = null;
+      document.getElementById('pending').style.display = 'none';
+      document.getElementById('pending-detail').textContent = '';
+    }
+
+    document.getElementById('cancel-btn').addEventListener('click', clearPending);
+    document.getElementById('confirm-btn').addEventListener('click', async () => {
+      if (!pending) return;
+      show({ status: 'in_progress', command: pending.command }, false);
+      const { status, data } = await postJson('{% url "cli_invoke" %}', {
+        line: pending.line,
+        confirmation_nonce: pending.nonce,
+        idempotency_key: crypto.randomUUID(),
+      });
+      clearPending();
+      show(data, status >= 400 || data.ok === false);
+    });
+
+    document.getElementById('f').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const line = document.getElementById('cmd').value.trim();
+      if (!line) return;
+
+      // First ask confirm endpoint; if confirmation not required, invoke directly.
+      const prep = await postJson('{% url "cli_confirm" %}', { line });
+      if (prep.status === 400 && prep.data && prep.data.error === 'confirmation_not_required') {
+        const { status, data } = await postJson('{% url "cli_invoke" %}', {
+          line,
+          idempotency_key: crypto.randomUUID(),
+        });
+        show(data, status >= 400 || data.ok === false);
+        return;
+      }
+      if (prep.status >= 400 || prep.data.ok === false) {
+        // Non-mutating path: try invoke when confirm endpoint rejects non-mutating
+        if (prep.data && (prep.data.error === 'confirmation_not_required' || prep.data.error === 'confirmation_not_needed')) {
+          const { status, data } = await postJson('{% url "cli_invoke" %}', {
+            line,
+            idempotency_key: crypto.randomUUID(),
+          });
+          show(data, status >= 400 || data.ok === false);
+          return;
+        }
+        show(prep.data, true);
+        return;
+      }
+      if (prep.data.confirmation_required && prep.data.confirmation_nonce) {
+        pending = {
+          line,
+          nonce: prep.data.confirmation_nonce,
+          command: prep.data.command,
+        };
+        document.getElementById('pending').style.display = 'block';
+        document.getElementById('pending-detail').textContent =
+          `Confirm ${prep.data.action || prep.data.command}` +
+          (prep.data.target ? ` target=${prep.data.target}` : '') +
+          (prep.data.reason ? ` reason=${prep.data.reason}` : '');
+        show(prep.data, false);
+        return;
+      }
+      // Fallback invoke
+      const { status, data } = await postJson('{% url "cli_invoke" %}', {
+        line,
+        idempotency_key: crypto.randomUUID(),
+      });
+      show(data, status >= 400 || data.ok === false);
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,19 @@
+[Unit]
+Description=LabVault refresh
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=labvault
+Group=labvault
+WorkingDirectory=/opt/labvault/current
+EnvironmentFile=-/etc/labvault/labvault.env
+Environment=DJANGO_SETTINGS_MODULE=connect.settings
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+ExecStart=/opt/labvault/current/.venv/bin/python manage.py run_labvault_refresh
+[Install]
+WantedBy=multi-user.target

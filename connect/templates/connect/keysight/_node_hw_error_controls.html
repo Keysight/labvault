@@ -1,0 +1,14 @@
+<div class="node-hw-error-bar mt-2 mb-2" data-node="{{ card.node_name }}" data-bmc="{{ card.bmc_name|default:'' }}">
+    <div class="form-check" style="font-size:.65rem;">
+        <input class="form-check-input node-hw-error-cb" type="checkbox"
+               id="hwerr-{{ card.node_name|slugify }}"
+               {% if card.hardware_error_reported %}checked{% endif %}>
+        <label class="form-check-label" for="hwerr-{{ card.node_name|slugify }}">
+            <i class="fas fa-exclamation-triangle text-warning"></i> Report hardware error
+        </label>
+    </div>
+    <input type="text" class="form-control form-control-sm node-hw-error-notes mt-1"
+           placeholder="Notes (missing QATs, bad slot, etc.)"
+           value="{{ card.hardware_error_notes|default:'' }}"
+           style="font-size:.62rem;max-width:360px;{% if not card.hardware_error_reported %}display:none;{% endif %}">
+</div>

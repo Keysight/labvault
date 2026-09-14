@@ -1,0 +1,187 @@
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: labvault
+      POSTGRES_PASSWORD: labvault
+      POSTGRES_DB: labvault
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  metrics-db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: labvault
+      POSTGRES_PASSWORD: labvault
+      POSTGRES_DB: labvault_metrics
+    volumes:
+      - metricsdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U labvault"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    env_file: ../../.env
+    depends_on:
+      db:
+        condition: service_healthy
+      metrics-db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://labvault:labvault@db:5432/labvault
+      NP_TIMESERIES_DATABASE_URL: postgres://labvault:labvault@metrics-db:5432/labvault_metrics
+      # Shared FileBasedCache — must match heartbeat/collector (djangocache volume).
+      LABVAULT_CACHE_DIR: /app/var/django_cache
+      LABVAULT_HEARTBEAT_LOCK: /app/var/django_cache/fleet_heartbeat.lock
+      LABVAULT_HEARTBEAT_INTERVAL_SECONDS: ${LABVAULT_HEARTBEAT_INTERVAL_SECONDS:-120}
+      LABVAULT_DISABLE_INPROCESS_REFRESH: "1"
+    volumes:
+      - media:/var/lib/labvault/media
+      - djangocache:/app/var/django_cache
+      # Optional host opsd socket (create with oneshot-systemd or leave absent).
+      # Do NOT mount /var/run/docker.sock in the customer SKU.
+      - ${LABVAULT_OPS_SOCK_HOST:-/run/labvault}:/run/labvault:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    ports:
+      - "${LABVAULT_HTTP_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  heartbeat:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgres://labvault:labvault@db:5432/labvault
+      NP_TIMESERIES_DATABASE_URL: postgres://labvault:labvault@metrics-db:5432/labvault_metrics
+      LABVAULT_CACHE_DIR: /app/var/django_cache
+      LABVAULT_HEARTBEAT_LOCK: /app/var/django_cache/fleet_heartbeat.lock
+      LABVAULT_HEARTBEAT_INTERVAL_SECONDS: ${LABVAULT_HEARTBEAT_INTERVAL_SECONDS:-120}
+    volumes:
+      - djangocache:/app/var/django_cache
+    command: ["python", "manage.py", "run_fleet_heartbeat"]
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  refresh:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgres://labvault:labvault@db:5432/labvault
+      NP_TIMESERIES_DATABASE_URL: postgres://labvault:labvault@metrics-db:5432/labvault_metrics
+      LABVAULT_CACHE_DIR: /app/var/django_cache
+    volumes:
+      - djangocache:/app/var/django_cache
+    command: ["python", "manage.py", "run_labvault_refresh"]
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  jobs:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgres://labvault:labvault@db:5432/labvault
+      NP_TIMESERIES_DATABASE_URL: postgres://labvault:labvault@metrics-db:5432/labvault_metrics
+      LABVAULT_CACHE_DIR: /app/var/django_cache
+    volumes:
+      - djangocache:/app/var/django_cache
+      - ${LABVAULT_OPS_SOCK_HOST:-/run/labvault}:/run/labvault:ro
+    command: ["python", "manage.py", "run_cli_worker"]
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  collector:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgres://labvault:labvault@db:5432/labvault
+      NP_TIMESERIES_DATABASE_URL: postgres://labvault:labvault@metrics-db:5432/labvault_metrics
+      LABVAULT_CACHE_DIR: /app/var/django_cache
+      LABVAULT_HEARTBEAT_LOCK: /app/var/django_cache/fleet_heartbeat.lock
+      LABVAULT_HEARTBEAT_INTERVAL_SECONDS: ${LABVAULT_HEARTBEAT_INTERVAL_SECONDS:-120}
+    volumes:
+      - djangocache:/app/var/django_cache
+    command: ["python", "manage.py", "run_metric_collector"]
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+  cli-ssh:
+    build:
+      context: ../..
+      dockerfile: deploy/compose/Dockerfile
+    env_file: ../../.env
+    environment:
+      DATABASE_URL: postgres://labvault:labvault@db:5432/labvault
+      NP_TIMESERIES_DATABASE_URL: postgres://labvault:labvault@metrics-db:5432/labvault_metrics
+      LABVAULT_CACHE_DIR: /app/var/django_cache
+      LABVAULT_OPS_SOCK: /run/labvault/ops.sock
+      LABVAULT_CLI_SSH_PORT: "2222"
+      LABVAULT_CLI_SSH_HOST_KEY: /var/lib/labvault/cli-ssh/ssh_host_ed25519_key
+      LABVAULT_CLI_SSH_ALLOW_CIDRS: ${LABVAULT_CLI_SSH_ALLOW_CIDRS:-127.0.0.0/8,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,::1/128,fc00::/7}
+    volumes:
+      - djangocache:/app/var/django_cache
+      - cli_ssh_hostkeys:/var/lib/labvault/cli-ssh
+      - ${LABVAULT_OPS_SOCK_HOST:-/run/labvault}:/run/labvault:ro
+    # Join host ops group so the ops socket (root:labvault-ops 0660) is usable.
+    group_add:
+      - ${LABVAULT_OPS_GID:-0}
+    command: ["python", "manage.py", "run_cli_ssh", "--host", "0.0.0.0", "--port", "2222"]
+    depends_on:
+      web:
+        condition: service_healthy
+    ports:
+      - "${LABVAULT_CLI_SSH_PORT:-2222}:2222"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket;s=socket.create_connection(('127.0.0.1',2222),2);s.close()\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx-http.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "${LABVAULT_NGINX_PORT:-8080}:80"
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  metricsdata:
+  media:
+  djangocache:
+  cli_ssh_hostkeys:

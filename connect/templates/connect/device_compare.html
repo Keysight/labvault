@@ -1,0 +1,63 @@
+{% extends 'connect/base.html' %}
+{% block title %}Compare Devices - LabVault{% endblock %}
+{% block page_title %}Compare Devices{% endblock %}
+
+{% block content %}
+<div class="card-custom mb-4">
+    <div class="card-body">
+        <form method="get" class="d-flex gap-3 align-items-end">
+            <div>
+                <label class="form-label fw-bold">Device 1</label>
+                <select name="device1" class="form-select" required>
+                    <option value="">Select...</option>
+                    {% for d in devices %}
+                    <option value="{{ d.id }}" {% if device1_id == d.id|stringformat:'d' %}selected{% endif %}>{{ d.hostname|default:d.ip_address }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="text-center"><i class="fas fa-exchange-alt" style="font-size:1.5rem;color:#888;"></i></div>
+            <div>
+                <label class="form-label fw-bold">Device 2</label>
+                <select name="device2" class="form-select" required>
+                    <option value="">Select...</option>
+                    {% for d in devices %}
+                    <option value="{{ d.id }}" {% if device2_id == d.id|stringformat:'d' %}selected{% endif %}>{{ d.hostname|default:d.ip_address }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit" class="btn btn-nc"><i class="fas fa-columns me-1"></i> Compare</button>
+        </form>
+    </div>
+</div>
+
+{% if comparison %}
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-columns me-2"></i> Side-by-Side Comparison</div>
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead>
+                <tr>
+                    <th>Property</th>
+                    <th>{{ comparison.device1.hostname|default:comparison.device1.ip_address }}</th>
+                    <th>{{ comparison.device2.hostname|default:comparison.device2.ip_address }}</th>
+                    <th>Match?</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for label, val1, val2 in comparison.fields %}
+                <tr class="{% if val1 != val2 %}table-warning{% endif %}">
+                    <td class="fw-bold">{{ label }}</td>
+                    <td>{{ val1|default:"-" }}</td>
+                    <td>{{ val2|default:"-" }}</td>
+                    <td>
+                        {% if val1 == val2 %}<span class="text-success"><i class="fas fa-check"></i></span>
+                        {% else %}<span class="text-warning"><i class="fas fa-not-equal"></i></span>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

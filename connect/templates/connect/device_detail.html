@@ -1,0 +1,1297 @@
+{% extends 'connect/base.html' %}
+{% load ip_display %}
+{% block title %}{{ device|mgmt_label }} - LabVault{% endblock %}
+{% block page_title %}{{ device|mgmt_label }}{% endblock %}
+
+{% block topbar_actions %}
+<span class="badge badge-{{ device.vendor_type }} me-2">{{ device.vendor_display }}</span>
+{% if device.dual_os_mode %}
+  {% with device.api_key as ak %}
+    {% if 'sonic' in ak %}
+      <span class="badge me-1" style="background:#0d2010;border:1px solid #22c55e;color:#22c55e;" title="Currently running SONiC">
+        <i class="fas fa-exchange-alt me-1"></i>SONiC active
+      </span>
+    {% elif 'eos' in ak %}
+      <span class="badge me-1" style="background:#0d1a30;border:1px solid #60a5fa;color:#60a5fa;" title="Currently running EOS">
+        <i class="fas fa-exchange-alt me-1"></i>EOS active
+      </span>
+    {% else %}
+      <span class="badge me-1" style="background:#1a1200;border:1px solid #f59e0b;color:#f59e0b;" title="Dual-OS mode enabled — detecting OS">
+        <i class="fas fa-exchange-alt me-1"></i>EOS↔SONiC
+      </span>
+    {% endif %}
+  {% endwith %}
+{% endif %}
+<span class="badge badge-{{ device.status }}">{{ device.get_status_display }}</span>
+{% with hw_addr=device|mgmt_display %}
+{% if hw_addr %}
+<a href="{{ device|hardware_login_for }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary ms-2" title="Open hardware web UI (HTTPS)">
+  <i class="fas fa-external-link-alt me-1"></i>Hardware login
+</a>
+{% endif %}
+{% endwith %}
+<a href="{% url 'edit_device' device.id %}" class="btn btn-sm btn-outline-secondary ms-2">
+  <i class="fas fa-cog me-1"></i>Settings
+</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ---- Chassis Panel ---- */
+.chassis-panel {
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a3e 100%);
+    color: #fff; border-radius: 12px; padding: 22px 24px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.4); position: relative;
+    border: 1px solid #2a2a5a;
+}
+.chassis-label {
+    font-size: 0.65rem; color: #667; text-transform: uppercase;
+    letter-spacing: 1.5px; margin-bottom: 6px; margin-top: 12px;
+}
+.port-grid { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start; }
+
+/* Individual port slot */
+.port-slot {
+    min-width: 36px; height: 26px; padding: 0 4px;
+    background: #1e1e42; border-radius: 3px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.55rem; cursor: pointer; position: relative; transition: all 0.15s;
+    border: 1px solid #333;
+}
+.port-slot:hover { transform: scale(1.15); z-index: 10; border-color: #5588ff; }
+.port-slot .port-led {
+    width: 7px; height: 7px; border-radius: 50%;
+    position: absolute; top: 2px; right: 2px;
+}
+
+/* Breakout port group (e.g., 4x25G from one QSFP port) */
+.port-group {
+    display: inline-flex; flex-direction: column; align-items: center;
+    background: #15153a; border: 1px solid #2a2a5a; border-radius: 5px;
+    padding: 2px 3px 4px 3px; margin: 1px; position: relative;
+    cursor: pointer; transition: all 0.15s;
+}
+.port-group:hover { border-color: #5588ff; transform: scale(1.08); z-index: 10; }
+.port-group-label {
+    font-size: 0.5rem; color: #889; text-align: center;
+    margin-bottom: 2px; white-space: nowrap;
+}
+.port-group-children {
+    display: flex; gap: 1px;
+}
+.port-group-children .port-mini {
+    width: 10px; height: 10px; border-radius: 2px;
+    display: inline-block; border: 1px solid #333;
+}
+.port-mini.green { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+.port-mini.red { background: #ef4444; box-shadow: 0 0 4px #ef4444; }
+.port-mini.yellow { background: #eab308; }
+.port-mini.amber { background: #f59e0b; }
+.port-mini.off { background: #333; }
+.port-group .port-tooltip {
+    display: none; position: absolute; bottom: 110%; left: 50%;
+    transform: translateX(-50%); background: #222; color: #fff;
+    padding: 8px 12px; border-radius: 6px; font-size: 0.7rem;
+    white-space: nowrap; z-index: 100; pointer-events: none;
+    border: 1px solid #444;
+}
+.port-group:hover .port-tooltip { display: block; }
+
+/* LED colors */
+.port-led.green { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
+.port-led.red { background: #ef4444; box-shadow: 0 0 6px #ef4444; }
+.port-led.yellow { background: #eab308; box-shadow: 0 0 4px #eab308; }
+.port-led.amber { background: #f59e0b; box-shadow: 0 0 4px #f59e0b; }
+.port-led.off { background: #444; }
+
+/* System LEDs */
+.sys-led { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 3px; }
+.sys-led.on { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+
+/* Tooltip for single port */
+.port-tooltip {
+    display: none; position: absolute; bottom: 110%; left: 50%;
+    transform: translateX(-50%); background: #222; color: #fff;
+    padding: 6px 10px; border-radius: 6px; font-size: 0.7rem;
+    white-space: nowrap; z-index: 100; pointer-events: none;
+    border: 1px solid #444;
+}
+.port-slot:hover .port-tooltip { display: block; }
+
+/* VLAN chips */
+.vlan-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 8px; border-radius: 12px; font-size: 0.7rem;
+    background: #f1f5f9; border: 1px solid #e2e8f0; margin: 2px;
+}
+
+/* Health bar */
+.health-bar-wrap { position: relative; height: 8px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+.health-bar-fill { height: 100%; border-radius: 4px; transition: width 0.5s; }
+.health-bar-fill.low { background: #22c55e; }
+.health-bar-fill.med { background: #eab308; }
+.health-bar-fill.high { background: #ef4444; }
+
+/* Port-channel member LEDs */
+.pc-mem-led.green { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+.pc-mem-led.red { background: #ef4444; box-shadow: 0 0 4px #ef4444; }
+.pc-mem-led.yellow { background: #eab308; }
+.pc-mem-led.amber { background: #f59e0b; }
+.pc-mem-led.off { background: #ccc; }
+
+/* Slot row for chassis-based devices (PA-7000, etc.) */
+.slot-row {
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-start;
+    margin-bottom: 2px; padding: 4px 6px; border-radius: 4px;
+    background: rgba(255,255,255,0.04);
+}
+.slot-label {
+    font-size: 0.55rem; color: #889; text-transform: uppercase;
+    writing-mode: vertical-lr; text-orientation: mixed;
+    padding: 2px; margin-right: 3px; border-right: 1px solid #333;
+    min-height: 30px; display: flex; align-items: center;
+}
+
+/* FortiGate VDOM badge */
+.vdom-badge {
+    display: inline-block; font-size: 0.55rem; padding: 1px 5px;
+    border-radius: 8px; background: #2a2a5a; color: #aad;
+    margin-left: 3px; white-space: nowrap;
+}
+
+/* Firewall chassis panel tweaks */
+.chassis-panel .intf-info-line {
+    font-size: 0.6rem; color: #99a; line-height: 1.1;
+}
+/* OCS photonic port plane (reference: horizontal bank scroll + SVG patch) */
+#chassisPanelOcs { overflow: visible; }
+.ocs-shelf {
+    position: relative;
+    z-index: 1;
+    margin-bottom: 10px; padding: 6px 8px 8px; border-radius: 8px;
+    background: rgba(0,0,0,0.25); border: 1px solid #2a2a4a;
+}
+.ocs-shelf:hover { z-index: 2; }
+.ocs-shelf-header {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    margin-bottom: 4px; padding-bottom: 4px; border-bottom: 1px solid #2a2a3a;
+}
+.ocs-shelf-title {
+    font-size: 0.65rem; color: #8ab4ff; text-transform: uppercase;
+    letter-spacing: 0.08em; font-weight: 600; margin: 0;
+}
+.ocs-shelf-hint {
+    font-size: 0.6rem; color: #6b7a8f; margin: 0;
+}
+.ocs-shelf-banks {
+    display: flex; flex-direction: row; flex-wrap: nowrap; align-items: flex-start; gap: 5px;
+    overflow-x: auto;
+    overflow-y: visible;
+    padding: 2px 2px 6px; margin: 0 -2px;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    scrollbar-color: #3d3d5c #1a1a2a;
+    scrollbar-width: thin;
+}
+.ocs-bank {
+    position: relative;
+    z-index: 0;
+    flex: 0 0 auto; scroll-snap-align: start;
+    display: flex; flex-direction: column; align-items: stretch;
+    min-width: 0; max-width: 280px;
+    background: rgba(15, 15, 30, 0.55); border: 1px solid #32324d;
+    border-radius: 6px; padding: 3px 4px 4px;
+}
+.ocs-bank:hover { z-index: 3; }
+.ocs-bank-title {
+    font-size: 0.52rem; text-align: center; color: #9ca8c9; font-weight: 700;
+    padding: 2px 2px 4px; line-height: 1.1; border-bottom: 1px solid #2a2a3a;
+    letter-spacing: 0.04em; white-space: nowrap;
+}
+.ocs-bank-ports {
+    display: flex; flex-wrap: wrap; gap: 2px; justify-content: center; align-content: flex-start;
+    padding-top: 3px; min-width: 120px;
+}
+.ocs-port-cell {
+    min-width: 28px; height: 25px; position: relative;
+    border-radius: 4px; display: flex; align-items: center; justify-content: center;
+    font-size: 0.6rem; font-weight: 600; cursor: default;
+    border: 1px solid #333; transition: transform 0.1s, border-color 0.1s;
+}
+.ocs-port-cell:hover { transform: scale(1.1); z-index: 4; border-color: #58f; }
+.ocs-port-cell .ocs-led {
+    position: absolute; top: 2px; right: 2px; width: 6px; height: 6px; border-radius: 50%;
+}
+.ocs-port-cell.green { background: rgba(34, 197, 94, 0.15); border-color: #166534; color: #bbf7d0; }
+.ocs-port-cell.green .ocs-led { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+/* amber/yellow OCS classes removed — unpatched ports use .off (dark) */
+.ocs-port-cell.red { background: rgba(239, 68, 68, 0.12); border-color: #7f1d1d; color: #fecaca; }
+.ocs-port-cell.red .ocs-led { background: #ef4444; }
+.ocs-port-cell.off { background: #060608; border-color: #111; color: #2a2a3a; }
+.ocs-port-cell.off .ocs-led { background: #111; }
+.ocs-port-cell .port-tooltip-ocs {
+    position: absolute; left: -9999px; top: 0; width: 1px; height: 1px; overflow: hidden;
+    display: block; margin: 0; padding: 0; border: 0; clip: rect(0, 0, 0, 0);
+    white-space: normal; text-align: left; line-height: 1.35; pointer-events: none;
+}
+#ocsPortTipFloat {
+    display: none; position: fixed; z-index: 10050;
+    min-width: 240px; max-width: min(92vw, 380px);
+    background: #0f172a; color: #e2e8f0; font-size: 0.7rem; padding: 10px 12px;
+    border-radius: 8px; border: 1px solid #1e3a5f; pointer-events: none;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.65), 0 0 0 1px rgba(56,189,248,0.08);
+    white-space: normal; text-align: left; line-height: 1.4;
+}
+.ocs-patch-mount { position: relative; width: 100%; overflow: hidden; }
+.ocs-patch-svg {
+    position: absolute; left: 0; top: 0; z-index: 6; pointer-events: none; overflow: hidden;
+}
+.ocs-patch-legend { max-width: 58rem; }
+#ocsXconnTable a { text-decoration: none; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% if device.status == 'auth_failed' %}
+<div class="alert alert-danger">
+    <i class="fas fa-exclamation-triangle me-2"></i>
+    <strong>Authentication Failed!</strong> Wrong credentials for this device.
+    <a href="{% url 'edit_device' device.id %}" class="btn btn-sm btn-danger ms-2">Fix Credentials</a>
+</div>
+{% endif %}
+
+<!-- Device Health Bar (inline) — OCS: six photonic / path / LLDP summary cards -->
+<div class="row g-2 g-md-3 mb-3">
+    {% if is_ocs %}
+    <div class="col-6 col-sm-4 col-lg-2">
+        <div class="stat-card text-center py-2">
+            <small class="text-muted d-block" style="font-size:0.7rem;">Active cross-connects</small>
+            <div class="fw-bold" style="font-size:0.95rem;">{{ ocs_summary.active_xconns|default:0 }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-4 col-lg-2">
+        <div class="stat-card text-center py-2">
+            <small class="text-muted d-block" style="font-size:0.7rem;">OCS ports</small>
+            <div class="fw-bold" style="font-size:0.95rem;">{{ ocs_summary.ocs_ports|default:0 }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-4 col-lg-2">
+        <div class="stat-card text-center py-2">
+            <small class="text-muted d-block" style="font-size:0.7rem;">Paths up</small>
+            <div class="fw-bold" style="font-size:0.95rem;">{{ ocs_summary.paths_up|default:0 }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-4 col-lg-2">
+        <div class="stat-card text-center py-2">
+            <small class="text-muted d-block" style="font-size:0.7rem;">LLDP path OK</small>
+            <div class="fw-bold" style="font-size:0.95rem;">{{ ocs_summary.lldp_path_ok|default:0 }}/{{ ocs_summary.lldp_path_total|default:0 }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-4 col-lg-2">
+        <div class="stat-card text-center py-2">
+            <small class="text-muted d-block" style="font-size:0.7rem;">Chassis in LLDP</small>
+            <div class="fw-bold" style="font-size:0.95rem;">{{ ocs_summary.chassis_in_lldp|default:0 }}</div>
+        </div>
+    </div>
+    <div class="col-6 col-sm-4 col-lg-2">
+        <div class="stat-card text-center py-2">
+            <small class="text-muted d-block" style="font-size:0.7rem;">Software</small>
+            <div class="fw-semibold" style="font-size:0.8rem;" title="{{ device.version }}">{{ device.version|default:"—"|truncatechars:18 }}</div>
+        </div>
+    </div>
+    {% else %}
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex justify-content-between"><small class="text-muted">CPU Usage</small><span id="cpu-val" class="fw-bold" style="font-size:0.85rem;">--</span></div>
+            <div class="health-bar-wrap mt-1"><div id="cpu-bar" class="health-bar-fill low" style="width:0%"></div></div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="stat-card">
+            <div class="d-flex justify-content-between"><small class="text-muted">Memory Usage</small><span id="mem-val" class="fw-bold" style="font-size:0.85rem;">--</span></div>
+            <div class="health-bar-wrap mt-1"><div id="mem-bar" class="health-bar-fill low" style="width:0%"></div></div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="stat-card text-center">
+            <small class="text-muted">Memory</small>
+            <div id="mem-abs" class="fw-bold" style="font-size:0.85rem;">--</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="stat-card text-center">
+            <small class="text-muted">Uptime</small>
+            <div class="fw-bold" style="font-size:0.85rem;">{{ device.uptime_display|default:"--" }}</div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="stat-card text-center">
+            <small class="text-muted">Model</small>
+            <div style="font-size:0.8rem;" title="{{ device.model_name }}">{{ device.model_name|default:"N/A"|truncatechars:18 }}</div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Navigation Tabs -->
+<div class="mb-3">
+    <div class="d-flex flex-wrap gap-2">
+        <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-nc"><i class="fas fa-info-circle me-1"></i> Overview</a>
+        {% if is_ocs %}
+        <a href="#ocs-port-plane" class="btn btn-sm btn-outline-secondary"><i class="fas fa-th me-1"></i> Port plane</a>
+        <a href="#ocsXconns" class="btn btn-sm btn-outline-secondary"><i class="fas fa-exchange-alt me-1"></i> Xconns</a>
+        <a href="#ocs-path-verify" class="btn btn-sm btn-outline-secondary"><i class="fas fa-check-double me-1"></i> Path verify</a>
+        <a href="{% url 'device_config' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-file-code me-1"></i> Config</a>
+        <a href="{% url 'device_lldp' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-link me-1"></i> LLDP</a>
+        <a href="{% url 'device_environment' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-thermometer-half me-1"></i> Environment</a>
+        <a href="{% url 'device_dom' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-microchip me-1"></i> DOM</a>
+        {% else %}
+        <a href="{% url 'device_routing' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-route me-1"></i> Routes</a>
+        <a href="{% url 'device_vlans' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-layer-group me-1"></i> VLANs</a>
+        <a href="{% url 'device_config' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-file-code me-1"></i> Config</a>
+        <a href="{% url 'device_arp' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-table me-1"></i> ARP</a>
+        <a href="{% url 'device_mac' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-ethernet me-1"></i> MAC</a>
+        <a href="{% url 'device_lldp' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-link me-1"></i> LLDP</a>
+        <a href="{% url 'device_bgp' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-network-wired me-1"></i> BGP</a>
+        <a href="{% url 'device_ospf' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-sitemap me-1"></i> OSPF</a>
+        <a href="{% url 'device_environment' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-thermometer-half me-1"></i> Environment</a>
+        <a href="{% url 'device_dom' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-microchip me-1"></i> DOM</a>
+        {% if device.is_firewall %}
+        <a href="{% url 'device_policies' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-shield-alt me-1"></i> Policies</a>
+        <a href="{% url 'device_vpn' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-lock me-1"></i> VPN</a>
+        {% endif %}
+        <a href="{% url 'device_enable_lldp' device.id %}" class="btn btn-sm btn-outline-info ms-2" onclick="return confirm('Enable LLDP on all physical interfaces?')"><i class="fas fa-broadcast-tower me-1"></i> Enable LLDP</a>
+        {% endif %}
+        <a href="{% url 'config_timeline' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-history me-1"></i> Timeline</a>
+        <a href="{% url 'edit_device' device.id %}" class="btn btn-sm btn-outline-warning ms-auto"><i class="fas fa-edit me-1"></i> Edit</a>
+    </div>
+</div>
+
+{% if error %}
+<div class="alert alert-warning"><i class="fas fa-exclamation-circle me-2"></i> {{ error }}</div>
+{% endif %}
+{% if stale_data_warning %}
+<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i> Live refresh failed. Showing cached data from last successful fetch. Try refreshing again.</div>
+{% endif %}
+
+{% if is_ocs %}
+<!-- ====== OCS PHOTONIC PORT PLANE (reference layout: shelf → scroll row of banks → 8 ports) ====== -->
+<div class="card-custom mb-3" id="ocs-port-plane">
+    <div class="card-header py-2"><i class="fas fa-th me-2 text-info"></i> OCS port plane — banks + modules, ports inside each</div>
+    <div class="card-body p-0" style="overflow: visible;">
+        <div class="chassis-panel" id="chassisPanelOcs" style="overflow: visible;">
+            <div class="d-flex justify-content-between align-items-start mb-1 flex-wrap gap-2">
+                <div>
+                    <span class="badge badge-{{ device.vendor_type }} me-1" style="font-size:0.6rem;">{{ device.vendor_display }}</span>
+                    <strong>{{ device.model_name|default:"OCS" }}</strong>
+                    <span class="ms-2" style="color:#778;">{{ device.hostname|default:device.ip_address }}</span>
+                </div>
+                <div class="d-flex gap-3">
+                    <span><span class="sys-led on"></span><small style="color:#aaa;">SYS</small></span>
+                    <span><span class="sys-led on"></span><small style="color:#aaa;">PWR</small></span>
+                    <span><span class="sys-led {% if device.status == 'online' %}on{% endif %}"></span><small style="color:#aaa;">LINK</small></span>
+                </div>
+            </div>
+            <p class="mb-1" style="font-size:0.7rem; color:#889;">Triplet <code style="color:#a5b4fc;">s.m.p</code> (shelf, bank/module, port). <strong>Each column</strong> is one bank. Scroll right if many. Colors: <span style="color:#22c55e;">&#9679;</span> green = <strong>live</strong> OCS patch (in service) &nbsp; <span style="color:#ef4444;">&#9679;</span> red = patched but OOS &nbsp; dark = <strong>no</strong> live patch on the controller.</p>
+            <p class="mb-2 ocs-patch-legend" style="font-size:0.62rem; color:#94a3b8;"><span style="color:#fb923c;">Orange lines</span> = the same live patches as the green dots (from <code>/rest/crossconnects</code> only — not site map or switch LLDP). A switch port can be <em>link up</em> on Arista/Ares without an OCS patch; tooltips show site map / LLDP separately. Refreshes with the device poller.</p>
+            <div class="form-check mb-2" style="font-size:0.7rem;">
+                <input class="form-check-input" type="checkbox" id="ocsShowPatchLines" checked>
+                <label class="form-check-label" for="ocsShowPatchLines" style="color:#9ca3af;">Show cross-connect lines on port grid</label>
+            </div>
+            {{ ocs_patch_pairs|json_script:"ocs-patch-pairs-initial" }}
+            <div class="ocs-patch-mount" id="ocsPatchMount">
+            {% for shelf in ocs_shelves %}
+            <div class="ocs-shelf" data-ocs-shelf="{{ shelf.shelf_id }}">
+                <div class="ocs-shelf-header">
+                    <h6 class="ocs-shelf-title mb-0">{{ shelf.label }}</h6>
+                    <span class="ocs-shelf-hint">{{ shelf.bank_count }} banks (modules) · <i class="fas fa-arrows-alt-h" style="opacity:0.6;"></i> scroll</span>
+                </div>
+                <div class="ocs-shelf-banks" role="list" aria-label="OCS module banks for shelf {{ shelf.shelf_id }}">
+                {% for mod in shelf.modules %}
+                    <div class="ocs-bank" role="listitem" title="Module {{ mod.label }} (bank) — 8 ports">
+                        <div class="ocs-bank-title">{{ mod.label }}</div>
+                        <div class="ocs-bank-ports">
+                        {% for p in mod.ports %}
+                        <div class="ocs-port-cell {{ p.status_color|default:'off' }}" data-ocs-triplet="{{ p.ocs_triplet_key }}" title="{{ p.ocs_triplet_key }}">
+                            <span class="ocs-led"></span>
+                            <span>{{ p.port_digit|default:'' }}</span>
+                            <div class="port-tooltip-ocs">{% if p.ocs_tooltip_html %}{{ p.ocs_tooltip_html|safe }}{% endif %}</div>
+                        </div>
+                        {% endfor %}
+                        </div>
+                    </div>
+                {% endfor %}
+                </div>
+            </div>
+            {% empty %}
+            <p class="text-muted small p-3 mb-0">No port summary from controller yet.</p>
+            {% endfor %}
+            <svg class="ocs-patch-svg" id="ocsPatchSvg" xmlns="http://www.w3.org/2000/svg" version="1.1" aria-hidden="true" focusable="false"></svg>
+            </div>
+        </div>
+    </div>
+</div>
+<div id="ocsPortTipFloat" aria-hidden="true"></div>
+<div class="card-custom mb-3" id="ocs-path-verify">
+    <div class="card-header d-flex align-items-center justify-content-between">
+        <span><i class="fas fa-check-double me-2"></i> LLDP + chassis path verification</span>
+        <small class="text-muted" style="font-size:0.7rem;">For each port_to_ocs_triplets entry we load the peer switch&rsquo;s cached LLDP. <span style="color:#22c55e;">●</span> OCS in LLDP = neighbor matches this controller; <span style="color:#38bdf8;">●</span> Chassis in LLDP = Ethernet sees a Keysight first (typical for optical to OCS); <span style="color:#fbbf24;">●</span> Mismatch = something else. Refresh peer switches to refresh this view.</small>
+    </div>
+    <div class="card-body py-2 px-3">
+        <div class="row g-2 small mb-2">
+            <div class="col"><span class="text-muted">Endpoints mapped:</span> <strong>{{ path_verify_rows|length }}</strong></div>
+            <div class="col"><span class="text-muted">LLDP verified:</span> <strong>{{ ocs_summary.lldp_path_ok|default:0 }}/{{ ocs_summary.lldp_path_total|default:0 }}</strong></div>
+            <div class="col"><span class="text-muted">Chassis in LLDP:</span> <strong>{{ ocs_summary.chassis_in_lldp|default:0 }}</strong></div>
+        </div>
+        {% if path_verify_rows %}
+        <div style="max-height:320px; overflow-y:auto;">
+        <table class="table table-sm mb-0" style="font-size:0.72rem;">
+            <thead class="table-dark sticky-top">
+                <tr>
+                    <th style="width:6.5rem;">OCS triplet</th>
+                    <th>Expected switch / port (site import)</th>
+                    <th style="width:9rem;">State</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+            {% for r in path_verify_rows %}
+            <tr>
+                <td class="font-monospace fw-semibold">{{ r.triplet }}</td>
+                <td>
+                    {% if r.sw_device_id %}<a href="{% url 'device_detail' r.sw_device_id %}">{{ r.sw_hostname }}</a>{% else %}{{ r.sw_hostname }}{% endif %}
+                    {% if r.sw_port %}<span class="text-muted"> : {{ r.sw_port }}</span>{% endif %}
+                </td>
+                <td><span class="badge {{ r.badge_class }}" style="font-size:0.6rem;">{{ r.badge_text }}</span></td>
+                <td class="text-muted small">{{ r.detail }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+        {% else %}
+        <div class="text-muted small">No triplet mapping found. Import the site JSON or add <code>[ocs_site_mapping]</code> to connected device notes.</div>
+        {% endif %}
+    </div>
+</div>
+<div class="card-custom mb-4" id="ocsXconns">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <span><i class="fas fa-exchange-alt me-2"></i> Cross-Connects ({{ ocs_xconns|length }})</span>
+        <small class="text-muted" style="font-size:0.7rem;">Peers from site JSON · <strong>Path A/B</strong> = site map vs peer switch's cached LLDP</small>
+    </div>
+    <div class="table-responsive p-0">
+        <table class="table table-sm table-hover mb-0" id="ocsXconnTable" style="font-size:0.75rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Name</th>
+                    <th>Port A</th>
+                    <th>Path A</th>
+                    <th>Peer A</th>
+                    <th>Port B</th>
+                    <th>Path B</th>
+                    <th>Peer B</th>
+                    <th>Dir</th>
+                    <th>Band</th>
+                    <th>Pwr A→B / B→A</th>
+                    <th>Loss A / B</th>
+                    <th>Alarm A</th>
+                    <th>St</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for x in ocs_xconns %}
+                <tr class="{{ x.row_class }}" style="--bs-table-bg: transparent;">
+                    <td class="fw-semibold text-nowrap">{{ x.n|default:"—" }}</td>
+                    <td class="text-nowrap font-monospace">{{ x.port_a|default:"" }}</td>
+                    <td class="text-nowrap small">
+                        {% if x.path_a %}<span class="badge {{ x.path_a.badge_class }}" style="font-size:0.6rem;" title="{{ x.path_a.badge_title }}">{{ x.path_a.badge_text }}</span>{% endif %}
+                    </td>
+                    <td class="text-nowrap">
+                        {% if x.peer_a_device_id %}<a href="{% url 'device_detail' x.peer_a_device_id %}">{{ x.peer_a_hostname }}</a>{% else %}{{ x.peer_a_hostname|default:"—" }}{% endif %}
+                        {% if x.peer_a_sw_port %}<small class="text-muted"> ({{ x.peer_a_sw_port }})</small>{% endif %}
+                    </td>
+                    <td class="text-nowrap font-monospace">{{ x.port_b|default:"" }}</td>
+                    <td class="text-nowrap small">
+                        {% if x.path_b %}<span class="badge {{ x.path_b.badge_class }}" style="font-size:0.6rem;" title="{{ x.path_b.badge_title }}">{{ x.path_b.badge_text }}</span>{% endif %}
+                    </td>
+                    <td class="text-nowrap">
+                        {% if x.peer_b_device_id %}<a href="{% url 'device_detail' x.peer_b_device_id %}">{{ x.peer_b_hostname }}</a>{% else %}{{ x.peer_b_hostname|default:"—" }}{% endif %}
+                        {% if x.peer_b_sw_port %}<small class="text-muted"> ({{ x.peer_b_sw_port }})</small>{% endif %}
+                    </td>
+                    <td>{{ x.dir|default:"" }}</td>
+                    <td>{{ x.band|default:"" }}</td>
+                    <td class="text-nowrap small">{{ x.pwr_combined|default:"—" }}</td>
+                    <td class="text-nowrap small">{{ x.loss_a|default:"—" }} / {{ x.loss_b|default:"—" }}</td>
+                    <td>{{ x.alarm_a|default:"—" }}</td>
+                    <td><span class="badge {{ x.state_css }}" style="font-size:0.65rem;">{{ x.state_text|default:"—" }}</span></td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="13" class="text-muted p-3">No cross-connect rows from controller yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% elif physical_data %}
+<!-- ====== CHASSIS FRONT PANEL ====== -->
+<div class="card-custom mb-4">
+    <div class="card-header"><i class="fas fa-server me-2"></i> Front Panel View</div>
+    <div class="card-body p-0">
+        <div class="chassis-panel" id="chassisPanel">
+            <div class="d-flex justify-content-between align-items-start mb-1">
+                <div>
+                    <span class="badge badge-{{ device.vendor_type }} me-1" style="font-size:0.6rem;">{{ device.vendor_display }}</span>
+                    <strong>{{ device.model_name|default:"Switch" }}</strong>
+                    <span class="ms-2" style="color:#778;">{{ device.hostname|default:device.ip_address }}</span>
+                </div>
+                <div class="d-flex gap-3">
+                    <span><span class="sys-led on"></span><small style="color:#aaa;">SYS</small></span>
+                    <span><span class="sys-led on"></span><small style="color:#aaa;">PWR</small></span>
+                    <span><span class="sys-led {% if device.status == 'online' %}on{% endif %}"></span><small style="color:#aaa;">LINK</small></span>
+                </div>
+            </div>
+            <div class="chassis-label">Physical Ports ({{ physical_data|length }})</div>
+            <div id="portContainer">
+            {% for intf in physical_data %}
+                {% if intf.is_group and intf.children|length > 1 %}
+                <!-- Multi-lane breakout port group (e.g. QSFP 4x25G) -->
+                <div class="port-group" data-slot="{{ intf.slot|default:'' }}" title="{{ intf.name }}">
+                    <div class="port-group-label">{{ intf.short_name }}</div>
+                    <div class="port-group-children">
+                        {% for child in intf.children %}
+                        <div class="port-mini {{ child.status_color }}" title="{{ child.name }}: {{ child.status }}"></div>
+                        {% endfor %}
+                    </div>
+                    <div class="port-tooltip">
+                        <strong>{{ intf.name }}</strong> ({{ intf.children|length }}x breakout)<br>
+                        {% for child in intf.children %}
+                        {{ child.short_name }}: {{ child.status }} {{ child.speed_label|default:"" }}<br>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% elif intf.is_group and intf.children|length == 1 %}
+                <div class="port-slot" data-slot="{{ intf.slot|default:'' }}" title="{{ intf.children.0.name }}">
+                    <span class="port-led {{ intf.children.0.status_color }}"></span>
+                    <span style="color:#aaa;">{{ intf.short_name }}</span>
+                    <div class="port-tooltip">
+                        <strong>{{ intf.children.0.name }}</strong><br>
+                        Status: {{ intf.children.0.status }}<br>
+                        Speed: {{ intf.children.0.speed_label|default:"N/A" }}<br>
+                        {% if intf.children.0.description %}Desc: {{ intf.children.0.description }}{% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <!-- Single port -->
+                <div class="port-slot" data-slot="{{ intf.slot|default:'' }}" data-vdom="{{ intf.vdom|default:'' }}" title="{{ intf.name }}{% if intf.ip %} | {{ intf.ip }}{% endif %}{% if intf.vdom %} | vdom:{{ intf.vdom }}{% endif %}{% if intf.media %} | {{ intf.media }}{% endif %}">
+                    <span class="port-led {{ intf.status_color }}"></span>
+                    <span style="color:#aaa;">{{ intf.short_name }}</span>
+                    {% if intf.vdom %}<span class="vdom-badge">{{ intf.vdom }}</span>{% endif %}
+                    <div class="port-tooltip">
+                        <strong>{{ intf.name }}</strong><br>
+                        Status: {{ intf.status }} / Admin: {{ intf.admin_status }}<br>
+                        Speed: {{ intf.speed_label|default:"N/A" }}<br>
+                        {% if intf.ip %}IP: {{ intf.ip }}<br>{% endif %}
+                        {% if intf.vdom %}VDOM: {{ intf.vdom }}<br>{% endif %}
+                        {% if intf.zone %}Zone: {{ intf.zone }}<br>{% endif %}
+                        {% if intf.media %}Media: {{ intf.media }}<br>{% endif %}
+                        {% if intf.description %}{{ intf.description }}{% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            {% endfor %}
+            </div>
+            {% if management_data %}
+            <div class="chassis-label">Management</div>
+            <div class="port-grid">
+                {% for intf in management_data %}
+                <div class="port-slot" style="min-width:52px;" title="{{ intf.name }}{% if intf.ip %} | {{ intf.ip }}{% endif %}">
+                    <span class="port-led {{ intf.status_color }}"></span>
+                    <span style="color:#aaa;">{{ intf.short_name }}</span>
+                    <div class="port-tooltip">
+                        <strong>{{ intf.name }}</strong><br>
+                        Status: {{ intf.status }}<br>
+                        {% if intf.ip %}IP: {{ intf.ip }}<br>{% endif %}
+                        {% if intf.description %}{{ intf.description }}{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if is_ocs %}
+<!-- OCS Patch Snapshot: Backup & Restore -->
+<div class="card-custom mb-4" id="ocsPatchSnapshots">
+  <div class="card-header d-flex align-items-center justify-content-between gap-2">
+    <span><i class="fas fa-camera me-2"></i> Patch Snapshots <small class="text-muted ms-2" style="font-size:0.7rem;">Backup &amp; restore OCS patch state</small></span>
+    <button class="btn btn-sm btn-outline-warning" onclick="ocsSnapshotCreate({{ device.id }})">
+      <i class="fas fa-download me-1"></i> Save Current Patch State
+    </button>
+  </div>
+  <div class="p-2" id="ocs-snapshot-list">
+    <div class="text-muted" style="font-size:0.8rem;padding:8px">Loading snapshots…</div>
+  </div>
+</div>
+<script>
+(function(){
+  const DEVICE_ID = {{ device.id }};
+  const API_BASE = '/api/ocs/' + DEVICE_ID + '/snapshots/';
+
+  function fmtDate(iso){
+    if(!iso) return '—';
+    return new Date(iso).toLocaleString();
+  }
+
+  async function loadSnapshots(){
+    const el = document.getElementById('ocs-snapshot-list');
+    try {
+      const r = await fetch(API_BASE, {credentials:'same-origin'});
+      const d = await r.json();
+      if(!d.snapshots || !d.snapshots.length){
+        el.innerHTML = '<div class="text-muted p-2" style="font-size:0.8rem">No snapshots yet. Click "Save Current Patch State" to create one.</div>';
+        return;
+      }
+      let html = '<table class="table table-sm table-hover mb-0" style="font-size:0.75rem;"><thead class="table-light"><tr><th>Name</th><th>Patches</th><th>Created</th><th>By</th><th>Actions</th></tr></thead><tbody>';
+      for(const s of d.snapshots){
+        html += `<tr>
+          <td><strong>${s.name}</strong>${s.description ? '<br><small class="text-muted">'+s.description+'</small>' : ''}</td>
+          <td><span class="badge bg-secondary">${s.patch_count}</span></td>
+          <td class="text-nowrap">${fmtDate(s.created_at)}</td>
+          <td>${s.created_by || '—'}</td>
+          <td class="text-nowrap">
+            <a class="btn btn-xs btn-outline-info me-1" style="font-size:0.7rem;padding:2px 6px"
+              href="/api/ocs/snapshots/${s.id}/download/" download title="Download JSON backup">
+              <i class="fas fa-file-download"></i>
+            </a>
+            <button class="btn btn-xs btn-outline-success me-1" style="font-size:0.7rem;padding:2px 6px"
+              onclick="ocsSnapshotRestore(${s.id}, '${s.name.replace(/'/g,"\\'")}', ${s.patch_count})">
+              <i class="fas fa-undo me-1"></i>Restore
+            </button>
+            <button class="btn btn-xs btn-outline-danger" style="font-size:0.7rem;padding:2px 6px"
+              onclick="ocsSnapshotDelete(${s.id}, '${s.name.replace(/'/g,"\\'")}')">
+              <i class="fas fa-trash"></i>
+            </button>
+          </td>
+        </tr>`;
+      }
+      html += '</tbody></table>';
+      el.innerHTML = html;
+    } catch(e){
+      el.innerHTML = '<div class="text-danger p-2">Error loading snapshots: '+e+'</div>';
+    }
+  }
+
+  window.ocsSnapshotCreate = async function(deviceId){
+    const name = prompt('Snapshot name (leave blank for auto):') ?? '';
+    if(name === null) return;  // cancelled
+    const desc = prompt('Description (optional):') ?? '';
+    const btn = document.querySelector('#ocsPatchSnapshots button');
+    if(btn){ btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Saving…'; }
+    try {
+      const r = await fetch(API_BASE, {
+        method:'POST', credentials:'same-origin',
+        headers:{'Content-Type':'application/json','X-CSRFToken': getCookie('csrftoken')},
+        body: JSON.stringify({name, description:desc})
+      });
+      const d = await r.json();
+      if(d.ok){
+        showToast('Snapshot saved: ' + d.name + ' (' + d.patch_count + ' patches)', 'success');
+        loadSnapshots();
+      } else {
+        showToast('Error: ' + (d.error||'unknown'), 'danger');
+      }
+    } catch(e){ showToast('Error: '+e, 'danger'); }
+    finally{ if(btn){ btn.disabled=false; btn.innerHTML='<i class="fas fa-download me-1"></i> Save Current Patch State'; }}
+  };
+
+  window.ocsSnapshotRestore = async function(snapId, snapName, patchCount){
+    if(!confirm('Restore snapshot "'+snapName+'" ('+patchCount+' patches)?\n\nThis will CLEAR all current patches then replay the snapshot.')) return;
+    const r = await fetch('/api/ocs/snapshots/'+snapId+'/restore/', {
+      method:'POST', credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken': getCookie('csrftoken')},
+      body: JSON.stringify({clear_first: true})
+    });
+    const d = await r.json().catch(()=>({}));
+    if(r.ok && d.ok){
+      const via = d.method ? (' via '+d.method.toUpperCase()) : '';
+      showToast('Snapshot "'+snapName+'" restored — '+d.patch_count+' patches applied'+via, 'success');
+      setTimeout(()=>location.reload(), 1500);
+    } else {
+      const errs = (d.errors||[]).join('; ') || d.error || ('HTTP '+r.status);
+      showToast('Restore failed: ' + errs, 'danger');
+    }
+  };
+
+  window.ocsSnapshotDelete = async function(snapId, snapName){
+    if(!confirm('Delete snapshot "'+snapName+'"?')) return;
+    const r = await fetch('/api/ocs/snapshots/'+snapId+'/', {
+      method:'DELETE', credentials:'same-origin',
+      headers:{'X-CSRFToken': getCookie('csrftoken')}
+    });
+    const d = await r.json();
+    if(d.ok){ showToast('Snapshot deleted', 'secondary'); loadSnapshots(); }
+  };
+
+  function getCookie(name){
+    const m = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+    return m ? m.pop() : '';
+  }
+
+  function showToast(msg, type){
+    const t = document.createElement('div');
+    t.className = 'alert alert-'+type+' position-fixed bottom-0 end-0 m-3 shadow';
+    t.style.cssText = 'z-index:9999;max-width:380px;font-size:0.82rem';
+    t.textContent = msg;
+    document.body.appendChild(t);
+    setTimeout(()=>t.remove(), 4000);
+  }
+
+  document.addEventListener('DOMContentLoaded', loadSnapshots);
+})();
+</script>
+{% endif %}
+
+{% if port_channel_data and not is_ocs %}
+<!-- Port-Channels / LAGs -->
+<div class="card-custom mb-4">
+    <div class="card-header"><i class="fas fa-link me-2"></i> Port-Channels / LAGs ({{ port_channel_data|length }})</div>
+    <div class="card-body p-2">
+        <div class="row g-2">
+            {% for pc in port_channel_data %}
+            <div class="col-lg-4 col-md-6">
+                <div class="pc-card p-2 border rounded {% if pc.status == 'up' %}border-success{% else %}border-danger{% endif %}" style="background:#fafbfc;">
+                    <div class="d-flex justify-content-between align-items-center mb-1">
+                        <div>
+                            <span class="status-dot {{ pc.status_color }}"></span>
+                            <strong style="font-size:0.85rem;">{{ pc.short_name|default:pc.name }}</strong>
+                            <span class="badge bg-secondary ms-1" style="font-size:0.6rem;">{{ pc.speed_label }}</span>
+                        </div>
+                        {% if pc.member_count %}
+                        <span class="badge {% if pc.all_up %}bg-success{% else %}bg-warning text-dark{% endif %}" style="font-size:0.65rem;">
+                            {{ pc.members_up }}/{{ pc.member_count }} up
+                        </span>
+                        {% endif %}
+                    </div>
+                    {% if pc.remote_device %}
+                    <div style="font-size:0.7rem;" class="text-primary mb-1">
+                        <i class="fas fa-arrow-right me-1"></i>{{ pc.remote_device }}{% if pc.remote_port %} ({{ pc.remote_port }}){% endif %}
+                    </div>
+                    {% endif %}
+                    {% if pc.description %}<div class="text-muted mb-1" style="font-size:0.7rem;">{{ pc.description|truncatechars:40 }}</div>{% endif %}
+                    {% if pc.members %}
+                    <div class="pc-members mt-1" style="border-top:1px solid #eee; padding-top:4px;">
+                        {% for mem in pc.members %}
+                        <div class="d-flex align-items-center gap-1 mb-1" style="font-size:0.7rem;">
+                            <span class="pc-mem-led {{ mem.status_color }}" style="width:8px;height:8px;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
+                            <span class="fw-semibold" style="min-width:70px;">{{ mem.short_name }}</span>
+                            {% if mem.speed_label %}<span class="badge bg-light text-dark" style="font-size:0.55rem;padding:1px 4px;">{{ mem.speed_label }}</span>{% endif %}
+                            {% if mem.remote_device %}
+                            <span class="ms-auto text-primary text-truncate" style="max-width:180px;" title="{{ mem.remote_device }} {{ mem.remote_port }}">
+                                <i class="fas fa-arrow-right" style="font-size:0.5rem;"></i> {{ mem.remote_device }}{% if mem.remote_port %} <small class="text-muted">({{ mem.remote_port }})</small>{% endif %}
+                            </span>
+                            {% elif mem.status != 'up' and mem.status != 'connected' %}
+                            <span class="ms-auto text-danger" style="font-size:0.6rem;">{{ mem.status }}</span>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% elif pc.member_count == 0 %}
+                    <div class="text-muted mt-1" style="font-size:0.65rem; border-top:1px solid #eee; padding-top:4px;">
+                        <i class="fas fa-info-circle me-1"></i>No member interfaces
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if lldp_neighbors and not is_ocs %}
+<!-- LLDP Neighbors (compact table) -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between">
+        <span><i class="fas fa-broadcast-tower me-2"></i> LLDP Neighbors ({{ lldp_neighbors|length }})</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#lldpSection">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse show" id="lldpSection">
+        <div class="card-body p-0">
+            <table class="table table-sm table-hover mb-0" style="font-size:0.78rem;">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:22%;">Local Port</th>
+                        <th style="width:28%;">Remote Device</th>
+                        <th style="width:22%;">Remote Port</th>
+                        <th style="width:28%;">Mgmt IP</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for n in lldp_neighbors %}
+                    <tr>
+                        <td class="fw-semibold">{{ n.local_port }}</td>
+                        <td>
+                            <i class="fas fa-server me-1 text-muted" style="font-size:0.6rem;"></i>{{ n.remote_device }}
+                        </td>
+                        <td>{{ n.remote_port }}</td>
+                        <td>
+                            {% if n.mgmt_ip %}<span class="text-primary">{{ n.mgmt_ip }}</span>{% else %}<span class="text-muted">-</span>{% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if vlan_data and not is_ocs %}
+<!-- VLAN Grid (compact chips) -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between">
+        <span><i class="fas fa-layer-group me-2"></i> VLAN Interfaces ({{ vlan_data|length }})</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#vlanGrid">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse show" id="vlanGrid">
+        <div class="card-body py-2">
+            <div class="d-flex flex-wrap">
+                {% for v in vlan_data %}
+                <div class="vlan-chip" title="{{ v.name }}{% if v.description %} - {{ v.description }}{% endif %}">
+                    <span class="status-dot {{ v.status_color }}" style="width:6px;height:6px;margin:0;"></span>
+                    {{ v.short_name|default:v.name }}
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if management_data %}
+<!-- Management Interfaces -->
+<div class="card-custom mb-4">
+    <div class="card-header"><i class="fas fa-cog me-2"></i> Management Interfaces</div>
+    <div class="card-body">
+        {% for intf in management_data %}
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="status-dot {{ intf.status_color }}"></span>
+            <strong>{{ intf.name }}</strong>
+            <span class="text-muted">{{ intf.status }}</span>
+            {% if intf.description %}<span class="text-muted">- {{ intf.description }}</span>{% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{% if physical_data and not is_ocs %}
+<!-- Physical Interface Table (collapsible detail) -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between">
+        <span><i class="fas fa-ethernet me-2"></i> Physical Interfaces Detail ({{ physical_data|length }})</span>
+        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#intfTable">
+            <i class="fas fa-chevron-down"></i>
+        </button>
+    </div>
+    <div class="collapse" id="intfTable">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-sm table-hover mb-0" style="font-size:0.85rem;">
+                    <thead><tr>
+                        <th>Interface</th><th>Status</th><th>Speed</th>
+                        <th>Description / Info</th><th>MTU</th><th>MAC</th>
+                        {% if device.vendor_type == 'paloalto' %}<th>Zone</th><th>Vsys</th>{% endif %}
+                        {% if device.vendor_type == 'fortigate' %}<th>VDOM</th><th>Type</th>{% endif %}
+                    </tr></thead>
+                    <tbody>
+                        {% for intf in physical_data %}
+                        <tr {% if intf.is_group %}class="table-info"{% endif %}>
+                            <td><span class="status-dot {{ intf.status_color }}"></span>{{ intf.name }}</td>
+                            <td>{{ intf.status }} / {{ intf.admin_status }}</td>
+                            <td>{{ intf.speed_label|default:"-" }}</td>
+                            <td style="max-width:250px;" class="text-truncate" title="{{ intf.description }}">{{ intf.description|default:"-" }}</td>
+                            <td>{{ intf.mtu|default:"-" }}</td>
+                            <td style="font-size:0.75rem;">{{ intf.mac|default:"-" }}</td>
+                            {% if device.vendor_type == 'paloalto' %}
+                            <td>{{ intf.zone|default:"-" }}</td>
+                            <td>{{ intf.vsys|default:"-" }}</td>
+                            {% endif %}
+                            {% if device.vendor_type == 'fortigate' %}
+                            <td>{{ intf.vdom|default:"-" }}</td>
+                            <td>{{ intf.type|default:"-" }}</td>
+                            {% endif %}
+                        </tr>
+                        {% if intf.is_group and intf.children %}
+                        {% for child in intf.children %}
+                        <tr style="font-size:0.8rem; background:#f8f9fc;">
+                            <td class="ps-4"><span class="status-dot {{ child.status_color }}"></span>{{ child.name }}</td>
+                            <td>{{ child.status }} / {{ child.admin_status }}</td>
+                            <td>{{ child.speed_label|default:"-" }}</td>
+                            <td>{{ child.description|default:"-" }}</td>
+                            <td>{{ child.mtu|default:"-" }}</td>
+                            <td style="font-size:0.75rem;">{{ child.mac|default:"-" }}</td>
+                            {% if device.vendor_type == 'paloalto' %}<td></td><td></td>{% endif %}
+                            {% if device.vendor_type == 'fortigate' %}<td></td><td></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                        {% endif %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Async health loader, chassis slot grouping, OCS patch lines -->
+<script>
+(function() {
+    var isOcs = {{ is_ocs|yesno:"true,false" }};
+
+    if (!isOcs) {
+        function loadHealth() {
+            fetch("{% url 'device_health' device.id %}")
+                .then(r => r.json())
+                .then(d => {
+                    if (d.status === 'ok') {
+                        var h = d.data;
+                        var cpu = h.cpu_utilization || 0;
+                        var memPct = h.memory_percent || 0;
+                        var memUsed = h.memory_used || 0;
+                        var memTotal = h.memory_total || 0;
+                        var el;
+                        if ((el = document.getElementById('cpu-val'))) el.textContent = cpu.toFixed(1) + '%';
+                        if ((el = document.getElementById('cpu-bar'))) {
+                            el.style.width = cpu + '%';
+                            el.className = 'health-bar-fill ' + (cpu > 80 ? 'high' : cpu > 50 ? 'med' : 'low');
+                        }
+                        if ((el = document.getElementById('mem-val'))) el.textContent = memPct.toFixed(1) + '%';
+                        if ((el = document.getElementById('mem-bar'))) {
+                            el.style.width = memPct + '%';
+                            el.className = 'health-bar-fill ' + (memPct > 80 ? 'high' : memPct > 50 ? 'med' : 'low');
+                        }
+                        if (memTotal > 0 && (el = document.getElementById('mem-abs'))) {
+                            el.textContent = Math.round(memUsed/1024) + ' / ' + Math.round(memTotal/1024) + ' MB';
+                        }
+                    }
+                })
+                .catch(function(){});
+        }
+        loadHealth();
+        setInterval(loadHealth, 20000);
+    }
+
+    if (!isOcs) {
+        var container = document.getElementById('portContainer');
+        if (container) {
+            var ports = container.querySelectorAll('.port-slot, .port-group');
+            var slots = {};
+            var hasSlots = false;
+            ports.forEach(function(p) {
+                var slot = p.getAttribute('data-slot') || '';
+                if (slot) {
+                    hasSlots = true;
+                    if (!slots[slot]) slots[slot] = [];
+                    slots[slot].push(p);
+                }
+            });
+            if (hasSlots) {
+                container.innerHTML = '';
+                var sortedSlots = Object.keys(slots).sort(function(a,b){ return parseInt(a)-parseInt(b); });
+                sortedSlots.forEach(function(slot) {
+                    var row = document.createElement('div');
+                    row.className = 'slot-row';
+                    var label = document.createElement('div');
+                    label.className = 'slot-label';
+                    label.textContent = 'Slot ' + slot;
+                    row.appendChild(label);
+                    var grid = document.createElement('div');
+                    grid.className = 'port-grid';
+                    grid.style.flex = '1';
+                    slots[slot].forEach(function(p) {
+                        grid.appendChild(p);
+                    });
+                    row.appendChild(grid);
+                    container.appendChild(row);
+                });
+                var noSlot = [];
+                ports.forEach(function(p) {
+                    if (!p.getAttribute('data-slot')) noSlot.push(p);
+                });
+                if (noSlot.length > 0) {
+                    var grid = document.createElement('div');
+                    grid.className = 'port-grid';
+                    noSlot.forEach(function(p) { grid.appendChild(p); });
+                    container.appendChild(grid);
+                }
+            } else {
+                container.className = 'port-grid';
+            }
+        }
+    }
+
+    if (isOcs) (function ocsPortTipFloat() {
+        var panel = document.getElementById('chassisPanelOcs');
+        var tip = document.getElementById('ocsPortTipFloat');
+        if (!panel || !tip) return;
+        if (tip.parentNode !== document.body) document.body.appendChild(tip);
+        var hideTimer = null;
+        var lastCell = null;
+        function placeTip() {
+            if (!lastCell) return;
+            var r = lastCell.getBoundingClientRect();
+            var w = window.innerWidth, h = window.innerHeight, pad = 8;
+            var estH = 120;
+            var showAbove = (r.bottom + 8 + estH > h) && (r.top > estH + 8);
+            var cx = r.left + r.width / 2;
+            var top = showAbove ? (r.top - 8) : (r.bottom + 6);
+            var tf = showAbove ? 'translateX(-50%) translateY(-100%)' : 'translateX(-50%)';
+            tip.style.maxWidth = 'min(90vw, 320px)';
+            tip.style.left = cx + 'px';
+            tip.style.top = top + 'px';
+            tip.style.transform = tf;
+            requestAnimationFrame(function() {
+                if (!lastCell) return;
+                var tr = tip.getBoundingClientRect();
+                var dx = 0;
+                if (tr.left < pad) dx = pad - tr.left;
+                if (tr.right > w - pad) dx = (w - pad) - tr.right;
+                if (dx) {
+                    var cur = parseFloat(tip.style.left) || cx;
+                    tip.style.left = (cur + dx) + 'px';
+                }
+            });
+        }
+        function showForCell(cell) {
+            if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+            var el = cell.querySelector('.port-tooltip-ocs');
+            if (!el) return;
+            lastCell = cell;
+            tip.removeAttribute('aria-hidden');
+            tip.style.display = 'block';
+            tip.innerHTML = el.innerHTML;
+            placeTip();
+        }
+        function scheduleHide() {
+            if (hideTimer) clearTimeout(hideTimer);
+            hideTimer = setTimeout(function() {
+                tip.style.display = 'none';
+                tip.setAttribute('aria-hidden', 'true');
+                tip.innerHTML = '';
+                lastCell = null;
+            }, 100);
+        }
+        function onMove() {
+            if (tip.style.display === 'block' && lastCell) placeTip();
+        }
+        panel.addEventListener('mouseover', function(e) {
+            var c = e.target.closest && e.target.closest('.ocs-port-cell');
+            if (c && panel.contains(c)) showForCell(c);
+            else scheduleHide();
+        });
+        panel.addEventListener('mouseleave', function(e) {
+            if (!e.relatedTarget || !panel.contains(e.relatedTarget)) scheduleHide();
+        });
+        window.addEventListener('scroll', onMove, true);
+        window.addEventListener('resize', onMove);
+        document.querySelectorAll('.ocs-shelf-banks').forEach(function(b) { b.addEventListener('scroll', onMove); });
+    })();
+
+    if (isOcs) (function ocsPatchOverlay() {
+        var mount = document.getElementById('ocsPatchMount');
+        var svg = document.getElementById('ocsPatchSvg');
+        var chk = document.getElementById('ocsShowPatchLines');
+        var elInit = document.getElementById('ocs-patch-pairs-initial');
+        if (!mount || !svg) return;
+        var pairs = [];
+        try {
+            pairs = JSON.parse((elInit && elInit.textContent) ? elInit.textContent : '[]');
+        } catch (e1) { pairs = []; }
+        if (!Array.isArray(pairs)) pairs = [];
+        var apiUrl = "{% url 'api_device_ocs_patch' device.id %}";
+        var raf = null;
+        var scrollT = null;
+        var layoutRetry = 0;
+        var SPREAD_PX = 5.2;
+        function normTriplet(s) {
+            if (s == null || s === '') return '';
+            s = String(s).trim();
+            var m = s.match(/^(\d+)\.(\d+)\.(\d+)/);
+            return m ? (m[1] + '.' + m[2] + '.' + m[3]) : s;
+        }
+        function getCellMap() {
+            var m = new Map();
+            mount.querySelectorAll('.ocs-port-cell[data-ocs-triplet]').forEach(function(el) {
+                var k = normTriplet(el.getAttribute('data-ocs-triplet'));
+                if (k) m.set(k, el);
+            });
+            return m;
+        }
+        function sizeSvg() {
+            /* Size the SVG exactly to the mount's visible client area.
+               Cells inside scrollable banks may have viewport rects outside
+               this area — they will be clipped by overflow:hidden on the SVG. */
+            var mr = mount.getBoundingClientRect();
+            var w = Math.ceil(mr.width);
+            var h = Math.ceil(mr.height);
+            svg.setAttribute('width', String(w));
+            svg.setAttribute('height', String(h));
+            svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+        }
+        /* Get element center in the mount's viewport-relative coordinate space.
+           getBoundingClientRect() already accounts for all scroll positions, so
+           subtracting the mount's rect gives the correct offset within the SVG. */
+        function centerInMount(el) {
+            var mr = mount.getBoundingClientRect();
+            var er = el.getBoundingClientRect();
+            return { x: er.left - mr.left + er.width / 2,
+                     y: er.top  - mr.top  + er.height / 2 };
+        }
+        /* All patch lines are bright orange */
+        function patchColor() { return '#fb923c'; }
+        function draw() {
+            if (chk && !chk.checked) {
+                while (svg.firstChild) svg.removeChild(svg.firstChild);
+                return;
+            }
+            if (!Array.isArray(pairs) || !pairs.length) {
+                while (svg.firstChild) svg.removeChild(svg.firstChild);
+                return;
+            }
+            var cmap = getCellMap();
+            if (cmap.size === 0 && layoutRetry < 12) {
+                layoutRetry += 1;
+                setTimeout(function() { scheduleDraw(true); }, 48);
+                return;
+            }
+            layoutRetry = 0;
+            sizeSvg();
+            var list = pairs.slice().filter(function(p) { return p && p.a && p.b; });
+            /* Sort by triplet so same-origin lines are drawn in consistent order */
+            list.sort(function(a, b) {
+                return (String(a.a) + '|' + String(a.b)).localeCompare(String(b.a) + '|' + String(b.b));
+            });
+            var frag = document.createDocumentFragment();
+            /* Group by source-triplet prefix (shelf.module) to fan out parallel lines */
+            var shelfGroups = {};
+            list.forEach(function(p, idx) {
+                var ak = normTriplet(p.a), bk = normTriplet(p.b);
+                if (!ak || !bk || ak === bk) return;
+                /* canonical pair key (smaller first) for grouping overlapping lines */
+                var gk = (ak < bk ? ak + '>' + bk : bk + '>' + ak);
+                if (!shelfGroups[gk]) shelfGroups[gk] = [];
+                shelfGroups[gk].push({ p: p, ak: ak, bk: bk, idx: idx });
+            });
+            var svgWidth = parseFloat(svg.getAttribute('width')) || 600;
+            Object.values(shelfGroups).forEach(function(group) {
+                group.forEach(function(item, gi) {
+                    var ela = cmap.get(item.ak), elb = cmap.get(item.bk);
+                    if (!ela || !elb) return;
+                    var pa = centerInMount(ela), pb = centerInMount(elb);
+                    var spread = (group.length <= 1) ? 0 : (gi - (group.length - 1) / 2) * SPREAD_PX;
+                    /* Offset both endpoints perpendicular to the line */
+                    var dx = pb.x - pa.x, dy = pb.y - pa.y;
+                    var L = Math.sqrt(dx * dx + dy * dy) || 1;
+                    var nx = -dy / L, ny = dx / L;
+                    var ax = pa.x + nx * spread, ay = pa.y + ny * spread;
+                    var bx = pb.x + nx * spread, by = pb.y + ny * spread;
+                    /* Build control points: if horizontal (same row), arch upward/downward;
+                       if vertical (same column or different shelf), use S-curve via mid. */
+                    var ddx = bx - ax, ddy = by - ay;
+                    var absdy = Math.abs(ddy), absdx = Math.abs(ddx);
+                    var c1x, c1y, c2x, c2y;
+                    if (absdy < 14) {
+                        /* Near-horizontal: arch ABOVE or below based on position */
+                        var archH = Math.max(18, absdx * 0.28) * (gi % 2 === 0 ? -1 : 1);
+                        c1x = ax + ddx * 0.25; c1y = ay + archH;
+                        c2x = bx - ddx * 0.25; c2y = by + archH;
+                    } else {
+                        /* Vertical/diagonal: true S-curve through midpoint */
+                        var midX = (ax + bx) / 2;
+                        c1x = midX + ddx * 0.08; c1y = ay + ddy * 0.42;
+                        c2x = midX - ddx * 0.08; c2y = by - ddy * 0.42;
+                    }
+                    var d = 'M ' + ax.toFixed(1) + ' ' + ay.toFixed(1) +
+                            ' C ' + c1x.toFixed(1) + ' ' + c1y.toFixed(1) + ',' +
+                                    c2x.toFixed(1) + ' ' + c2y.toFixed(1) + ',' +
+                                    bx.toFixed(1)  + ' ' + by.toFixed(1);
+                    var strokeColor = patchColor();
+                    /* Shadow / glow path for visibility */
+                    var shadow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    shadow.setAttribute('d', d);
+                    shadow.setAttribute('fill', 'none');
+                    shadow.setAttribute('stroke', '#000');
+                    shadow.setAttribute('stroke-width', '3.5');
+                    shadow.setAttribute('stroke-linecap', 'round');
+                    shadow.setAttribute('opacity', '0.3');
+                    frag.appendChild(shadow);
+                    /* Main colored path */
+                    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                    path.setAttribute('d', d);
+                    path.setAttribute('fill', 'none');
+                    path.setAttribute('stroke', strokeColor);
+                    path.setAttribute('stroke-width', '2.0');
+                    path.setAttribute('stroke-linecap', 'round');
+                    path.setAttribute('opacity', '0.92');
+                    if (item.p.n) {
+                        path.setAttribute('data-conn', String(item.p.n).slice(0, 80));
+                        var title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+                        title.textContent = item.p.n + '  ' + item.ak + ' \u2194 ' + item.bk;
+                        path.appendChild(title);
+                    }
+                    /* Endpoint dots */
+                    [{ x: ax, y: ay }, { x: bx, y: by }].forEach(function(pt) {
+                        var dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                        dot.setAttribute('cx', pt.x.toFixed(1));
+                        dot.setAttribute('cy', pt.y.toFixed(1));
+                        dot.setAttribute('r', '2.5');
+                        dot.setAttribute('fill', strokeColor);
+                        dot.setAttribute('opacity', '0.9');
+                        frag.appendChild(dot);
+                    });
+                    frag.appendChild(path);
+                });
+            });
+            while (svg.firstChild) svg.removeChild(svg.firstChild);
+            svg.appendChild(frag);
+        }
+        function scheduleDraw(immediate) {
+            if (raf) cancelAnimationFrame(raf);
+            raf = requestAnimationFrame(function() { raf = null; draw(); });
+        }
+        function debouncedScroll() {
+            if (scrollT) clearTimeout(scrollT);
+            scrollT = setTimeout(function() { scrollT = null; scheduleDraw(true); }, 24);
+        }
+        if (chk) chk.addEventListener('change', function() { scheduleDraw(true); });
+        window.addEventListener('resize', debouncedScroll);
+        window.addEventListener('scroll', debouncedScroll, true);
+        document.querySelectorAll('.ocs-shelf-banks').forEach(function(b) { b.addEventListener('scroll', debouncedScroll); });
+        if (window.ResizeObserver) {
+            try { new ResizeObserver(debouncedScroll).observe(mount); } catch (e2) {}
+        }
+        setInterval(function() {
+            if (!apiUrl) return;
+            fetch(apiUrl, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+                .then(function(r) { return r.json(); })
+                .then(function(j) {
+                    if (j && Array.isArray(j.pairs)) { pairs = j.pairs; scheduleDraw(true); }
+                })
+                .catch(function() {});
+        }, 25000);
+        setTimeout(function() { scheduleDraw(true); }, 0);
+        setTimeout(function() { scheduleDraw(true); }, 150);
+        setTimeout(function() { scheduleDraw(true); }, 500);
+    })();
+})();
+</script>
+{% endblock %}

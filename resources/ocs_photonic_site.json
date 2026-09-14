@@ -1,0 +1,44 @@
+{
+  "version": 3,
+  "label": "Example photonic OCS lab (RFC 5737 TEST-NET-1)",
+  "_comment": "Replace IPs and credentials with your site. Do not commit customer secrets.",
+  "site": "example",
+  "common_tags": ["ocs", "example"],
+  "ocs_controller": {
+    "name": "OCS-example",
+    "ip": "192.0.2.10",
+    "role": "ocs_photonic",
+    "username": "user",
+    "password": "changeme",
+    "transport": "https",
+    "snmp_community": "public",
+    "vendor_type": "ocs",
+    "tags": ["ocs", "example"]
+  },
+  "ares_switches": [],
+  "arista_switches": [
+    {
+      "name": "Spine-1",
+      "ip": "192.0.2.20",
+      "username": "admin",
+      "password": "changeme",
+      "transport": "https",
+      "vendor_type": "arista",
+      "tags": ["arista", "example"],
+      "fixed_mapping": {
+        "to_ocs": "192.0.2.10",
+        "port_to_ocs_triplets": {
+          "port_9": ["1.1.1", "1.1.2"]
+        }
+      }
+    }
+  ],
+  "keysight_chassis": [
+    {
+      "name": "AresONE-1",
+      "ip": "192.0.2.31",
+      "type": "aresone",
+      "tags": ["aresone", "example"]
+    }
+  ]
+}

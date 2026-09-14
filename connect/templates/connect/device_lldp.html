@@ -1,0 +1,25 @@
+{% extends 'connect/base.html' %}
+{% load ip_display %}
+{% block title %}LLDP Neighbors - {{ device|mgmt_label }}{% endblock %}
+{% block page_title %}LLDP: {{ device|mgmt_label }}{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a></div>
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-link me-2"></i> LLDP/CDP Neighbors ({{ neighbors|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>Local Port</th><th>Remote Device</th><th>Remote Port</th><th>Mgmt</th></tr></thead>
+                <tbody>
+                    {% for n in neighbors %}
+                    <tr><td>{{ n.local_port }}</td><td class="fw-bold">{{ n.remote_device }}</td><td>{{ n.remote_port }}</td>
+                    <td>{% with mip=n.mgmt_ip_display|default:n.mgmt_ip %}{% if mip %}<a href="{{ mip|mgmt_https_url }}">{{ mip }}</a>{% else %}—{% endif %}{% endwith %}</td></tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-center text-muted py-3">No LLDP neighbors or not supported</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

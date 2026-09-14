@@ -1,0 +1,25 @@
+[Unit]
+Description=LabVault web
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=labvault
+Group=labvault
+WorkingDirectory=/opt/labvault/current
+EnvironmentFile=-/etc/labvault/labvault.env
+Environment=DJANGO_SETTINGS_MODULE=connect.settings
+Environment=LABVAULT_DISABLE_INPROCESS_REFRESH=1
+Environment=TMPDIR=/dev/shm
+Environment=SQLITE_TMPDIR=/dev/shm
+TimeoutStartSec=120
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+ExecStartPre=/opt/labvault/current/.venv/bin/python manage.py validate_external_config
+# Bind all interfaces so customer VMs are reachable without a mandatory nginx hop.
+# TLS termination remains optional via deploy/nginx + install-labvault-nginx.sh.
+ExecStart=/opt/labvault/current/.venv/bin/gunicorn labvault.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 300 --graceful-timeout 30 --max-requests 300 --max-requests-jitter 50
+[Install]
+WantedBy=multi-user.target

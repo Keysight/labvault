@@ -1,0 +1,456 @@
+{% extends 'connect/base.html' %}
+{% block title %}Test Setup Builder — {{ topo.name }} — LabVault{% endblock %}
+{% block page_title %}Test Setup Builder{% endblock %}
+
+{% block topbar_actions %}
+{% if topo %}
+<a href="{% url 'lab_topology_detail' topo.id %}" class="btn btn-sm btn-outline-secondary">
+  <i class="fas fa-arrow-left me-1"></i>Back to Topology
+</a>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<style>
+.builder-grid { display: grid; grid-template-columns: 340px 1fr; gap: 1.5rem; align-items: start; }
+.builder-card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 1.25rem; }
+.builder-card h6 { color: #7ee787; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 1rem; }
+.req-form label { font-size: .82rem; color: #94a3b8; }
+.req-form .form-control, .req-form .form-select {
+  background: #161b22; border-color: #30363d; color: #e6edf3; font-size: .85rem;
+}
+.req-form .form-control:focus, .req-form .form-select:focus {
+  background: #161b22; border-color: #58a6ff; color: #e6edf3; box-shadow: none;
+}
+.chassis-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #1c2a3a; border: 1px solid #1f6feb; border-radius: 6px;
+  padding: 3px 10px; font-size: .8rem; color: #58a6ff; margin: 3px; cursor: pointer;
+  user-select: none; transition: background .15s;
+}
+.chassis-chip.selected { background: #1f6feb; color: #fff; }
+.chassis-chip:hover { border-color: #58a6ff; }
+.plan-section { margin-bottom: 1.2rem; }
+.plan-section-title {
+  font-size: .75rem; text-transform: uppercase; letter-spacing: .1em;
+  color: #58a6ff; margin-bottom: .5rem; display: flex; align-items: center; gap: 6px;
+}
+.plan-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.plan-table th { background: #161b22; color: #94a3b8; padding: 5px 10px; border-bottom: 1px solid #30363d; text-align: left; }
+.plan-table td { padding: 5px 10px; border-bottom: 1px solid #21262d; color: #e6edf3; }
+.plan-table tr:hover td { background: #161b22; }
+.code-block { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; font-family: 'Fira Code', monospace; font-size: .78rem; color: #a5d6ff; white-space: pre-wrap; max-height: 260px; overflow-y: auto; }
+.badge-speed { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb; border-radius: 4px; padding: 2px 7px; font-size: .75rem; }
+.badge-type { background: #7ee78722; color: #7ee787; border: 1px solid #2ea04388; border-radius: 4px; padding: 2px 7px; font-size: .75rem; }
+.progress-step { display: flex; align-items: center; gap: 10px; padding: 7px 0; border-bottom: 1px solid #21262d; }
+.step-icon { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: .7rem; flex-shrink: 0; }
+.step-icon.running { background: #1f6feb44; color: #58a6ff; animation: pulse 1s infinite; }
+.step-icon.ok { background: #2ea04344; color: #7ee787; }
+.step-icon.error { background: #da363344; color: #f85149; }
+.step-icon.pending { background: #30363d; color: #6e7681; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+.run-log { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; font-family: monospace; font-size: .75rem; color: #8b949e; padding: 10px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; }
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: .75rem; }
+.summary-stat { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 10px 14px; text-align: center; }
+.summary-stat .val { font-size: 1.5rem; font-weight: 700; color: #e6edf3; }
+.summary-stat .lbl { font-size: .72rem; color: #6e7681; margin-top: 2px; }
+.template-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 8px; background: #161b22; }
+.template-row:hover { border-color: #58a6ff22; background: #1c2a3a; }
+.speed-btn { padding: 5px 12px; border: 1px solid #30363d; border-radius: 6px; background: #161b22; color: #8b949e; cursor: pointer; font-size: .82rem; transition: all .15s; }
+.speed-btn.active { border-color: #1f6feb; background: #1f6feb22; color: #58a6ff; }
+</style>
+
+<div class="builder-grid" id="builderGrid">
+
+  <!-- Left: Requirements Panel -->
+  <div>
+    <div class="builder-card">
+      <h6><i class="fas fa-sliders-h me-2"></i>Test Requirements</h6>
+      {% if topo %}
+      <div class="mb-3">
+        <div class="text-muted" style="font-size:.78rem;">Topology</div>
+        <div style="color:#e6edf3;font-size:.9rem;">{{ topo.name }}</div>
+      </div>
+      {% endif %}
+      <div class="req-form">
+        <!-- Chassis selection -->
+        <label class="mb-1">Select Chassis Nodes</label>
+        <div id="chassisPicker" class="mb-3">
+          {% for cn in chassis_nodes %}
+          <span class="chassis-chip" data-nid="{{ cn.pk }}" onclick="toggleChassis(this)">
+            <i class="fas fa-microchip" style="font-size:.7rem;"></i>
+            {{ cn.label }}
+          </span>
+          {% empty %}
+          <span class="text-muted" style="font-size:.82rem;">No chassis nodes in this topology.</span>
+          {% endfor %}
+        </div>
+
+        <!-- Port count -->
+        <div class="mb-3">
+          <label for="portCount">Ports per chassis</label>
+          <input type="number" id="portCount" class="form-control form-control-sm" value="8" min="1" max="256">
+        </div>
+
+        <!-- Port speed -->
+        <div class="mb-3">
+          <label class="mb-1">Port speed</label><br>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">
+            {% for spd in speed_options %}
+            <button class="speed-btn {% if spd == '400G' %}active{% endif %}" onclick="selectSpeed(this, '{{ spd }}')">{{ spd }}</button>
+            {% endfor %}
+          </div>
+          <input type="hidden" id="portSpeed" value="400G">
+        </div>
+
+        <!-- Test type -->
+        <div class="mb-3">
+          <label for="testType">Test type</label>
+          <select id="testType" class="form-select form-select-sm">
+            <option value="full_mesh">Full Mesh</option>
+            <option value="p2p">Point-to-Point</option>
+            <option value="one_to_many">One-to-Many</option>
+          </select>
+        </div>
+
+        <!-- Template name -->
+        <div class="mb-3">
+          <label for="templateName">Save as template (optional)</label>
+          <input type="text" id="templateName" class="form-control form-control-sm" placeholder="e.g. 2x AresONE 400G full mesh">
+        </div>
+
+        <button class="btn btn-sm btn-nc w-100" onclick="calculate()" id="calcBtn">
+          <i class="fas fa-calculator me-1"></i>Calculate Plan
+        </button>
+      </div>
+    </div>
+
+    <!-- Saved templates -->
+    {% if templates %}
+    <div class="builder-card mt-3">
+      <h6><i class="fas fa-bookmark me-2"></i>Saved Templates</h6>
+      {% for tmpl in templates %}
+      <div class="template-row">
+        <div style="flex:1;">
+          <div style="font-size:.85rem;color:#e6edf3;">{{ tmpl.name }}</div>
+          <div style="font-size:.74rem;color:#6e7681;">
+            {{ tmpl.requirements.test_type|default:"—" }} ·
+            {{ tmpl.requirements.port_speed|default:"—" }} ·
+            <span class="badge-speed">{{ tmpl.status }}</span>
+          </div>
+        </div>
+        <button class="btn btn-xs" style="font-size:.72rem;padding:2px 8px;border:1px solid #30363d;background:#161b22;color:#8b949e;" onclick="loadTemplate({{ tmpl.pk }})">Load</button>
+        <button class="btn btn-xs" style="font-size:.72rem;padding:2px 8px;border:1px solid #f8514933;background:#da363322;color:#f85149;" onclick="applyTemplate({{ tmpl.pk }})">Apply</button>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Right: Plan Output -->
+  <div id="planPanel">
+    <div class="builder-card" id="planCard" style="display:none;">
+
+      <!-- Summary stats -->
+      <div id="summarySection" class="plan-section">
+        <div class="plan-section-title"><i class="fas fa-chart-bar"></i>Summary</div>
+        <div class="summary-grid" id="summaryGrid"></div>
+      </div>
+
+      <!-- OCS Patches -->
+      <div id="patchSection" class="plan-section">
+        <div class="plan-section-title"><i class="fas fa-project-diagram"></i>OCS Cross-Connects <span id="patchCount" class="text-muted" style="font-size:.75rem;"></span></div>
+        <div style="max-height:240px;overflow-y:auto;">
+          <table class="plan-table">
+            <thead><tr><th>#</th><th>Port A (triplet)</th><th>Port B (triplet)</th><th>Chassis A</th><th>Chassis B</th><th>XC Name</th></tr></thead>
+            <tbody id="patchTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Switch Configs -->
+      <div id="switchSection" class="plan-section">
+        <div class="plan-section-title"><i class="fas fa-network-wired"></i>Switch Configurations</div>
+        <div id="switchConfigs"></div>
+      </div>
+
+      <!-- Chassis Port Assignments -->
+      <div id="chassisSection" class="plan-section">
+        <div class="plan-section-title"><i class="fas fa-microchip"></i>Chassis Port Assignments</div>
+        <div id="chassisAssignments"></div>
+      </div>
+
+      <!-- Warnings -->
+      <div id="warnSection" class="plan-section" style="display:none;">
+        <div class="plan-section-title" style="color:#d29922;"><i class="fas fa-exclamation-triangle"></i>Warnings</div>
+        <div id="warnList"></div>
+      </div>
+
+      <!-- Apply button -->
+      <div class="d-flex gap-2 mt-3" id="applyRow" style="display:none!important;">
+        <button class="btn btn-sm btn-success w-100" onclick="applyCurrentPlan()" id="applyBtn">
+          <i class="fas fa-play me-1"></i>Apply & Provision
+        </button>
+      </div>
+    </div>
+
+    <!-- Progress card -->
+    <div class="builder-card mt-3" id="progressCard" style="display:none;">
+      <h6><i class="fas fa-tasks me-2"></i>Provisioning Progress</h6>
+      <div id="progressSteps"></div>
+      <div class="mt-2">
+        <div style="font-size:.75rem;color:#6e7681;margin-bottom:4px;">Log</div>
+        <div class="run-log" id="runLog"></div>
+      </div>
+    </div>
+
+    <!-- Upload topology JSON -->
+    <div class="builder-card mt-3">
+      <h6><i class="fas fa-upload me-2"></i>Import Topology JSON</h6>
+      <p style="font-size:.8rem;color:#8b949e;">Upload a <code>lab_topology_schema.json</code> (optionally with an OCS site JSON) to create a new topology.</p>
+      <div class="mb-2">
+        <label style="font-size:.8rem;color:#94a3b8;">Topology layout JSON</label>
+        <input type="file" id="topoFile" class="form-control form-control-sm" accept=".json" style="background:#161b22;border-color:#30363d;color:#e6edf3;">
+      </div>
+      <div class="mb-2">
+        <label style="font-size:.8rem;color:#94a3b8;">OCS site JSON (optional)</label>
+        <input type="file" id="siteFile" class="form-control form-control-sm" accept=".json" style="background:#161b22;border-color:#30363d;color:#e6edf3;">
+      </div>
+      <div class="mb-2">
+        <input type="text" id="topoName" class="form-control form-control-sm" placeholder="Topology name (optional)" style="background:#161b22;border-color:#30363d;color:#e6edf3;">
+      </div>
+      <div class="form-check mb-2">
+        <input type="checkbox" class="form-check-input" id="replaceCheck">
+        <label class="form-check-label" style="font-size:.8rem;color:#94a3b8;" for="replaceCheck">Replace existing topology with same name</label>
+      </div>
+      <button class="btn btn-sm btn-outline-info w-100" onclick="uploadTopology()">
+        <i class="fas fa-cloud-upload-alt me-1"></i>Import Topology
+      </button>
+      <div id="uploadMsg" class="mt-2" style="font-size:.8rem;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var TOPO_ID = {{ topo.id|default:'null' }};
+var CSRF = '{{ csrf_token }}';
+var CALC_URL = TOPO_ID ? '/lab-topology/' + TOPO_ID + '/test-setup/calculate/' : null;
+var APPLY_URL_BASE = '/test-setup/';
+var STATUS_URL_BASE = '/test-setup/run/';
+var IMPORT_SITE_URL = '/lab-topology/import-site/';
+
+var selectedChassis = new Set();
+var currentPlan = null;
+var currentTemplateId = null;
+var pollTimer = null;
+
+function toggleChassis(el) {
+  var nid = el.dataset.nid;
+  if (selectedChassis.has(nid)) {
+    selectedChassis.delete(nid);
+    el.classList.remove('selected');
+  } else {
+    selectedChassis.add(nid);
+    el.classList.add('selected');
+  }
+}
+
+function selectSpeed(btn, speed) {
+  document.querySelectorAll('.speed-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  document.getElementById('portSpeed').value = speed;
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function calculate() {
+  if (!CALC_URL) { alert('No topology selected'); return; }
+  if (selectedChassis.size < 1) { alert('Select at least one chassis node'); return; }
+  var btn = document.getElementById('calcBtn');
+  btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Calculating…';
+
+  var body = {
+    chassis_node_ids: Array.from(selectedChassis),
+    port_count: parseInt(document.getElementById('portCount').value) || 8,
+    port_speed: document.getElementById('portSpeed').value,
+    test_type: document.getElementById('testType').value,
+    template_name: document.getElementById('templateName').value.trim(),
+  };
+
+  fetch(CALC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(body),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    btn.disabled = false; btn.innerHTML = '<i class="fas fa-calculator me-1"></i>Calculate Plan';
+    if (!data.ok) { alert('Error: ' + data.error); return; }
+    currentPlan = data.plan;
+    currentTemplateId = data.template_id || null;
+    renderPlan(data.plan, currentTemplateId);
+  })
+  .catch(function(err) {
+    btn.disabled = false; btn.innerHTML = '<i class="fas fa-calculator me-1"></i>Calculate Plan';
+    alert('Request failed: ' + err);
+  });
+}
+
+function renderPlan(plan, tmplId) {
+  document.getElementById('planCard').style.display = '';
+
+  // Summary
+  var s = plan.summary || {};
+  var summaryHtml = [
+    {lbl: 'Patches', val: plan.ocs_patches ? plan.ocs_patches.length : 0},
+    {lbl: 'Chassis', val: s.chassis_count || 0},
+    {lbl: 'Ports each', val: s.port_count || 0},
+    {lbl: 'Speed', val: s.speed || '—'},
+    {lbl: 'Test type', val: (s.test_type||'').replace('_',' ')},
+    {lbl: 'Pairs', val: s.pair_count || 0},
+  ].map(function(x) {
+    return '<div class="summary-stat"><div class="val">' + escHtml(x.val) + '</div><div class="lbl">' + escHtml(x.lbl) + '</div></div>';
+  }).join('');
+  document.getElementById('summaryGrid').innerHTML = summaryHtml;
+
+  // OCS Patches
+  var patches = plan.ocs_patches || [];
+  document.getElementById('patchCount').textContent = '(' + patches.length + ')';
+  var pt = '';
+  patches.forEach(function(p, i) {
+    pt += '<tr><td>' + (i+1) + '</td><td><code>' + escHtml(p.a) + '</code></td><td><code>' + escHtml(p.b) + '</code></td>' +
+          '<td>' + escHtml(p.chassis_a||'') + '</td><td>' + escHtml(p.chassis_b||'') + '</td>' +
+          '<td style="font-size:.74rem;color:#6e7681;">' + escHtml(p.xc_name||'') + '</td></tr>';
+  });
+  document.getElementById('patchTable').innerHTML = pt || '<tr><td colspan="6" class="text-muted">No patches</td></tr>';
+
+  // Switch configs
+  var swCfgs = plan.switch_configs || {};
+  var swHtml = '';
+  Object.keys(swCfgs).forEach(function(ip) {
+    swHtml += '<div style="margin-bottom:10px;"><div style="font-size:.78rem;color:#58a6ff;margin-bottom:4px;">' + escHtml(ip) + '</div>' +
+              '<div class="code-block">' + escHtml((swCfgs[ip]||[]).join('\n')) + '</div></div>';
+  });
+  document.getElementById('switchConfigs').innerHTML = swHtml || '<div class="text-muted" style="font-size:.82rem;">No switch configs generated.</div>';
+
+  // Chassis ports
+  var cPorts = plan.chassis_ports || {};
+  var cpHtml = '';
+  Object.keys(cPorts).forEach(function(ip) {
+    var ports = cPorts[ip] || [];
+    cpHtml += '<div style="margin-bottom:8px;"><div style="font-size:.78rem;color:#58a6ff;">' + escHtml(ip) + '</div>' +
+              '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">' +
+              ports.map(function(p) { return '<span style="background:#161b22;border:1px solid #30363d;border-radius:4px;padding:2px 8px;font-size:.75rem;color:#8b949e;">' + escHtml(p) + '</span>'; }).join('') +
+              '</div></div>';
+  });
+  document.getElementById('chassisAssignments').innerHTML = cpHtml || '<div class="text-muted" style="font-size:.82rem;">No port assignments.</div>';
+
+  // Warnings
+  var warns = plan.warnings || [];
+  if (warns.length) {
+    document.getElementById('warnSection').style.display = '';
+    document.getElementById('warnList').innerHTML = warns.map(function(w) {
+      return '<div style="font-size:.8rem;color:#d29922;"><i class="fas fa-exclamation-circle me-1"></i>' + escHtml(w) + '</div>';
+    }).join('');
+  } else {
+    document.getElementById('warnSection').style.display = 'none';
+  }
+
+  // Apply button
+  if (tmplId) {
+    document.getElementById('applyRow').style.display = '';
+  }
+}
+
+function applyCurrentPlan() {
+  if (!currentTemplateId) { alert('Save the template first (provide a template name)'); return; }
+  applyTemplate(currentTemplateId);
+}
+
+function applyTemplate(tmplId) {
+  if (!confirm('Apply OCS patches and switch configs now?')) return;
+  fetch(APPLY_URL_BASE + tmplId + '/apply/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (!data.ok) { alert('Error: ' + data.error); return; }
+    document.getElementById('progressCard').style.display = '';
+    pollRunStatus(data.run_id);
+  })
+  .catch(function(err) { alert('Apply failed: ' + err); });
+}
+
+function pollRunStatus(runId) {
+  if (pollTimer) clearTimeout(pollTimer);
+  fetch(STATUS_URL_BASE + runId + '/status/')
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    renderProgress(data);
+    if (data.status !== 'done' && data.status !== 'error' && data.status !== 'applied') {
+      pollTimer = setTimeout(function() { pollRunStatus(runId); }, 2000);
+    }
+  });
+}
+
+function renderProgress(data) {
+  var steps = data.steps || [];
+  var html = steps.map(function(s) {
+    var iconClass = s.state === 'ok' ? 'ok' : s.state === 'error' ? 'error' : s.state === 'running' ? 'running' : 'pending';
+    var icon = s.state === 'ok' ? '✓' : s.state === 'error' ? '✗' : s.state === 'running' ? '⟳' : '○';
+    return '<div class="progress-step"><div class="step-icon ' + iconClass + '">' + icon + '</div>' +
+           '<div><div style="font-size:.83rem;color:#e6edf3;">' + escHtml(s.name) + '</div>' +
+           (s.message ? '<div style="font-size:.75rem;color:#6e7681;">' + escHtml(s.message) + '</div>' : '') +
+           '</div></div>';
+  }).join('');
+  document.getElementById('progressSteps').innerHTML = html || '<div class="text-muted" style="font-size:.8rem;">Waiting for steps…</div>';
+  document.getElementById('runLog').textContent = data.log || '';
+  document.getElementById('runLog').scrollTop = document.getElementById('runLog').scrollHeight;
+}
+
+function loadTemplate(tmplId) {
+  window.location.href = '/test-setup/' + tmplId + '/';
+}
+
+// ── Topology upload ──────────────────────────────────────────────────────────
+function uploadTopology() {
+  var topoFile = document.getElementById('topoFile').files[0];
+  if (!topoFile) { alert('Select a topology JSON file'); return; }
+  var formData = new FormData();
+  formData.append('topo_file', topoFile);
+  var siteFile = document.getElementById('siteFile').files[0];
+  if (siteFile) formData.append('site_file', siteFile);
+  var name = document.getElementById('topoName').value.trim();
+  if (name) formData.append('name', name);
+  if (document.getElementById('replaceCheck').checked) formData.append('replace', '1');
+
+  var msg = document.getElementById('uploadMsg');
+  msg.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Importing…';
+  msg.style.color = '#58a6ff';
+
+  fetch(IMPORT_SITE_URL, {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+    body: formData,
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.ok) {
+      msg.style.color = '#7ee787';
+      msg.innerHTML = '<i class="fas fa-check-circle me-1"></i>' + data.msg;
+      setTimeout(function() { window.location.href = data.redirect; }, 800);
+    } else {
+      msg.style.color = '#f85149';
+      msg.innerHTML = '<i class="fas fa-times-circle me-1"></i>' + escHtml(data.error);
+    }
+  })
+  .catch(function(err) {
+    msg.style.color = '#f85149';
+    msg.innerHTML = 'Error: ' + err;
+  });
+}
+</script>
+{% endblock %}

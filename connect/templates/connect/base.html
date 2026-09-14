@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+{% load static %}
+{% static 'branding/mark-light-scheme.png' as brand_light %}
+{% static 'branding/mark-dark-scheme.png' as brand_dark %}
+{% static 'branding/mark-light-favicon.png' as favicon_light %}
+{% static 'branding/mark-dark-favicon.png' as favicon_dark %}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light dark">
+    <title>{% block title %}LabVault{% endblock %}</title>
+    {# Favicon + sidebar scheme: flip light/dark branding on every full page load (localStorage lvRefreshBrandFlip). #}
+    <script>
+    (function () {
+        var L = "{{ favicon_light }}", D = "{{ favicon_dark }}";
+        var k = "lvRefreshBrandFlip";
+        var prev = localStorage.getItem(k);
+        var useDark = prev === "1";
+        localStorage.setItem(k, useDark ? "0" : "1");
+        window.__lvBrandUseDark = useDark;
+        function setTabIcon() {
+            var base = useDark ? D : L;
+            var sep = base.indexOf("?") >= 0 ? "&" : "?";
+            var bust = "&_=" + Date.now();
+            var el = document.getElementById("lv-favicon");
+            if (el) el.remove();
+            var link = document.createElement("link");
+            link.id = "lv-favicon";
+            link.rel = "icon";
+            link.type = "image/png";
+            link.setAttribute("sizes", "128x128");
+            link.href = base + sep + "t=" + (useDark ? "d" : "l") + "&v=5" + bust;
+            document.head.appendChild(link);
+        }
+        setTabIcon();
+    })();
+    </script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --nc-primary: #0065A3;
+            --nc-dark: #003B5C;
+            --nc-light: #E8F4FD;
+            --sidebar-width: 260px;
+            /* Keysight brand palette */
+            --ks-red: #E31937;
+            --ks-accent: #E31937;
+            --ks-blue: #005EB8;
+            --ks-dark: #1A1A1A;
+            --ks-light: #FFF5F6;
+            --ks-gray: #666;
+            --ks-lightgray: #F5F5F5;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: #f0f2f5;
+            margin: 0; min-height: 100vh;
+        }
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width); height: 100vh; position: fixed;
+            top: 0; left: 0;
+            background: linear-gradient(180deg, var(--nc-dark) 0%, #001f33 100%);
+            color: #fff; overflow-y: auto; z-index: 1000;
+            transition: transform 0.3s ease; display: flex; flex-direction: column;
+        }
+        .sidebar.collapsed { transform: translateX(-100%); }
+        .sidebar-brand {
+            padding: 20px; display: flex; align-items: center; gap: 12px;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        .sidebar-brand h4 { margin: 0; font-weight: 700; font-size: 1.1rem; }
+        .sidebar-brand .brand-icon {
+            width: 44px; height: 44px; flex-shrink: 0;
+            display: flex; align-items: center; justify-content: center;
+            background: transparent;
+            border-radius: 12px;
+        }
+        .sidebar-brand .brand-icon img {
+            width: 40px; height: 40px; object-fit: contain;
+            display: block;
+        }
+        /* Brand mark: pulse ring on wrapper (box-shadow works on dark sidebar; filter on img often invisible). */
+        @keyframes lv-brand-pulse {
+            0%, 100% {
+                transform: scale(1);
+                box-shadow: 0 0 0 0 rgba(227, 25, 55, 0), 0 0 0 0 rgba(0, 94, 184, 0);
+            }
+            40% {
+                transform: scale(1.1);
+                box-shadow: 0 0 0 3px rgba(227, 25, 55, 0.55), 0 0 22px rgba(227, 25, 55, 0.45);
+            }
+            70% {
+                transform: scale(1.06);
+                box-shadow: 0 0 0 2px rgba(0, 94, 184, 0.5), 0 0 18px rgba(0, 94, 184, 0.35);
+            }
+        }
+        .sidebar-brand .brand-icon.lv-brand-anim {
+            animation: lv-brand-pulse 2.6s ease-in-out infinite;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .sidebar-brand .brand-icon.lv-brand-anim {
+                animation: none;
+                box-shadow: none;
+            }
+        }
+        .sidebar-nav { flex: 1; padding: 12px 0; }
+        .sidebar-nav .nav-section {
+            padding: 8px 20px 4px; font-size: 0.7rem; text-transform: uppercase;
+            letter-spacing: 1px; color: rgba(255,255,255,0.4); font-weight: 600;
+        }
+        .sidebar-nav a, .sidebar-nav .nav-link-wrap {
+            display: flex; align-items: center; gap: 10px; padding: 10px 20px;
+            color: rgba(255,255,255,0.75); text-decoration: none; font-size: 0.88rem;
+            transition: all 0.2s; border-left: 3px solid transparent;
+        }
+        .sidebar-nav a:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .sidebar-nav a.active { background: rgba(255,255,255,0.1); color: #fff; border-left-color: var(--nc-primary); }
+        .sidebar-nav a i { width: 20px; text-align: center; }
+        .sidebar-footer {
+            padding: 16px 20px; border-top: 1px solid rgba(255,255,255,0.1); font-size: 0.8rem;
+        }
+        .sidebar-footer a { color: rgba(255,255,255,0.6); text-decoration: none; }
+        .sidebar-footer a:hover { color: #fff; }
+        .sidebar-about {
+            margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);
+            font-size: 0.75rem;
+        }
+        .sidebar-about a { color: rgba(255,255,255,0.5); }
+        .sidebar-about a:hover { color: #fff; }
+        /* Main */
+        .main-content { margin-left: var(--sidebar-width); transition: margin-left 0.3s ease; min-height: 100vh; }
+        .main-content.expanded { margin-left: 0; }
+        .topbar {
+            background: #fff; padding: 12px 24px; display: flex; align-items: center;
+            justify-content: space-between; border-bottom: 1px solid #e0e0e0;
+            position: sticky; top: 0; z-index: 999;
+        }
+        .topbar-left { display: flex; align-items: center; gap: 16px; }
+        .toggle-btn {
+            background: none; border: none; font-size: 1.2rem; cursor: pointer;
+            color: #555; padding: 4px 8px; border-radius: 6px;
+        }
+        .toggle-btn:hover { background: #f0f0f0; }
+        .page-title { font-size: 1.3rem; font-weight: 600; color: #333; margin: 0; }
+        .content-area { padding: 24px; }
+        /* Cards */
+        .stat-card {
+            background: #fff; border-radius: 12px; padding: 20px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: transform 0.2s;
+        }
+        .stat-card:hover { transform: translateY(-2px); }
+        .stat-card .stat-icon {
+            width: 48px; height: 48px; border-radius: 10px;
+            display: flex; align-items: center; justify-content: center; font-size: 1.3rem;
+        }
+        .stat-card .stat-value { font-size: 1.8rem; font-weight: 700; color: #333; }
+        .stat-card .stat-label { font-size: 0.85rem; color: #888; }
+        .card-custom {
+            background: #fff; border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08); border: none;
+        }
+        .card-custom .card-header {
+            background: transparent; border-bottom: 1px solid #eee;
+            font-weight: 600; padding: 16px 20px;
+        }
+        /* Tables */
+        .table-devices { margin: 0; }
+        .table-devices th {
+            font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;
+            color: #888; font-weight: 600; border-bottom: 2px solid #eee;
+        }
+        .table-devices td { vertical-align: middle; }
+        /* Badges */
+        .badge-online { background: #22c55e; color: #fff; }
+        .badge-offline { background: #ef4444; color: #fff; }
+        .badge-auth_failed { background: #dc2626; color: #fff; }
+        .badge-unknown { background: #f59e0b; color: #fff; }
+        .badge-maintenance { background: #6366f1; color: #fff; }
+        .badge-arista { background: #2196F3; color: #fff; }
+        .badge-sonic { background: #4CAF50; color: #fff; }
+        .badge-fortigate { background: #FF5722; color: #fff; }
+        .badge-paloalto { background: #FF9800; color: #fff; }
+        .badge-keysight { background: #9C27B0; color: #fff; }
+        .badge-ocs { background: #06b6d4; color: #0f172a; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.green { background: #22c55e; }
+        .status-dot.red { background: #ef4444; }
+        .status-dot.yellow { background: #eab308; }
+        .status-dot.amber { background: #f59e0b; }
+        .status-dot.off { background: #555; }
+        .alert { border-radius: 10px; border: none; }
+        .btn-nc { background: var(--nc-primary); color: #fff; border: none; border-radius: 8px; padding: 8px 20px; font-weight: 500; }
+        .btn-nc:hover { background: var(--nc-dark); color: #fff; }
+        .vendor-icon { width: 28px; height: 28px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #fff; }
+        /* Terminal */
+        .terminal-output {
+            background: #1a1a2e; color: #00ff41; font-family: 'Consolas', 'Courier New', monospace;
+            padding: 20px; border-radius: 8px; max-height: 500px; overflow-y: auto;
+            white-space: pre-wrap; font-size: 0.9rem; line-height: 1.5;
+        }
+        .diff-add { background: #d4edda; color: #155724; }
+        .diff-remove { background: #f8d7da; color: #721c24; }
+        .diff-header { background: #e2e3e5; color: #383d41; font-weight: bold; }
+        /* Responsive */
+        @media (max-width: 768px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.show { transform: translateX(0); }
+            .main-content { margin-left: 0 !important; }
+        }
+        .sidebar::-webkit-scrollbar { width: 6px; }
+        .sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+        .device-nav .nav-link { color: #555; border-radius: 8px 8px 0 0; padding: 10px 20px; font-weight: 500; }
+        .device-nav .nav-link.active { background: var(--nc-primary); color: #fff; }
+        .alert-badge { position: relative; }
+        .alert-badge .badge-count {
+            position: absolute; top: -6px; right: -8px; background: #ef4444; color: #fff;
+            font-size: 0.65rem; padding: 2px 6px; border-radius: 10px;
+        }
+        /* Collapsible sidebar tree */
+        .sidebar-toggle {
+            display: flex; align-items: center; gap: 6px; padding: 7px 20px;
+            cursor: pointer; user-select: none; color: rgba(255,255,255,0.6);
+            font-size: 0.78rem; font-weight: 600; transition: all 0.15s;
+        }
+        .sidebar-toggle:hover { color: #fff; background: rgba(255,255,255,0.05); }
+        .sidebar-toggle .chevron {
+            font-size: 0.55rem; transition: transform 0.2s; width: 12px; text-align: center;
+        }
+        .sidebar-toggle.expanded .chevron { transform: rotate(90deg); }
+        .sidebar-toggle .toggle-count {
+            margin-left: auto; font-size: 0.6rem; background: rgba(255,255,255,0.12);
+            padding: 1px 6px; border-radius: 8px; color: rgba(255,255,255,0.5);
+        }
+        /* Native button: reliable click target (div + onclick can miss child hits in some cases) */
+        button.sidebar-toggle {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            margin: 0;
+            border: none;
+            background: transparent;
+            font: inherit;
+            color: inherit;
+            text-align: left;
+        }
+        .sidebar-group { overflow: hidden; }
+        .sidebar-group.collapsed { display: none; }
+        .sidebar-group a {
+            padding-left: 38px !important; font-size: 0.82rem !important;
+        }
+        .sidebar-group .sidebar-group a {
+            padding-left: 50px !important; font-size: 0.78rem !important;
+        }
+        /* Sidebar resize handle */
+        .sidebar-resize-handle {
+            position: absolute; top: 0; right: 0; width: 5px; height: 100%;
+            cursor: col-resize; background: transparent; z-index: 1001;
+            transition: background .15s;
+        }
+        .sidebar-resize-handle:hover, .sidebar-resize-handle.active {
+            background: rgba(255,255,255,0.2);
+        }
+        /* Sortable table columns */
+        th[data-sortable] { cursor:pointer; user-select:none; position:relative; }
+        th[data-sortable]:hover { background:#f0f0f0; }
+        th[data-sortable]::after { content:' \2195'; color:#ccc; font-size:.7em; }
+        th[data-sortable].sort-asc::after { content:' \2191'; color:#333; }
+        th[data-sortable].sort-desc::after { content:' \2193'; color:#333; }
+    </style>
+    {% block extra_css %}{% endblock %}
+    {% block head_extra %}{% endblock %}
+</head>
+<body {% block body_attrs %}{% endblock %}>
+    <!-- Sidebar -->
+    <div class="sidebar" id="sidebar">
+        <div class="sidebar-resize-handle" id="sidebarResizeHandle"></div>
+        <div class="sidebar-brand">
+            <div class="brand-icon lv-brand-anim" aria-hidden="true">
+                <img id="lv-sidebar-brand-img" src="" width="40" height="40" alt="" decoding="async" fetchpriority="high">
+            </div>
+            <script>
+            (function () {
+                var Ls = "{{ brand_light }}", Ds = "{{ brand_dark }}";
+                var img = document.getElementById("lv-sidebar-brand-img");
+                if (img && window.__lvBrandUseDark !== undefined) {
+                    img.src = window.__lvBrandUseDark ? Ds : Ls;
+                }
+            })();
+            </script>
+            <h4>LabVault</h4>
+        </div>
+        {% load sidebar_tags %}
+        <nav class="sidebar-nav">
+            <div class="nav-section">Main</div>
+            <a href="{% url 'dashboard' %}" class="{% if request.resolver_match.url_name == 'dashboard' or request.resolver_match.url_name == 'home' %}active{% endif %}">
+                <i class="fas fa-tachometer-alt"></i> Dashboard
+            </a>
+            <a href="{% url 'keysight_dashboard' %}" class="{% if request.resolver_match.url_name == 'keysight_dashboard' %}active{% endif %}">
+                <i class="fas fa-th-large"></i> KS Dashboard
+            </a>
+            <a href="{% url 'keysight_hardware_inventory' %}" class="{% if request.resolver_match.url_name == 'keysight_hardware_inventory' %}active{% endif %}">
+                <i class="fas fa-warehouse"></i> HW Inventory
+            </a>
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="nav-management" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                MANAGEMENT
+                <span class="toggle-count">11</span>
+            </button>
+            <div class="sidebar-group collapsed" id="nav-management">
+            <a href="{% url 'keysight_reservations' %}" class="{% if request.resolver_match.url_name == 'keysight_reservations' %}active{% endif %}">
+                <i class="fas fa-calendar-check"></i> Reservations
+            </a>
+            <a href="{% url 'keysight_bmc_associations' %}" class="{% if request.resolver_match.url_name == 'keysight_bmc_associations' %}active{% endif %}">
+                <i class="fas fa-project-diagram"></i> BMC Associations
+            </a>
+            <a href="{% url 'keysight_node_inventory' %}" class="{% if request.resolver_match.url_name == 'keysight_node_inventory' %}active{% endif %}">
+                <i class="fas fa-microchip"></i> Node &amp; BMC
+            </a>
+            <a href="{% url 'keysight_bmc_board' %}" class="{% if request.resolver_match.url_name == 'keysight_bmc_board' %}active{% endif %}">
+                <i class="fas fa-satellite-dish"></i> BMC Board
+            </a>
+            <a href="{% url 'access_by_ip' %}" class="{% if request.resolver_match.url_name in 'access_by_ip,audit_log' %}active{% endif %}">
+                <i class="fas fa-shield-alt"></i> Audit Log
+            </a>
+            <a href="{% url 'add_device' %}" class="{% if request.resolver_match.url_name == 'add_device' %}active{% endif %}">
+                <i class="fas fa-plus-circle"></i> Add Device
+            </a>
+            <a href="{% url 'topology' %}" class="{% if request.resolver_match.url_name == 'topology' %}active{% endif %}">
+                <i class="fas fa-project-diagram"></i> Topology Map
+            </a>
+            <a href="{% url 'lab_topology_list' %}" class="{% if 'lab_topology' in request.resolver_match.url_name and 'fabric' not in request.resolver_match.url_name %}active{% endif %}">
+                <i class="fas fa-draw-polygon"></i> Lab Topology
+            </a>
+            <a href="{% if topo %}{% url 'lab_fabric_map' topo.id %}{% else %}{% url 'lab_topology_list' %}{% endif %}" class="{% if request.resolver_match.url_name == 'lab_fabric_map' %}active{% endif %}">
+                <i class="fas fa-project-diagram"></i> Fabric Map
+            </a>
+            <a href="{% if topo %}{% url 'lab_port_fabric' topo.id %}{% else %}{% url 'lab_topology_list' %}{% endif %}" class="{% if request.resolver_match.url_name == 'lab_port_fabric' %}active{% endif %}">
+                <i class="fas fa-ethernet"></i> Port Fabric
+            </a>
+            <a href="{% url 'device_compare' %}" class="{% if request.resolver_match.url_name == 'device_compare' %}active{% endif %}">
+                <i class="fas fa-columns"></i> Compare Devices
+            </a>
+            </div>
+
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="nav-reports" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                REPORTS
+                <span class="toggle-count">4</span>
+            </button>
+            <div class="sidebar-group collapsed" id="nav-reports">
+            <a href="{% url 'fleet_report' %}" class="{% if request.resolver_match.url_name == 'fleet_report' %}active{% endif %}">
+                <i class="fas fa-chart-bar"></i> Fleet Report
+            </a>
+            <a href="{% url 'inventory_report' %}" class="{% if request.resolver_match.url_name == 'inventory_report' %}active{% endif %}">
+                <i class="fas fa-server"></i> Inventory
+            </a>
+            <a href="{% url 'sla_report' %}" class="{% if request.resolver_match.url_name == 'sla_report' %}active{% endif %}">
+                <i class="fas fa-heartbeat"></i> SLA Report
+            </a>
+            <a href="{% url 'change_log_report' %}" class="{% if request.resolver_match.url_name == 'change_log_report' %}active{% endif %}">
+                <i class="fas fa-history"></i> Change Log
+            </a>
+            </div>
+
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="nav-monitoring" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                MONITORING
+                <span class="toggle-count">2</span>
+            </button>
+            <div class="sidebar-group collapsed" id="nav-monitoring">
+            <a href="{% url 'alerts' %}" class="{% if request.resolver_match.url_name == 'alerts' %}active{% endif %} alert-badge">
+                <i class="fas fa-bell"></i> Alerts
+            </a>
+            <a href="{% url 'compliance' %}" class="{% if request.resolver_match.url_name == 'compliance' %}active{% endif %}">
+                <i class="fas fa-check-double"></i> Compliance
+            </a>
+            </div>
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="devices-main" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                DEVICES
+                <span class="toggle-count">{{ devices|length }}</span>
+            </button>
+            <div class="sidebar-group collapsed" id="devices-main">
+            {% for d in devices %}
+            <a href="{% url 'device_detail' d.id %}" class="{% if device.id == d.id %}active{% endif %}" title="{{ d.ip_address }}">
+                <i class="fas {{ d.vendor_icon }}"></i>
+                <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ d.hostname|default:d.ip_address }}</span>
+                <span class="status-dot {% if d.status == 'online' %}green{% elif d.status == 'offline' %}red{% elif d.status == 'maintenance' %}amber{% else %}yellow{% endif %}" style="margin-left:auto;flex-shrink:0;"></span>
+            </a>
+            {% empty %}
+            <div style="padding: 10px 20px; color: rgba(255,255,255,0.4); font-size: 0.85rem;">No devices yet</div>
+            {% endfor %}
+            </div>
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="nav-config" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                CONFIG
+                <span class="toggle-count">1</span>
+            </button>
+            <div class="sidebar-group collapsed" id="nav-config">
+            <a href="{% url 'config_search' %}" class="{% if request.resolver_match.url_name == 'config_search' %}active{% endif %}">
+                <i class="fas fa-search"></i> Config Search
+            </a>
+            </div>
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="nav-data" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                DATA
+                <span class="toggle-count">3</span>
+            </button>
+            <div class="sidebar-group collapsed" id="nav-data">
+            <a href="{% url 'import_devices' %}" class="{% if request.resolver_match.url_name == 'import_devices' %}active{% endif %}">
+                <i class="fas fa-file-import"></i> Import
+            </a>
+            <a href="{% url 'export_labvault_dataset' %}" class="{% if request.resolver_match.url_name == 'export_labvault_dataset' %}active{% endif %}">
+                <i class="fas fa-file-export"></i> Export
+            </a>
+            <a href="{% url 'audit_log' %}" class="{% if request.resolver_match.url_name == 'audit_log' %}active{% endif %}">
+                <i class="fas fa-clipboard-list"></i> Audit Log
+            </a>
+            </div>
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="ks-main" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                KEYSIGHT / IXIA
+                <span class="toggle-count">{{ keysight_chassis|length }}</span>
+            </button>
+            <div class="sidebar-group collapsed" id="ks-main">
+                <a href="{% url 'keysight_dashboard' %}" class="{% if 'keysight_dashboard' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-th-large"></i> KS Dashboard
+                </a>
+                <a href="{% url 'keysight_add_chassis' %}" class="{% if 'keysight_add_chassis' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-plus-circle"></i> Add Chassis
+                </a>
+                <a href="{% url 'keysight_discover' %}" class="{% if 'keysight_discover' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-search-location"></i> Discover
+                </a>
+
+                {% regroup keysight_chassis by get_chassis_type_display as chassis_groups %}
+                {% for group in chassis_groups %}
+                {% sidebar_group_id group.grouper as grp_id %}
+                <button type="button" class="sidebar-toggle" data-toggle-id="ks-type-{{ grp_id }}" aria-expanded="false" style="padding-left:28px; font-size:0.72rem;">
+                    <i class="fas fa-chevron-right chevron"></i>
+                    {{ group.grouper }}
+                    <span class="toggle-count">{{ group.list|length }}</span>
+                </button>
+                <div class="sidebar-group collapsed" id="ks-type-{{ grp_id }}">
+                    {% for kch in group.list %}
+                    <a href="{% url 'keysight_chassis_detail' kch.id %}" class="{% if request.resolver_match.url_name == 'keysight_chassis_detail' and chassis.id == kch.id %}active{% endif %}" title="{{ kch.ip_address }}">
+                        <i class="fas {{ kch.chassis_icon }}"></i>
+                        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ kch.hostname|default:kch.ip_address }}</span>
+                        <span class="status-dot {% if kch.status == 'online' %}green{% elif kch.status == 'offline' %}red{% elif kch.status == 'auth_failed' %}yellow{% else %}amber{% endif %}" style="margin-left:auto;flex-shrink:0;"></span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endfor %}
+
+                <a href="{% url 'keysight_deploy_page' %}" class="{% if 'keysight_deploy_page' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-rocket"></i> Deploy / Upgrade
+                </a>
+                <a href="{% url 'keysight_reservations' %}" class="{% if 'keysight_reservations' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-calendar-check"></i> Reservations
+                </a>
+                <a href="{% url 'keysight_bmc_associations' %}" class="{% if 'keysight_bmc_associations' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-project-diagram"></i> BMC Associations
+                </a>
+                <a href="{% url 'keysight_node_inventory' %}" class="{% if 'keysight_node_inventory' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-microchip"></i> Node &amp; BMC
+                </a>
+                <a href="{% url 'keysight_bmc_board' %}" class="{% if 'keysight_bmc_board' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-satellite-dish"></i> BMC Board
+                </a>
+                <a href="{% url 'keysight_hardware_inventory' %}" class="{% if 'keysight_hardware_inventory' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-warehouse"></i> HW Inventory
+                </a>
+                <a href="{% url 'keysight_audit_log' %}" class="{% if 'keysight_audit_log' == request.resolver_match.url_name %}active{% endif %}">
+                    <i class="fas fa-clipboard-list"></i> KS Audit Log
+                </a>
+            </div>
+
+
+            <button type="button" class="nav-section mt-3 sidebar-toggle" data-toggle-id="nav-admin" aria-expanded="false">
+                <i class="fas fa-chevron-right chevron"></i>
+                ADMIN
+                <span class="toggle-count">{% if show_breakglass_password_reset %}5{% else %}4{% endif %}</span>
+            </button>
+            <div class="sidebar-group collapsed" id="nav-admin">
+            {% if show_breakglass_password_reset %}
+            <a href="{% url 'breakglass_reset_user_password' %}" class="{% if request.resolver_match.url_name == 'breakglass_reset_user_password' %}active{% endif %}">
+                <i class="fas fa-user-shield"></i> Reset user password
+            </a>
+            {% endif %}
+            {% if user.is_staff %}
+            {% url 'diagnostics_center' as diagnostics_url %}
+            {% if diagnostics_url %}
+            <a href="{{ diagnostics_url }}" class="{% if request.resolver_match.url_name == 'diagnostics_center' or request.resolver_match.url_name == 'diagnostics_export' or request.resolver_match.url_name == 'diagnostics_bundle_export' %}active{% endif %}">
+                <i class="fas fa-stethoscope"></i> Diagnostics Center
+            </a>
+            {% endif %}
+            {% endif %}
+            <a href="{% url 'settings' %}" class="{% if request.resolver_match.url_name == 'settings' %}active{% endif %}">
+                <i class="fas fa-cog"></i> Settings
+            </a>
+            {% url 'about' as about_url %}
+            {% if about_url %}
+            <a href="{{ about_url }}" class="{% if request.resolver_match.url_name == 'about' %}active{% endif %}">
+                <i class="fas fa-info-circle"></i> About
+            </a>
+            {% endif %}
+            <a href="{% url 'fleet_swagger_ui' %}" target="_blank" class="{% if request.resolver_match.url_name == 'fleet_swagger_ui' %}active{% endif %}">
+                <i class="fas fa-book"></i> API Docs (Swagger)
+            </a>
+            <a href="{% url 'api_devices' %}" target="_blank"><i class="fas fa-code"></i> Devices JSON</a>
+            </div>
+        </nav>
+        <div class="sidebar-footer">
+            {% if user.is_authenticated %}
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <span><i class="fas fa-user me-1"></i> {{ user.username }}</span>
+                <span>
+                    {% if password_change_allowed %}
+                    <a href="{% url 'password_change' %}" class="me-2" style="font-size:.82rem;"><i class="fas fa-key me-1"></i>Password</a>
+                    {% endif %}
+                    <a href="{% url 'logout' %}"><i class="fas fa-sign-out-alt"></i> Logout</a>
+                </span>
+            </div>
+            {% endif %}
+            <div class="sidebar-about">
+                {% url 'about' as about_url %}
+                {% if about_url %}
+                <a href="{{ about_url }}"><i class="fas fa-info-circle me-1"></i>About LabVault</a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content" id="main-content">
+        {% block topbar %}
+        <div class="topbar {% block topbar_class %}{% endblock %}">
+            <div class="topbar-left">
+                <button class="toggle-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+                <h1 class="page-title">{% block page_title %}Dashboard{% endblock %}</h1>
+            </div>
+            <div class="topbar-right d-flex align-items-center gap-2">
+                {% block topbar_actions %}{% endblock %}
+            </div>
+        </div>
+        {% endblock %}
+        {% if messages %}
+        <div class="content-area" style="padding-bottom:0;">
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        <div class="content-area {% block content_area_class %}{% endblock %}">{% block content %}{% endblock %}</div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('collapsed');
+            document.getElementById('main-content').classList.toggle('expanded');
+        }
+
+        /* ---- Sidebar collapsible tree with localStorage persistence ---- */
+        function getSidebarState() {
+            try {
+                return JSON.parse(localStorage.getItem('lv_sidebar_state') || '{}');
+            } catch(e) { return {}; }
+        }
+        function saveSidebarState(state) {
+            localStorage.setItem('lv_sidebar_state', JSON.stringify(state));
+        }
+        function toggleSidebarGroup(toggleEl) {
+            var id = toggleEl.getAttribute('data-toggle-id');
+            if (!id) return;
+            var group = document.getElementById(id);
+            if (!group) return;
+            var isExpanded = !group.classList.contains('collapsed');
+            if (isExpanded) {
+                group.classList.add('collapsed');
+                toggleEl.classList.remove('expanded');
+                toggleEl.setAttribute('aria-expanded', 'false');
+            } else {
+                group.classList.remove('collapsed');
+                toggleEl.classList.add('expanded');
+                toggleEl.setAttribute('aria-expanded', 'true');
+            }
+            var state = getSidebarState();
+            state[id] = !isExpanded;
+            saveSidebarState(state);
+        }
+        /* Restore sidebar state on load (only keys we have saved — keep template defaults otherwise) */
+        document.addEventListener('DOMContentLoaded', function() {
+            var state = getSidebarState();
+            document.querySelectorAll('.sidebar-toggle[data-toggle-id]').forEach(function(toggleEl) {
+                var id = toggleEl.getAttribute('data-toggle-id');
+                var group = document.getElementById(id);
+                if (!group) return;
+                if (Object.prototype.hasOwnProperty.call(state, id)) {
+                    if (state[id]) {
+                        group.classList.remove('collapsed');
+                        toggleEl.classList.add('expanded');
+                        toggleEl.setAttribute('aria-expanded', 'true');
+                    } else {
+                        group.classList.add('collapsed');
+                        toggleEl.classList.remove('expanded');
+                        toggleEl.setAttribute('aria-expanded', 'false');
+                    }
+                } else {
+                    toggleEl.setAttribute('aria-expanded', group.classList.contains('collapsed') ? 'false' : 'true');
+                }
+            });
+            /* Open every nested group that contains the active link (e.g. KEYSIGHT → chassis type) */
+            document.querySelectorAll('.sidebar-group a.active').forEach(function(link) {
+                var g = link.closest('.sidebar-group');
+                while (g && g.id) {
+                    g.classList.remove('collapsed');
+                    var btn = document.querySelector('[data-toggle-id="' + g.id.replace(/"/g, '') + '"]');
+                    if (btn) {
+                        btn.classList.add('expanded');
+                        btn.setAttribute('aria-expanded', 'true');
+                    }
+                    state[g.id] = true;
+                    var parent = g.parentElement;
+                    g = parent ? parent.closest('.sidebar-group') : null;
+                }
+            });
+            saveSidebarState(state);
+            /* Per-button handlers (clicks on chevron/label/count always hit the button’s listener) */
+            document.querySelectorAll('.sidebar-toggle[data-toggle-id]').forEach(function(btn) {
+                btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    toggleSidebarGroup(btn);
+                });
+            });
+            /* Restore sidebar width */
+            var savedW = localStorage.getItem('lv_sidebar_width');
+            if (savedW) { document.documentElement.style.setProperty('--sidebar-width', savedW + 'px'); }
+        });
+
+        /* ---- Sidebar drag-to-resize ---- */
+        (function() {
+            var handle = document.getElementById('sidebarResizeHandle');
+            if (!handle) return;
+            var dragging = false;
+            handle.addEventListener('mousedown', function(e) {
+                e.preventDefault(); dragging = true;
+                handle.classList.add('active');
+                document.body.style.cursor = 'col-resize';
+                document.body.style.userSelect = 'none';
+            });
+            document.addEventListener('mousemove', function(e) {
+                if (!dragging) return;
+                var w = Math.min(450, Math.max(200, e.clientX));
+                document.documentElement.style.setProperty('--sidebar-width', w + 'px');
+            });
+            document.addEventListener('mouseup', function() {
+                if (!dragging) return;
+                dragging = false;
+                handle.classList.remove('active');
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                var cur = getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width').trim();
+                localStorage.setItem('lv_sidebar_width', parseInt(cur));
+            });
+        })();
+    </script>
+    <script>
+    /* ── Sortable table columns ─────────────────────────────── */
+    (function(){
+        document.querySelectorAll('th[data-sortable]').forEach(function(th){
+            th.addEventListener('click', function(){
+                var table = th.closest('table');
+                if(!table) return;
+                var tbody = table.querySelector('tbody');
+                if(!tbody) return;
+                var idx = Array.from(th.parentNode.children).indexOf(th);
+                var isNum = th.dataset.sortType === 'number';
+                var asc = !th.classList.contains('sort-asc');
+
+                table.querySelectorAll('th[data-sortable]').forEach(function(h){
+                    h.classList.remove('sort-asc','sort-desc');
+                });
+                th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+
+                var rows = Array.from(tbody.querySelectorAll('tr'));
+                rows.sort(function(a,b){
+                    var aCell = a.children[idx], bCell = b.children[idx];
+                    if(!aCell || !bCell) return 0;
+                    var aVal = (aCell.textContent || '').trim();
+                    var bVal = (bCell.textContent || '').trim();
+                    if(isNum){
+                        var aN = parseFloat(aVal.replace(/[^\d.\-]/g,'')) || 0;
+                        var bN = parseFloat(bVal.replace(/[^\d.\-]/g,'')) || 0;
+                        return asc ? aN - bN : bN - aN;
+                    }
+                    return asc ? aVal.localeCompare(bVal, undefined, {numeric:true, sensitivity:'base'})
+                               : bVal.localeCompare(aVal, undefined, {numeric:true, sensitivity:'base'});
+                });
+                rows.forEach(function(r){ tbody.appendChild(r); });
+            });
+        });
+    })();
+    </script>
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

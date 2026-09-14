@@ -1,0 +1,343 @@
+{% extends "connect/base.html" %}
+{% block title %}Discover Chassis - LabVault{% endblock %}
+
+{% block page_title %}Subnet Discovery{% endblock %}
+
+{% block content %}
+
+<!-- Scan Form -->
+<div class="card-custom mb-4">
+    <div class="card-header"><i class="fas fa-radar me-2"></i>Scan Subnet</div>
+    <div class="card-body">
+        <form id="scanForm">
+            {% csrf_token %}
+            <div class="row g-3 align-items-end">
+                <div class="col-md-3">
+                    <label class="form-label" style="font-size:.82rem;">Subnet (CIDR)</label>
+                    <input type="text" class="form-control form-control-sm" id="scanSubnet"
+                           placeholder="e.g. 192.0.2.0/24" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" style="font-size:.82rem;">Username</label>
+                    <input type="text" class="form-control form-control-sm" id="scanUsername" value="admin">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label" style="font-size:.82rem;">Password</label>
+                    <input type="password" class="form-control form-control-sm" id="scanPassword" value="admin">
+                </div>
+                <div class="col-md-2">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="autoAddCheck">
+                        <label class="form-check-label" for="autoAddCheck" style="font-size:.82rem;">Auto-add discovered</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <button type="submit" class="btn btn-primary btn-sm w-100" id="btnScan"
+                            style="background:var(--ks-blue);border-color:var(--ks-blue);">
+                        <i class="fas fa-play me-1"></i>Scan Now
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Progress -->
+        <div id="scanProgress" class="mt-3" style="display:none;">
+            <div class="d-flex justify-content-between align-items-center mb-1" style="font-size:.8rem;">
+                <span id="scanStatusText">Scanning...</span>
+                <span id="scanProgressText">0 / 0</span>
+            </div>
+            <div class="progress" style="height:8px;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated" id="scanProgressBar"
+                     style="width:0%;background:var(--ks-blue);"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Discovery Results -->
+<div class="card-custom mb-4" id="resultsCard" style="display:none;">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-list me-2"></i>Discovered Devices (<span id="discoveredCount">0</span>)</span>
+        <button class="btn btn-sm btn-success" id="btnAddAll" style="display:none;">
+            <i class="fas fa-plus me-1"></i>Add All to Inventory
+        </button>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;" id="resultsTable">
+            <thead class="table-light">
+                <tr>
+                    <th><input type="checkbox" id="checkAllDiscovered"></th>
+                    <th>IP Address</th>
+                    <th>Platform</th>
+                    <th>Type Guess</th>
+                    <th>Auth</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Recurring Scan Configuration -->
+<div class="card-custom mb-4">
+    <div class="card-header"><i class="fas fa-clock me-2"></i>Recurring Scans</div>
+    <div class="card-body">
+        {% if scans %}
+        <table class="table table-sm table-hover mb-3" style="font-size:.82rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Subnet</th>
+                    <th>Auto-Scan</th>
+                    <th>Interval</th>
+                    <th>Last Scan</th>
+                    <th>Discovered</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for scan in scans %}
+                <tr>
+                    <td>{{ scan.subnet }}</td>
+                    <td>
+                        {% if scan.auto_scan %}
+                        <span class="badge bg-success">Enabled</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Disabled</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ scan.scan_interval }} min</td>
+                    <td>{% if scan.last_scan %}{{ scan.last_scan|date:"Y-m-d H:i" }}{% else %}-{% endif %}</td>
+                    <td>{{ scan.discovered_count }}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary rescan-btn" data-subnet="{{ scan.subnet }}"
+                                data-username="{{ scan.default_username }}" data-password="{{ scan.default_password }}"
+                                style="font-size:.7rem;">
+                            <i class="fas fa-sync me-1"></i>Scan
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning toggle-auto-btn"
+                                data-subnet="{{ scan.subnet }}" data-auto="{{ scan.auto_scan|yesno:'true,false' }}"
+                                data-interval="{{ scan.scan_interval }}"
+                                style="font-size:.7rem;">
+                            {% if scan.auto_scan %}<i class="fas fa-pause me-1"></i>Disable{% else %}<i class="fas fa-play me-1"></i>Enable{% endif %}
+                        </button>
+                        <form method="post" action="{% url 'keysight_discover_delete' scan.id %}" class="d-inline"
+                              onsubmit="return confirm('Delete this scan config?')">
+                            {% csrf_token %}
+                            <button class="btn btn-sm btn-outline-danger" style="font-size:.7rem;">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted" style="font-size:.82rem;">No recurring scans configured. Use the scan form above to discover devices and they will be saved here for recurring scans.</p>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const csrfToken = '{{ csrf_token }}';
+let currentScanId = null;
+let pollTimer = null;
+let lastDiscovered = [];
+
+document.getElementById('scanForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const subnet = document.getElementById('scanSubnet').value.trim();
+    const username = document.getElementById('scanUsername').value.trim();
+    const password = document.getElementById('scanPassword').value.trim();
+    const autoAdd = document.getElementById('autoAddCheck').checked;
+
+    if (!subnet) return;
+
+    const form = new FormData();
+    form.append('subnet', subnet);
+    form.append('username', username);
+    form.append('password', password);
+    form.append('auto_add', autoAdd ? 'true' : 'false');
+
+    document.getElementById('btnScan').disabled = true;
+    document.getElementById('scanProgress').style.display = 'block';
+    document.getElementById('scanStatusText').textContent = 'Starting scan...';
+    document.getElementById('scanProgressBar').style.width = '0%';
+    document.getElementById('resultsCard').style.display = 'none';
+
+    fetch('{% url "keysight_discover_scan" %}', {
+        method: 'POST',
+        headers: {'X-CSRFToken': csrfToken},
+        body: form,
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            currentScanId = data.scan_id;
+            pollScanStatus();
+        } else {
+            alert('Scan failed: ' + (data.error || 'Unknown error'));
+            document.getElementById('btnScan').disabled = false;
+            document.getElementById('scanProgress').style.display = 'none';
+        }
+    })
+    .catch(e => {
+        alert('Request failed: ' + e);
+        document.getElementById('btnScan').disabled = false;
+        document.getElementById('scanProgress').style.display = 'none';
+    });
+});
+
+function pollScanStatus() {
+    if (!currentScanId) return;
+    fetch(`/keysight/discover/scan/${currentScanId}/status/`)
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success) return;
+            const total = data.total || 1;
+            const progress = data.progress || 0;
+            const pct = Math.round((progress / total) * 100);
+            document.getElementById('scanProgressBar').style.width = pct + '%';
+            document.getElementById('scanProgressText').textContent = progress + ' / ' + total;
+            document.getElementById('scanStatusText').textContent =
+                data.state === 'completed' ? 'Scan complete!' :
+                data.state === 'error' ? 'Scan error: ' + (data.error || '') :
+                'Scanning (' + data.discovered.length + ' found)...';
+
+            if (data.state === 'completed' || data.state === 'error') {
+                document.getElementById('btnScan').disabled = false;
+                if (data.state === 'completed') {
+                    document.getElementById('scanProgressBar').classList.remove('progress-bar-animated');
+                    showResults(data.discovered || []);
+                    // Auto-add if checked
+                    if (document.getElementById('autoAddCheck').checked && data.discovered.length > 0) {
+                        addDevices(data.discovered);
+                    }
+                }
+            } else {
+                pollTimer = setTimeout(pollScanStatus, 1000);
+            }
+        })
+        .catch(() => {
+            pollTimer = setTimeout(pollScanStatus, 2000);
+        });
+}
+
+function showResults(discovered) {
+    lastDiscovered = discovered;
+    document.getElementById('resultsCard').style.display = 'block';
+    document.getElementById('discoveredCount').textContent = discovered.length;
+    const tbody = document.querySelector('#resultsTable tbody');
+    tbody.innerHTML = '';
+
+    if (discovered.length > 0) {
+        document.getElementById('btnAddAll').style.display = '';
+    }
+
+    discovered.forEach(d => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td><input type="checkbox" class="disc-check" data-ip="${d.ip}" checked></td>
+            <td>${d.ip}</td>
+            <td><span class="badge ${d.platform === 'ixos' ? 'bg-primary' : 'bg-info'}">${d.platform}</span></td>
+            <td>${d.chassis_type_guess}</td>
+            <td>${d.auth_ok ? '<span class="badge bg-success">OK</span>' : '<span class="badge bg-warning text-dark">Failed</span>'}</td>
+            <td><span class="badge bg-success">Reachable</span></td>
+            <td><button class="btn btn-sm btn-outline-success add-single-btn" data-ip="${d.ip}"
+                        data-platform="${d.platform}" data-type="${d.chassis_type_guess}"
+                        style="font-size:.7rem;"><i class="fas fa-plus"></i></button></td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // Bind single-add buttons
+    document.querySelectorAll('.add-single-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const ip = this.dataset.ip;
+            const d = discovered.find(x => x.ip === ip);
+            if (d) addDevices([d]);
+        });
+    });
+}
+
+function addDevices(devices) {
+    const subnet = document.getElementById('scanSubnet').value.trim();
+    const username = document.getElementById('scanUsername').value.trim();
+    const password = document.getElementById('scanPassword').value.trim();
+
+    fetch('{% url "keysight_discover_add_devices" %}', {
+        method: 'POST',
+        headers: {
+            'X-CSRFToken': csrfToken,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            discovered: devices,
+            username: username,
+            password: password,
+            subnet: subnet,
+        }),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert(`Added ${data.added_count} device(s) to inventory.`);
+            if (data.added_count > 0) location.reload();
+        } else {
+            alert('Failed to add devices: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(e => alert('Request failed: ' + e));
+}
+
+document.getElementById('btnAddAll').addEventListener('click', function() {
+    const checked = document.querySelectorAll('.disc-check:checked');
+    const ips = Array.from(checked).map(c => c.dataset.ip);
+    const devices = lastDiscovered.filter(d => ips.includes(d.ip));
+    if (devices.length === 0) return alert('No devices selected.');
+    addDevices(devices);
+});
+
+document.getElementById('checkAllDiscovered').addEventListener('change', function() {
+    document.querySelectorAll('.disc-check').forEach(c => { c.checked = this.checked; });
+});
+
+// Rescan buttons
+document.querySelectorAll('.rescan-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        document.getElementById('scanSubnet').value = this.dataset.subnet;
+        document.getElementById('scanUsername').value = this.dataset.username;
+        document.getElementById('scanPassword').value = this.dataset.password;
+        document.getElementById('scanForm').dispatchEvent(new Event('submit'));
+    });
+});
+
+// Toggle auto-scan
+document.querySelectorAll('.toggle-auto-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const subnet = this.dataset.subnet;
+        const currentAuto = this.dataset.auto === 'true';
+        const interval = this.dataset.interval;
+        const form = new FormData();
+        form.append('subnet', subnet);
+        form.append('auto_scan', currentAuto ? 'false' : 'true');
+        form.append('scan_interval', interval);
+        fetch('{% url "keysight_discover_configure" %}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': csrfToken},
+            body: form,
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) location.reload();
+            else alert('Failed: ' + (data.error || ''));
+        })
+        .catch(e => alert('Error: ' + e));
+    });
+});
+</script>
+{% endblock %}

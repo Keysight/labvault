@@ -1,0 +1,71 @@
+{% extends "connect/base.html" %}
+{% block title %}Environment - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}{{ device.hostname|default:device.ip_address }} - Environment{% endblock %}
+{% block content %}
+<div class="mb-3">
+    <a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left"></i> Back to Device</a>
+</div>
+<div class="row g-4">
+    <div class="col-md-4">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-thermometer-half me-2 text-danger"></i>Temperature Sensors</div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Sensor</th><th>Value</th><th>Status</th></tr></thead>
+                    <tbody>
+                    {% for s in sensors %}
+                    <tr>
+                        <td>{{ s.name }}</td>
+                        <td>{{ s.value }}</td>
+                        <td><span class="badge {% if s.status == 'ok' %}bg-success{% else %}bg-danger{% endif %}">{{ s.status }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="3" class="text-center text-muted py-3">No sensor data</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-fan me-2 text-primary"></i>Fans</div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>Fan</th><th>Status</th></tr></thead>
+                    <tbody>
+                    {% for f in fans %}
+                    <tr>
+                        <td>{{ f.name }}</td>
+                        <td><span class="badge {% if f.status == 'ok' or f.status == 'Ok' %}bg-success{% else %}bg-warning{% endif %}">{{ f.status }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="2" class="text-center text-muted py-3">No fan data</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-4">
+        <div class="card card-custom">
+            <div class="card-header"><i class="fas fa-plug me-2 text-success"></i>Power Supplies</div>
+            <div class="card-body p-0">
+                <table class="table table-devices table-sm mb-0">
+                    <thead><tr><th>PSU</th><th>Status</th></tr></thead>
+                    <tbody>
+                    {% for p in power_supplies %}
+                    <tr>
+                        <td>{{ p.name }}</td>
+                        <td><span class="badge {% if p.status == 'ok' or p.status == 'powerOk' %}bg-success{% else %}bg-warning{% endif %}">{{ p.status }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="2" class="text-center text-muted py-3">No PSU data</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

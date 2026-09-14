@@ -1,0 +1,30 @@
+{% extends "connect/base.html" %}
+{% block title %}New Lab Topology{% endblock %}
+{% block page_title %}New Lab Topology{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card-custom">
+            <div class="card-header">Create empty lab topology</div>
+            <div class="card-body">
+                <form method="post">{% csrf_token %}
+                    <div class="mb-3">
+                        <label class="form-label">Name</label>
+                        <input type="text" name="name" class="form-control" value="My lab topology" maxlength="200">
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Description</label>
+                        <textarea name="description" class="form-control" rows="2"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">Tags (comma-separated)</label>
+                        <input type="text" name="tags" class="form-control" placeholder="ocs, photonic">
+                    </div>
+                    <button type="submit" class="btn btn-nc">Create</button>
+                    <a href="{% url 'lab_topology_list' %}" class="btn btn-outline-secondary">Cancel</a>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

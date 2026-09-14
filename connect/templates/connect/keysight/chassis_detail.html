@@ -1,0 +1,2062 @@
+{% extends "connect/base.html" %}
+{% load static ip_display %}
+{% block title %}{{ chassis.hostname|default:chassis.ip_address }} - LabVault{% endblock %}
+
+{% block extra_css %}
+<style>
+/* ============================================================
+   Keysight Chassis Diagram — Redesigned Theme
+   ============================================================ */
+
+/* ---- Chassis enclosure — simulates physical chassis ---- */
+.chassis-panel {
+    background: linear-gradient(180deg, #f8f9fb 0%, #f1f3f5 100%);
+    border-radius: 10px; padding: 16px;
+    color: #333; font-family: 'Segoe UI', system-ui, sans-serif;
+    border: 2px solid #d1d5db;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.06), 0 2px 8px rgba(0,0,0,.06);
+}
+.chassis-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-bottom: 10px; border-bottom: 2px solid #e5e7eb; margin-bottom: 12px;
+}
+.chassis-header .ch-title { font-size: 1rem; font-weight: 700; color: #111827; }
+.chassis-header .ch-meta { font-size: .74rem; color: #6b7280; }
+
+/* ---- Section dividers inside chassis ---- */
+.chassis-section-divider {
+    border: 0; border-top: 1px dashed #d1d5db; margin: 12px 0;
+}
+
+/* ---- Slot / Node rows (IxOS) ---- */
+.slot-row {
+    background: #fff; border-radius: 8px; margin-bottom: 8px; padding: 10px 14px;
+    border: 1px solid #e5e7eb; border-left: 4px solid #d1d5db;
+    box-shadow: 0 1px 2px rgba(0,0,0,.04);
+    transition: none;
+}
+.slot-row:hover { box-shadow: 0 1px 2px rgba(0,0,0,.04); }
+.slot-row.active { border-left-color: var(--ks-red, #E31937); background: #fff; }
+.slot-row.empty-slot { border-left-color: #e5e7eb; opacity: .55; }
+.slot-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.slot-label { font-weight: 700; font-size: .84rem; color: #1f2937; }
+.slot-card-type { font-size: .72rem; color: var(--ks-red, #E31937); font-weight: 600; }
+.slot-stats { font-size: .68rem; color: #6b7280; }
+
+/* ---- Management Slot — amber/gold accent (no transition flicker) ---- */
+.slot-row.mgmt-slot {
+    border: 2px solid #f59e0b; border-left: 5px solid #f59e0b;
+    background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 30%, #fff 100%);
+    padding: 12px 16px; margin-bottom: 12px;
+    box-shadow: 0 2px 8px rgba(245,158,11,.15);
+    border-radius: 10px;
+    transition: none;
+}
+/* Override base .slot-row:hover dark shadow — keep amber only */
+.slot-row.mgmt-slot:hover { box-shadow: 0 2px 8px rgba(245,158,11,.15); border-color: #f59e0b; background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 30%, #fff 100%); }
+.mgmt-section-title {
+    font-size: .74rem; font-weight: 700; color: #92400e; text-transform: uppercase;
+    letter-spacing: .6px; margin: 10px 0 6px; padding-bottom: 4px;
+    border-bottom: 2px solid #fbbf24; display: flex; align-items: center; gap: 4px;
+}
+.mgmt-info-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 6px 14px; font-size: .72rem; margin-bottom: 8px;
+    background: rgba(255,255,255,.6); border-radius: 6px; padding: 8px 10px;
+    border: 1px solid #fde68a;
+}
+.mgmt-info-grid .info-item { display: flex; gap: 6px; align-items: baseline; }
+.mgmt-info-grid .info-label { color: #92400e; white-space: nowrap; font-weight: 500; min-width: 55px; }
+.mgmt-info-grid .info-value { color: #1f2937; font-weight: 600; }
+
+/* ---- Compute Node cards — dark/red/white palette ---- */
+.compute-node-card {
+    background: #fff; border-radius: 8px; margin-bottom: 8px; padding: 10px 14px;
+    border: 1px solid #d1d5db; border-left: 4px solid #374151;
+    box-shadow: 0 1px 3px rgba(0,0,0,.05);
+    transition: none;
+}
+.compute-node-card:hover { box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+.compute-node-card.node-ready { border-left-color: var(--ks-red, #E31937); border-left-width: 5px; }
+.compute-node-card.node-error { border-left-color: #1f2937; border-left-width: 5px; background: #fef2f2; }
+.compute-node-card.node-hw-error { border-left-color: #f59e0b; border-left-width: 5px; background: #fffbeb; }
+.compute-node-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;
+}
+.compute-node-name { font-weight: 700; font-size: .84rem; color: #1f2937; }
+.compute-node-info {
+    display: flex; gap: 10px; flex-wrap: wrap; font-size: .68rem; color: #4b5563; margin-bottom: 6px;
+    background: rgba(243,244,246,.5); border-radius: 4px; padding: 4px 8px;
+}
+.compute-node-info span { display: inline-flex; align-items: center; gap: 3px; }
+
+/* App switcher — always visible */
+.node-actions-bar {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px;
+    padding: 6px 0; border-top: 1px solid #f3f4f6;
+}
+
+/* ---- Port grid — slightly larger, always-visible border ---- */
+.port-grid { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
+.port-cell {
+    width: 32px; height: 28px; border-radius: 4px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; cursor: pointer;
+    font-size: .58rem; font-weight: 600; border: 1.5px solid #d1d5db;
+    transition: none; position: relative; background: #f9fafb;
+}
+.port-cell:hover { box-shadow: none; border-color: #6b7280; z-index: 1050; }
+.port-cell.selected { border-color: var(--ks-red, #E31937); box-shadow: 0 0 8px rgba(227,25,55,.3); background: #fff; }
+.port-cell .p-num { font-size: .52rem; color: #4b5563; line-height: 1; }
+.port-cell .p-led { width: 7px; height: 7px; border-radius: 50%; margin-top: 2px; }
+/* LED functional colors */
+.p-led.green  { background: #16a34a; box-shadow: 0 0 5px #16a34a; }
+.p-led.red    { background: #dc2626; box-shadow: 0 0 5px #dc2626; }
+.p-led.yellow { background: #ca8a04; box-shadow: 0 0 4px #ca8a04; }
+.p-led.amber  { background: #d97706; box-shadow: 0 0 4px #d97706; }
+.p-led.off    { background: #9ca3af; }
+/* Subtle background tint for status */
+.port-cell:has(.p-led.green) { background: #ecfdf5; border-color: #86efac; }
+.port-cell:has(.p-led.red)   { background: #fef2f2; border-color: #fca5a5; }
+.port-cell:has(.p-led.yellow){ background: #fefce8; border-color: #fde047; }
+.port-cell:has(.p-led.amber) { background: #fff7ed; border-color: #fdba74; }
+/* Owned port */
+.port-cell.owned { border-color: #d97706; background: #fffbeb; }
+.port-cell.owned .p-num { color: #92400e; }
+
+/* ---- Port detail panel ---- */
+.port-detail-panel {
+    background: #fff; border-radius: 8px; padding: 14px;
+    display: none; margin-top: 10px; border: 1px solid #e5e7eb;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+.port-detail-panel.visible { display: block; }
+.port-detail-panel h6 { color: #111827; margin-bottom: 10px; font-size: .85rem; }
+.port-detail-row { display: flex; justify-content: space-between; font-size: .75rem; padding: 3px 0; }
+.port-detail-row .label { color: #6b7280; }
+.port-detail-row .value { color: #1f2937; font-weight: 600; }
+
+/* ---- Tooltip ---- */
+.port-tooltip {
+    position: absolute; bottom: 110%; left: 50%; transform: translateX(-50%);
+    background: #1f2937; color: #f9fafb; padding: 6px 10px; border-radius: 6px;
+    font-size: .62rem; white-space: nowrap; z-index: 1050; display: none;
+    pointer-events: none; box-shadow: 0 4px 12px rgba(0,0,0,.25);
+}
+.port-cell:hover .port-tooltip { display: block; }
+
+/* ---- FPGA / L23 engine grid ---- */
+.fpga-grid { display: flex; flex-wrap: wrap; gap: 6px; padding: 4px 0; }
+.fpga-tile {
+    width: 64px; min-height: 48px; border-radius: 6px; border: 2px solid #bfdbfe;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: .58rem; padding: 4px; background: #eff6ff; position: relative;
+    transition: none;
+}
+.fpga-tile .fpga-id { font-weight: 700; font-size: .65rem; color: #1e40af; }
+.fpga-tile .fpga-led { width: 7px; height: 7px; border-radius: 50%; margin: 2px 0; }
+.fpga-tile .fpga-detail { font-size: .5rem; color: #6b7280; text-align: center; line-height: 1.3; }
+.fpga-tile:hover { box-shadow: none; border-color: #60a5fa; }
+
+/* ---- BPS Topology slot tiles ---- */
+.bps-slot-tile {
+    background: #fff; border: 2px solid #e5e7eb; border-radius: 8px;
+    padding: 10px 12px; min-width: 160px; flex: 1;
+    transition: none;
+}
+.bps-slot-tile:hover { box-shadow: none; }
+.bps-slot-tile.bps-l23 { border-color: #3b82f6; background: linear-gradient(135deg, #eff6ff 0%, #fff 100%); }
+.bps-slot-tile.bps-l47 { border-color: #8b5cf6; background: linear-gradient(135deg, #f5f3ff 0%, #fff 100%); }
+.bps-slot-tile.bps-ixload { border-color: #f59e0b; background: linear-gradient(135deg, #fffbeb 0%, #fff 100%); }
+.bps-slot-title { font-weight: 700; font-size: .8rem; color: #111827; margin-bottom: 4px; }
+.bps-slot-meta { font-size: .68rem; color: #6b7280; }
+.bps-mode-badge {
+    display: inline-block; font-size: .62rem; font-weight: 600; padding: 2px 8px;
+    border-radius: 4px; margin-top: 4px;
+}
+.bps-mode-badge.l23 { background: #dbeafe; color: #1e40af; }
+.bps-mode-badge.l47 { background: #ede9fe; color: #6d28d9; }
+.bps-mode-badge.ixload { background: #fef3c7; color: #92400e; }
+.bps-mode-badge.qt { background: #fce7f3; color: #9d174d; }
+
+/* ---- Compact front-panel table ---- */
+.fp-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: .68rem; }
+.fp-table th {
+    background: #f3f4f6; font-weight: 700; font-size: .6rem; text-transform: uppercase;
+    letter-spacing: .4px; color: #6b7280; padding: 4px 8px; text-align: left;
+    border-bottom: 2px solid #e5e7eb; position: sticky; top: 0; z-index: 1;
+}
+.fp-table td { padding: 4px 8px; border-bottom: 1px solid #f3f4f6; vertical-align: middle; }
+.fp-table tr:hover td { background: #fafafa; }
+.fp-led { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.fp-led.green { background: #22c55e; box-shadow: 0 0 3px rgba(34,197,94,.4); }
+.fp-led.red { background: #ef4444; }
+.fp-led.mixed { background: #f59e0b; }
+.fp-led.off { background: #d1d5db; }
+.fp-mode-tag {
+    font-size: .58rem; font-weight: 700; padding: 1px 6px; border-radius: 3px;
+    background: #1f2937; color: #fff; letter-spacing: .2px; white-space: nowrap;
+}
+.fp-reserved-tag {
+    font-size: .55rem; padding: 1px 5px; border-radius: 3px;
+    background: var(--ks-red, #E31937); color: #fff; font-weight: 600;
+}
+.fp-free-tag {
+    font-size: .55rem; padding: 1px 5px; border-radius: 3px;
+    background: #e5e7eb; color: #9ca3af; font-weight: 500;
+}
+.fp-xcvr { font-size: .6rem; color: #6b7280; white-space: nowrap; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+.fp-xcvr b { color: #374151; font-weight: 600; }
+.fp-lane-chain { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+.fp-lane-chip {
+    display: inline-flex; align-items: center; gap: 3px; padding: 1px 5px;
+    border-radius: 3px; font-size: .58rem; font-weight: 600; border: 1px solid #e5e7eb;
+    background: #f9fafb; line-height: 1.4;
+}
+.fp-lane-chip.up { border-color: #86efac; background: #ecfdf5; color: #166534; }
+.fp-lane-chip.down { border-color: #fecaca; background: #fef2f2; color: #991b1b; }
+.fp-lane-chip .lc-led { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.fp-lane-chip .lc-led.green { background: #22c55e; }
+.fp-lane-chip .lc-led.red { background: #ef4444; }
+.fp-lane-chip .lc-led.off { background: #d1d5db; }
+.fp-lane-chip.reserved { outline: 1.5px solid #E31937; outline-offset: -1px; }
+
+/* ---- Firmware badges ---- */
+.fw-badges { display: none; margin-bottom: 4px; }
+.slot-row:hover .fw-badges, .fw-badges.show,
+.compute-node-card:hover .fw-badges { display: flex; flex-wrap: wrap; gap: 3px; }
+
+/* ---- Reservation badges ---- */
+.res-badge-slot {
+    display: inline-block; font-size: .58rem; padding: 2px 6px; border-radius: 4px;
+    background: #fbbf24; color: #1a1a1a; font-weight: 600; margin-left: 4px;
+}
+.res-badge-port {
+    position: absolute; top: -3px; right: -3px; width: 8px; height: 8px;
+    border-radius: 50%; background: #fbbf24; border: 1px solid #fff; z-index: 6;
+}
+.port-cell.reserved { border-color: #fbbf24 !important; }
+.res-chassis-banner {
+    background: linear-gradient(90deg, #fbbf2420, transparent);
+    border-left: 3px solid #fbbf24; padding: 8px 14px; margin-bottom: 10px;
+    border-radius: 6px; font-size: .78rem;
+}
+
+/* ---- Card header red accent ---- */
+.card-custom { border-top: 3px solid var(--ks-red, #E31937); }
+
+/* ---- Panel section label ---- */
+.panel-section-label {
+    font-size: .72rem; font-weight: 700; color: var(--ks-red, #E31937);
+    text-transform: uppercase; letter-spacing: .5px;
+    margin: 8px 0 4px; padding-bottom: 3px;
+    border-bottom: 1px solid #fecaca;
+}
+
+/* ---- Serial number badge (no truncation) ---- */
+.sn-badge {
+    font-family: 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
+    font-size: .62rem; word-break: break-all; overflow-wrap: anywhere;
+    max-width: 280px; display: inline-block; vertical-align: middle;
+}
+
+/* ---- Deployed apps table ---- */
+.deployed-apps-table { font-size: .75rem; }
+.deployed-apps-table td, .deployed-apps-table th { padding: 5px 10px; }
+
+/* ---- Selected count badge ---- */
+#selectedCount { font-size: .72rem; color: #6b7280; }
+
+/* ============================================================
+   Chassis-type-specific compact layouts
+   ============================================================ */
+
+/* -- Common compact overrides -- */
+.chassis-compact .chassis-header { padding-bottom: 6px; margin-bottom: 8px; }
+.chassis-compact .slot-row { padding: 6px 10px; margin-bottom: 4px; border-radius: 6px; }
+.chassis-compact .slot-header { margin-bottom: 4px; }
+.chassis-compact .slot-label { font-size: .78rem; }
+.chassis-compact .slot-stats { font-size: .62rem; }
+.chassis-compact .port-cell { width: 26px; height: 22px; border-radius: 3px; }
+.chassis-compact .port-cell .p-num { font-size: .48rem; }
+.chassis-compact .port-cell .p-led { width: 5px; height: 5px; margin-top: 1px; }
+.chassis-compact .port-grid { gap: 3px; padding: 2px 0; }
+.chassis-compact .compute-node-card { padding: 6px 10px; margin-bottom: 4px; border-radius: 6px; }
+.chassis-compact .compute-node-name { font-size: .76rem; }
+.chassis-compact .compute-node-info { font-size: .62rem; padding: 2px 6px; margin-bottom: 4px; }
+.chassis-compact .mgmt-info-grid { font-size: .66rem; gap: 4px 10px; padding: 6px 8px; }
+.chassis-compact .mgmt-section-title { font-size: .66rem; margin: 6px 0 4px; }
+.chassis-compact .fpga-tile { width: 50px; min-height: 36px; font-size: .52rem; padding: 2px; }
+.chassis-compact .fpga-tile .fpga-id { font-size: .58rem; }
+.chassis-compact .fpga-grid { gap: 4px; }
+.chassis-compact .sn-badge { font-size: .55rem; max-width: 200px; }
+.chassis-compact .fw-badges .badge { font-size: .45rem; padding: 0 3px; }
+.chassis-compact .slot-row.mgmt-slot { padding: 8px 12px; margin-bottom: 8px; }
+
+/* -- IxOS XGS12: vertical stack, ultra-compact slot rows -- */
+.chassis-xgs12 .slots-container { display: flex; flex-direction: column; gap: 2px; }
+.chassis-xgs12 .slot-row {
+    padding: 4px 8px; margin-bottom: 0; border-radius: 4px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+}
+.chassis-xgs12 .slot-header {
+    flex-shrink: 0; min-width: 180px; margin-bottom: 0;
+    display: flex; flex-direction: column; gap: 0;
+}
+.chassis-xgs12 .slot-header > div:first-child { display: flex; align-items: center; gap: 4px; }
+.chassis-xgs12 .slot-header > div:last-child { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.chassis-xgs12 .slot-label { font-size: .72rem; }
+.chassis-xgs12 .slot-card-type { font-size: .62rem; }
+.chassis-xgs12 .slot-stats { font-size: .58rem; }
+.chassis-xgs12 .port-grid { flex: 1; gap: 2px; padding: 0; flex-wrap: wrap; }
+.chassis-xgs12 .port-cell { width: 22px; height: 18px; border-radius: 2px; }
+.chassis-xgs12 .port-cell .p-num { font-size: .42rem; }
+.chassis-xgs12 .port-cell .p-led { width: 4px; height: 4px; margin-top: 0; }
+
+/* -- IxOS XGS2: two slots side by side -- */
+.chassis-xgs2 .slots-container {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+}
+.chassis-xgs2 .slot-row { margin-bottom: 0; }
+
+/* -- APS-M1010 & APS-M8400: XGS12-style compact compute nodes -- */
+.chassis-m1010 .compute-nodes-container,
+.chassis-m8400 .compute-nodes-container {
+    display: flex; flex-direction: column; gap: 2px;
+}
+.chassis-m1010 .compute-nodes-container > .compute-node-card,
+.chassis-m8400 .compute-nodes-container > .compute-node-card {
+    margin-bottom: 0; padding: 4px 8px; border-radius: 4px;
+    display: flex; align-items: center; gap: 8px; flex-wrap: nowrap;
+}
+.chassis-m1010 .compute-node-header,
+.chassis-m8400 .compute-node-header {
+    flex-shrink: 0; min-width: 200px; margin-bottom: 0;
+    display: flex; flex-direction: column; gap: 0;
+}
+.chassis-m1010 .compute-node-header > div:first-child,
+.chassis-m8400 .compute-node-header > div:first-child {
+    display: flex; align-items: center; gap: 4px;
+}
+.chassis-m1010 .compute-node-header > div:last-child,
+.chassis-m8400 .compute-node-header > div:last-child {
+    display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+}
+.chassis-m1010 .compute-node-name,
+.chassis-m8400 .compute-node-name { font-size: .72rem; }
+/* Hide info and action bars — show on hover */
+.chassis-m1010 .compute-node-info,
+.chassis-m8400 .compute-node-info {
+    display: none; font-size: .56rem; padding: 1px 4px; margin-bottom: 0; gap: 4px;
+}
+.chassis-m1010 .compute-node-card:hover .compute-node-info,
+.chassis-m8400 .compute-node-card:hover .compute-node-info { display: flex; }
+.chassis-m1010 .node-actions-bar,
+.chassis-m8400 .node-actions-bar {
+    display: none; padding: 2px 0; margin-bottom: 0;
+}
+.chassis-m1010 .compute-node-card:hover .node-actions-bar,
+.chassis-m8400 .compute-node-card:hover .node-actions-bar { display: flex; flex-wrap: wrap; gap: 4px; }
+/* Ultra-compact ports inline */
+.chassis-m1010 .port-cell,
+.chassis-m8400 .compute-node-card .port-cell { width: 22px; height: 18px; border-radius: 2px; }
+.chassis-m1010 .port-cell .p-num,
+.chassis-m8400 .compute-node-card .port-cell .p-num { font-size: .42rem; }
+.chassis-m1010 .port-cell .p-led,
+.chassis-m8400 .compute-node-card .port-cell .p-led { width: 4px; height: 4px; margin-top: 0; }
+.chassis-m1010 .port-grid,
+.chassis-m8400 .compute-node-card .port-grid { flex: 1; gap: 2px; padding: 0; flex-wrap: wrap; }
+/* Compact misc */
+.chassis-m1010 .panel-section-label,
+.chassis-m8400 .panel-section-label { font-size: .58rem; margin: 2px 0 1px; }
+.chassis-m1010 .compute-node-card .slot-stats,
+.chassis-m8400 .compute-node-card .slot-stats { font-size: .56rem; }
+.chassis-m1010 .compute-node-card .sn-badge,
+.chassis-m8400 .compute-node-card .sn-badge { font-size: .5rem; max-width: 150px; }
+.chassis-m1010 .compute-node-card .fw-badges,
+.chassis-m8400 .compute-node-card .fw-badges { display: none; }
+.chassis-m1010 .compute-node-card:hover .fw-badges,
+.chassis-m8400 .compute-node-card:hover .fw-badges { display: flex; flex-wrap: wrap; gap: 2px; }
+
+/* -- APS-M8400: front panel ports in compact strip -- */
+.chassis-m8400 .fp-port-strip {
+    display: flex; gap: 3px; flex-wrap: wrap; align-items: center;
+}
+.chassis-m8400 .fp-port-strip .port-cell { width: 30px; height: 26px; }
+/* Compact fp-table */
+.chassis-m8400 .fp-table { font-size: .64rem; }
+.chassis-m8400 .fp-table th { font-size: .56rem; padding: 2px 6px; }
+.chassis-m8400 .fp-table td { padding: 2px 6px; }
+</style>
+{% endblock %}
+
+{% block page_title %}{{ chassis.hostname|default:chassis.ip_address }}{% endblock %}
+
+{% block topbar_actions %}
+<span class="text-muted me-2" style="font-size:.78rem;">{{ chassis.address_summary|default:chassis.ip_address }} | {{ chassis.get_chassis_type_display }}{% if is_kcos %} | KCOS {{ chassis.kcos_version|default:"N/A" }}{% else %} | IxOS {{ chassis.ixos_version|default:"N/A" }}{% endif %}</span>
+{% with hw_addr=chassis|mgmt_display %}
+{% if hw_addr %}
+<a href="{{ chassis|hardware_login_for }}" target="_blank" rel="noopener noreferrer" class="btn btn-sm btn-outline-primary" title="Open hardware web UI (HTTPS)">
+    <i class="fas fa-external-link-alt me-1"></i>Hardware login
+</a>
+{% endif %}
+{% endwith %}
+<a href="{% url 'keysight_chassis_sensors' chassis.id %}" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-thermometer-half me-1"></i>Sensors
+</a>
+<a href="{% url 'keysight_chassis_licenses' chassis.id %}" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-key me-1"></i>Licenses
+</a>
+<a href="{% url 'keysight_edit_chassis' chassis.id %}" class="btn btn-sm btn-outline-warning">
+    <i class="fas fa-edit me-1"></i>Edit
+</a>
+<form method="post" action="{% url 'keysight_delete_chassis' chassis.id %}" class="d-inline"
+      onsubmit="return confirm('Delete this chassis?')">
+    {% csrf_token %}
+    <button class="btn btn-sm btn-outline-danger"><i class="fas fa-trash me-1"></i>Delete</button>
+</form>
+{% endblock %}
+
+{% block content %}
+
+<!-- System info + health row -->
+<div class="row g-3 mb-3">
+    <div class="col-lg-4">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-info-circle me-2"></i>System Info</div>
+            <div class="card-body" style="font-size:.82rem;">
+                <div class="row mb-1"><div class="col-5 text-muted">Serial:</div><div class="col-7 fw-semibold">{{ chassis.serial_number|default:"-" }}</div></div>
+                {% if is_kcos %}
+                <div class="row mb-1"><div class="col-5 text-muted">Platform:</div><div class="col-7 fw-semibold">KCOS ({{ chassis.get_chassis_type_display }})</div></div>
+                <div class="row mb-1"><div class="col-5 text-muted">KCOS Version:</div><div class="col-7 fw-semibold">{{ chassis.kcos_version|default:"-" }}</div></div>
+                <div class="row mb-1"><div class="col-5 text-muted">State:</div><div class="col-7 fw-semibold">{{ chassis.chassis_state }}</div></div>
+                <div class="row mb-1"><div class="col-5 text-muted">Compute Nodes:</div><div class="col-7 fw-semibold">{{ chassis.num_physical_cards }}</div></div>
+                {% if health.cluster_health %}
+                <div class="row mb-1"><div class="col-5 text-muted">Cluster:</div><div class="col-7 fw-semibold">
+                    {% if health.cluster_health == 'healthy' %}<span class="text-success">Healthy</span>{% else %}<span class="text-warning">Degraded</span>{% endif %}
+                    ({{ health.nodes_ready|default:"0" }}/{{ health.nodes_total|default:"0" }} nodes ready)
+                </div></div>
+                {% endif %}
+                {% else %}
+                <div class="row mb-1"><div class="col-5 text-muted">Controller:</div><div class="col-7 fw-semibold">{{ chassis.controller_serial|default:"-" }}</div></div>
+                <div class="row mb-1"><div class="col-5 text-muted">State:</div><div class="col-7 fw-semibold">{{ chassis.chassis_state }}</div></div>
+                <div class="row mb-1"><div class="col-5 text-muted">Cards:</div><div class="col-7 fw-semibold">{{ chassis.num_physical_cards }}</div></div>
+                <div class="row mb-1"><div class="col-5 text-muted">OS:</div><div class="col-7 fw-semibold">{{ chassis.os_type|default:"-" }}</div></div>
+                {% if apps %}
+                <hr style="margin:6px 0;">
+                <div class="fw-semibold mb-1 text-muted">IxOS Applications:</div>
+                {% for name, ver in apps.items %}
+                <div class="row"><div class="col-6" style="font-size:.75rem;">{{ name }}</div><div class="col-6 fw-semibold" style="font-size:.75rem;">{{ ver }}</div></div>
+                {% endfor %}
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-8">
+        <div class="row g-3 mb-3">
+            <div class="col-3">
+                <div class="stat-card">
+                    <div class="stat-value">{{ data.total_ports|default:"0" }}</div>
+                    <div class="stat-label">Total Ports</div>
+                </div>
+            </div>
+            <div class="col-3">
+                <div class="stat-card">
+                    <div class="stat-value" style="color:#28a745;">{{ data.ports_up|default:"0" }}</div>
+                    <div class="stat-label">Link Up</div>
+                </div>
+            </div>
+            <div class="col-3">
+                <div class="stat-card">
+                    <div class="stat-value" style="color:#6c757d;">{{ data.ports_free|default:"0" }}</div>
+                    <div class="stat-label">Free</div>
+                </div>
+            </div>
+            <div class="col-3">
+                <div class="stat-card">
+                    <div class="stat-value" style="color:#ffc107;">{{ data.ports_owned|default:"0" }}</div>
+                    <div class="stat-label">Owned</div>
+                </div>
+            </div>
+        </div>
+        {% if health %}
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-heartbeat me-2"></i>Health</div>
+            <div class="card-body">
+                {% if is_kcos %}
+                <div class="row">
+                    <div class="col-6">
+                        <div style="font-size:.78rem;" class="text-muted mb-1">Cluster Status</div>
+                        <div class="d-flex align-items-center gap-2">
+                            {% if health.cluster_health == 'healthy' %}
+                            <span class="badge bg-success" style="font-size:.85rem;"><i class="fas fa-check-circle me-1"></i>Healthy</span>
+                            {% else %}
+                            <span class="badge bg-warning text-dark" style="font-size:.85rem;"><i class="fas fa-exclamation-triangle me-1"></i>Degraded</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div style="font-size:.78rem;" class="text-muted mb-1">Nodes Ready</div>
+                        {% if health.nodes_total %}
+                        <div class="progress" style="height:18px;">
+                            {% widthratio health.nodes_ready health.nodes_total 100 as node_pct %}
+                            <div class="progress-bar {% if node_pct == 100 %}bg-success{% else %}bg-warning{% endif %}"
+                                 style="width:{{ node_pct }}%;">
+                                {{ health.nodes_ready }}/{{ health.nodes_total }}
+                            </div>
+                        </div>
+                        {% else %}
+                        <span class="text-muted" style="font-size:.8rem;">N/A</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="row">
+                    <div class="col-6">
+                        <div style="font-size:.78rem;" class="text-muted mb-1">CPU Usage</div>
+                        <div class="progress" style="height:18px;">
+                            <div class="progress-bar {% if health.cpu_utilization > 80 %}bg-danger{% elif health.cpu_utilization > 50 %}bg-warning{% else %}bg-success{% endif %}"
+                                 style="width:{{ health.cpu_utilization|floatformat:0 }}%;">
+                                {{ health.cpu_utilization|floatformat:1 }}%
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-6">
+                        <div style="font-size:.78rem;" class="text-muted mb-1">Memory Usage</div>
+                        {% if health.memory_total %}
+                        <div class="progress" style="height:18px;">
+                            {% widthratio health.memory_used health.memory_total 100 as mem_pct %}
+                            <div class="progress-bar {% if mem_pct > 80 %}bg-danger{% elif mem_pct > 50 %}bg-warning{% else %}bg-info{% endif %}"
+                                 style="width:{{ mem_pct }}%;">
+                                {{ mem_pct }}%
+                            </div>
+                        </div>
+                        {% else %}
+                        <span class="text-muted" style="font-size:.8rem;">N/A</span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Chassis Diagram                                               -->
+<!-- ============================================================ -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-server me-2"></i>Chassis Diagram{% if is_m8400 %} (M8400){% endif %}</span>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-success" id="btnQuickReserve" title="Quick Reserve"
+                    data-chassis-id="{{ chassis.id }}" data-chassis-name="{{ chassis.hostname|default:chassis.ip_address }}">
+                <i class="fas fa-calendar-plus me-1"></i>Reserve
+            </button>
+            <button class="btn btn-sm btn-outline-warning" id="btnClearCache" title="Clear cache & refresh data">
+                <i class="fas fa-sync-alt"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-light" id="btnSelectAll" title="Select all ports">
+                <i class="fas fa-check-double"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-light" id="btnDeselectAll" title="Clear selection">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <div class="chassis-panel chassis-compact chassis-{{ chassis.chassis_type }}" id="chassisPanel">
+            <div class="chassis-header">
+                <div>
+                    <span class="ch-title">{{ chassis.get_chassis_type_display }} - {{ chassis.hostname|default:chassis.ip_address }}</span>
+                    {% if chassis.hardware_error_reported %}
+                    <span class="badge bg-warning text-dark ms-2" title="Reported hardware error{% if chassis.notes %}: {{ chassis.notes|truncatechars:120 }}{% endif %}">
+                        <i class="fas fa-exclamation-triangle me-1"></i>Hardware issue reported
+                    </span>
+                    {% endif %}
+                    {% if is_kcos %}
+                    <div class="ch-meta">Serial: {{ chassis.serial_number|default:"N/A" }} | KCOS {{ chassis.kcos_version|default:"N/A" }}</div>
+                    {% else %}
+                    <div class="ch-meta">Serial: {{ chassis.serial_number|default:"N/A" }} | IxOS {{ chassis.ixos_version|default:"N/A" }}</div>
+                    {% endif %}
+                </div>
+                <div class="ch-meta">
+                    {% if is_kcos %}
+                        {% if health %}Nodes: {{ health.nodes_ready|default:"0" }}/{{ health.nodes_total|default:"0" }} ready{% endif %}
+                    {% else %}
+                        {% if health %}CPU: {{ health.cpu_utilization|floatformat:0 }}% | Mem: {% if health.memory_total %}{% widthratio health.memory_used health.memory_total 100 %}%{% else %}N/A{% endif %}{% endif %}
+                    {% endif %}
+                </div>
+            </div>
+
+            {% if reservations.chassis_level %}
+            <div class="res-chassis-banner">
+                <i class="fas fa-calendar-check me-1" style="color:#fbbf24;"></i>
+                <strong>Chassis Reserved:</strong>
+                {% for item in reservations.chassis_level %}
+                    {{ item.reservation.user.username }} ({{ item.reservation.start_time|date:"M j H:i" }} - {{ item.reservation.end_time|date:"M j H:i" }}){% if not forloop.last %}, {% endif %}
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- ========== KCOS Chassis Layout ========== -->
+            {% if is_kcos %}
+            {% for card in cards %}
+                {% if card.is_mgmt_slot %}
+                <!-- ====== MANAGEMENT NODE ====== -->
+                <div class="slot-row mgmt-slot active">
+                    <div class="slot-header">
+                        <div>
+                            <span class="slot-label"><i class="fas fa-crown me-1" style="color:#f59e0b;"></i>Management Node</span>
+                            <span class="slot-card-type ms-2">{{ card.type }}</span>
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="slot-stats">{{ card.state }}</span>
+                            {% if card.bmc_power == 'on' %}
+                            <span class="badge" style="font-size:.55rem;background:#1f2937;color:#fff;">PWR ON</span>
+                            {% elif card.bmc_power == 'off' %}
+                            <span class="badge bg-danger" style="font-size:.55rem;">PWR OFF</span>
+                            {% endif %}
+                            <span class="badge bg-secondary sn-badge">SN: {{ card.serial_number }}</span>
+                            <span class="slot-res-badges" data-slot="{{ card.card_number }}"></span>
+                        </div>
+                    </div>
+
+                    <!-- Mgmt info grid -->
+                    <div class="mgmt-info-grid">
+                        {% if card.os_image %}<div class="info-item"><span class="info-label">OS:</span><span class="info-value">{{ card.os_image }}</span></div>{% endif %}
+                        {% if card.internal_ip %}<div class="info-item"><span class="info-label">IP:</span><span class="info-value">{{ card.internal_ip }}</span></div>{% endif %}
+                        {% if card.kernel_version %}<div class="info-item"><span class="info-label">Kernel:</span><span class="info-value">{{ card.kernel_version }}</span></div>{% endif %}
+                        {% if card.k8s_version %}<div class="info-item"><span class="info-label">K8s:</span><span class="info-value">{{ card.k8s_version }}</span></div>{% endif %}
+                        {% if card.container_runtime %}<div class="info-item"><span class="info-label">Runtime:</span><span class="info-value">{{ card.container_runtime }}</span></div>{% endif %}
+                        {% if card.bmc_name %}<div class="info-item"><span class="info-label">BMC:</span><span class="info-value">{{ card.bmc_name }}</span></div>{% endif %}
+                    </div>
+
+                    <!-- Maintenance actions for management node -->
+                    <div class="mgmt-section-title"><i class="fas fa-tools me-1"></i>Maintenance</div>
+                    <div class="d-flex flex-wrap gap-2 mb-2">
+                        <button class="btn btn-sm btn-outline-danger" id="btnRebootChassis" style="font-size:.68rem;padding:2px 8px;">
+                            <i class="fas fa-power-off me-1"></i>Reboot System
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning kcos-power-cycle-btn" data-node="{{ card.node_name }}" style="font-size:.68rem;padding:2px 8px;">
+                            <i class="fas fa-redo me-1"></i>BMC Power Cycle
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary kcos-restart-btn" data-node="{{ card.node_name }}" style="font-size:.68rem;padding:2px 8px;">
+                            <i class="fas fa-sync me-1"></i>Restart Node
+                        </button>
+                    </div>
+
+                    {% include "connect/keysight/_node_hw_error_controls.html" %}
+
+                    {% if card.firmwares %}
+                    <div class="fw-badges show">
+                        {% for fw in card.firmwares %}
+                        <span class="badge {% if fw.update_available == 'true' %}bg-warning text-dark{% else %}bg-light text-dark{% endif %}" style="font-size:.5rem;padding:1px 4px;" title="{{ fw.name }}: {{ fw.version }}">
+                            {{ fw.name|truncatechars:10 }} {{ fw.version|truncatechars:12 }}{% if fw.update_available == 'true' %} <i class="fas fa-arrow-up"></i>{% endif %}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Front Panel Ports (M8400: physical 400G ports on mgmt) -->
+                    {% if card.ports %}
+                    {% if is_m8400 %}
+                    <div class="mgmt-section-title"><i class="fas fa-ethernet me-1"></i>Front Panel Ports (Physical)</div>
+                    {% else %}
+                    <div class="mgmt-section-title"><i class="fas fa-ethernet me-1"></i>Management Ports</div>
+                    {% endif %}
+                    <div class="port-grid">
+                        {% for port in card.ports %}
+                        <div class="port-cell{% if port.owner != 'Free' %} owned{% endif %}"
+                             data-port-id="{{ port.id }}"
+                             data-card="{{ port.card_number }}"
+                             data-port="{{ port.port_number }}"
+                             data-owner="{{ port.owner }}"
+                             data-speed="{{ port.speed }}"
+                             data-phy="{{ port.phy_mode }}"
+                             data-link="{{ port.link_state }}"
+                             data-xcvr="{{ port.transceiver_model }}"
+                             data-xcvr-mfg="{{ port.transceiver_mfg }}"
+                             data-type="{{ port.type }}"
+                             data-tx="{{ port.transmit_state }}"
+                             data-led="{{ port.led_color }}"
+                             data-tepid="{{ port.tepid }}"
+                             data-from="{{ port.from_interface }}"
+                             data-to="{{ port.to_switch_port }}"
+                             data-fec-active="{{ port.fec_active|join:', ' }}"
+                             data-fec-configured="{{ port.fec_configured|join:', ' }}"
+                             data-node="{{ port.node_name }}"
+                             data-xcvr-serial="{{ port.transceiver_serial }}"
+                             data-panel="{{ port.panel_type }}">
+                            <span class="p-num">{{ port.port_number }}</span>
+                            <span class="p-led {{ port.led_color }}"></span>
+                            <div class="port-tooltip">
+                                <b>{% if is_m8400 %}FP{% endif %} {{ port.port_number }}</b> | {{ port.speed }}<br>
+                                Link: {{ port.link_state }}<br>
+                                Interface: {{ port.from_interface }}<br>
+                                {% if port.transceiver_mfg %}Optic: {{ port.transceiver_mfg }} {{ port.transceiver_model }}<br>{% endif %}
+                                {% if port.transceiver_serial %}SN: {{ port.transceiver_serial }}<br>{% endif %}
+                                {% if port.fec_active %}FEC: {{ port.fec_active|join:", " }}<br>{% endif %}
+                                Auto-neg: {{ port.auto_negotiation }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <!-- Transceiver summary for front panel ports -->
+                    {% if is_m8400 %}
+                    <div style="font-size:.6rem;color:#888;margin-top:4px;">
+                        {% for port in card.ports %}
+                        {% if port.transceiver_mfg %}
+                        <span style="margin-right:8px;">P{{ port.port_number }}: {{ port.transceiver_mfg }} {{ port.transceiver_model }} ({{ port.speed }})</span>
+                        {% endif %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% endif %}
+
+                    {% include "connect/keysight/_slot_lldp_section.html" with card=card is_kcos=True %}
+
+                    <!-- FPGA Engines (from KCOS frontpanel diagnostics) -->
+                    {% if fpga_ports %}
+                    <div class="mgmt-section-title"><i class="fas fa-microchip me-1"></i>FPGA Engines ({{ fpga_ports|length }})</div>
+                    <div class="fpga-grid">
+                        {% for fp in fpga_ports %}
+                        <div class="fpga-tile" title="{{ fp.name|default:fp.engine|default:'Engine' }}: PCS={{ fp.pcsLinkStatus|default:fp.pcs_link|default:'-' }}">
+                            <span class="fpga-id">{{ fp.name|default:fp.engine|default:forloop.counter0 }}</span>
+                            <span class="fpga-led {% if fp.pcsLinkStatus == 'UP' or fp.pcs_link == 'UP' or fp.pcsLinkStatus == 'up' %}green{% elif fp.pcsLinkStatus == 'DOWN' or fp.pcs_link == 'DOWN' or fp.pcsLinkStatus == 'down' %}red{% else %}off{% endif %}"></span>
+                            <span class="fpga-detail">
+                                {% if fp.eyeHeight or fp.eye_height %}H:{{ fp.eyeHeight|default:fp.eye_height }}{% endif %}
+                                {% if fp.eyeWidth or fp.eye_width %}W:{{ fp.eyeWidth|default:fp.eye_width }}{% endif %}
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- BPS L23 Engines (from BPS topology) -->
+                    {% if bps_l23_engines %}
+                    <div class="mgmt-section-title"><i class="fas fa-bolt me-1"></i>L2/L3 FPGA Engines ({{ bps_l23_engines|length }})</div>
+                    <div class="fpga-grid">
+                        {% for eng in bps_l23_engines %}
+                        <div class="fpga-tile" style="border-color:#3b82f6;background:#eff6ff;" title="Slot {{ eng.id }} — {{ eng.model }} | {{ eng.mode }} | {{ eng.fanout }}">
+                            <span class="fpga-id" style="color:#1e40af;">Slot {{ eng.id }}</span>
+                            <span class="fpga-led green"></span>
+                            <span class="fpga-detail">{{ eng.fanout }} | {{ eng.port_count }}p</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- BPS: FPGA engines + 400G front panel (compact) -->
+                    {% if is_m8400 and bps_topology.slots %}
+                    {% for slot in bps_topology.slots %}
+
+                    <!-- FPGA L23 Engines — compact inline row -->
+                    {% if slot.fpga_engines %}
+                    <div class="mgmt-section-title" style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;">
+                        <span><i class="fas fa-microchip me-1"></i>FPGA Engines ({{ slot.fpga_engines|length }})</span>
+                        <span style="font-size:.6rem;color:#6b7280;">Slot {{ slot.id }} · {{ slot.model }} · <span class="bps-mode-badge {% if slot.is_l23 %}l23{% elif 'ixload' in slot.mode|lower %}ixload{% else %}qt{% endif %}" style="margin:0;font-size:.55rem;">{{ slot.mode }}</span></span>
+                    </div>
+                    <div style="display:flex;flex-wrap:wrap;gap:3px;margin-bottom:6px;">
+                        {% for eng in slot.fpga_engines %}
+                        <div style="display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px;border:1px solid #86efac;background:#ecfdf5;font-size:.58rem;font-weight:600;color:#15803d;" title="FPGA {{ eng.id }} | {{ eng.resourceType }} | {{ eng.state }}{% if eng.reservedBy %} | Rsv: {{ eng.reservedBy }}{% endif %}">
+                            <span style="width:5px;height:5px;border-radius:50%;background:{% if eng.state == 'ok' %}#22c55e{% else %}#d1d5db{% endif %};"></span>{{ eng.id }}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- 400G QSFP-DD Front Panel — compact table -->
+                    {% if slot.physical_ports %}
+                    <div class="mgmt-section-title" style="margin-bottom:2px;"><i class="fas fa-ethernet me-1"></i>400G Front Panel ({{ slot.physical_port_count }} Ports · {{ slot.port_count }} Lanes)</div>
+                    <div style="overflow-x:auto;margin-bottom:6px;">
+                    <table class="fp-table">
+                        <thead><tr>
+                            <th style="width:36px;">Port</th>
+                            <th style="width:30px;"></th>
+                            <th>Fanout</th>
+                            <th>Transceiver</th>
+                            <th style="width:50px;">Link</th>
+                            <th>Lanes</th>
+                            <th style="width:55px;">Rsv</th>
+                        </tr></thead>
+                        <tbody>
+                        {% for pp in slot.physical_ports %}
+                        <tr>
+                            <td style="font-weight:800;font-size:.78rem;">{{ pp.id }}</td>
+                            <td><span class="fp-led {% if pp.links_up == pp.total_lanes and pp.links_up > 0 %}green{% elif pp.links_up == 0 %}red{% elif pp.links_up > 0 %}mixed{% else %}off{% endif %}"></span></td>
+                            <td><span class="fp-mode-tag">{{ pp.currentMode }}</span></td>
+                            <td class="fp-xcvr">{% if pp.transceiver_display %}<b>{{ pp.transceiver_display }}</b>{% else %}<span style="color:#d1d5db;">—</span>{% endif %}</td>
+                            <td style="font-size:.62rem;font-weight:600;{% if pp.links_up == pp.total_lanes and pp.links_up > 0 %}color:#16a34a{% elif pp.links_up == 0 %}color:#dc2626{% else %}color:#d97706{% endif %};">{{ pp.links_up }}/{{ pp.total_lanes }}</td>
+                            <td>
+                                <span class="fp-lane-chain">
+                                {% for lane in pp.lanes %}
+                                <span class="fp-lane-chip {% if lane.link == 'up' or lane.link == 'UP' %}up{% elif lane.link == 'down' or lane.link == 'DOWN' %}down{% endif %}{% if lane.reservedBy %} reserved{% endif %}" title="{{ lane.id }} · {{ lane.speed_display }} · {{ lane.link }}{% if lane.reservedBy %} · {{ lane.reservedBy }}{% endif %}">
+                                    <span class="lc-led {% if lane.link == 'up' or lane.link == 'UP' %}green{% elif lane.link == 'down' or lane.link == 'DOWN' %}red{% else %}off{% endif %}"></span>{{ lane.id }}<span style="color:#9ca3af;font-weight:400;">{{ lane.speed_display }}</span>{% if lane.reservedBy %}<span style="font-size:.48rem;color:#E31937;margin-left:1px;" title="{{ lane.reservedBy }}"><i class="fas fa-lock"></i></span>{% endif %}
+                                </span>
+                                {% endfor %}
+                                </span>
+                            </td>
+                            <td>{% if pp.reservedBy %}<span class="fp-reserved-tag">{{ pp.reservedBy }}</span>{% else %}<span class="fp-free-tag">free</span>{% endif %}</td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                    </div>
+                    {% endif %}
+
+                    {% endfor %}
+                    {% endif %}
+                </div>
+
+                {% else %}
+                <!-- ====== COMPUTE NODE ====== -->
+                <div class="compute-node-card {% if card.hardware_error_reported %}node-hw-error{% elif card.state == 'ready' %}node-ready{% elif card.state == 'notready' or card.state == 'error' %}node-error{% endif %}">
+                    <div class="compute-node-header">
+                        <div>
+                            <span class="compute-node-name">
+                                {% if card.hardware_error_reported %}<i class="fas fa-exclamation-triangle text-warning me-1" title="Reported hardware error{% if card.hardware_error_notes %}: {{ card.hardware_error_notes|truncatechars:80 }}{% endif %}"></i>{% endif %}
+                                <i class="fas fa-cube me-1" style="color:var(--ks-red);"></i>
+                                Node {{ card.card_number }}
+                            </span>
+                            <span class="slot-card-type ms-2">{{ card.type }}</span>
+                            {% if card.current_app %}
+                            <span class="badge ms-2" style="font-size:.65rem;background:var(--ks-red);color:#fff;">{{ card.current_app }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="slot-stats">
+                                {{ card.ports_up }}/{{ card.ports_total }} up | {{ card.state }}
+                            </span>
+                            {% if card.bmc_power == 'on' %}
+                            <span class="badge" style="font-size:.55rem;background:#1f2937;color:#fff;">PWR ON</span>
+                            {% elif card.bmc_power == 'off' %}
+                            <span class="badge bg-danger" style="font-size:.55rem;">PWR OFF</span>
+                            {% endif %}
+                            {% if card.app_status == 'Ready' or card.app_status == 'ready' %}
+                            <span class="badge" style="font-size:.55rem;background:var(--ks-red,#E31937);color:#fff;">App Ready</span>
+                            {% elif card.app_status == 'inProgress' %}
+                            <span class="badge" style="font-size:.55rem;background:#374151;color:#fff;">App Loading</span>
+                            {% elif card.app_status == 'error' %}
+                            <span class="badge bg-danger" style="font-size:.55rem;">App Error</span>
+                            {% endif %}
+                            <span class="badge bg-secondary sn-badge">SN: {{ card.serial_number }}</span>
+                            <span class="slot-res-badges" data-slot="{{ card.card_number }}"></span>
+                        </div>
+                    </div>
+
+                    <!-- Compact node info -->
+                    <div class="compute-node-info">
+                        {% if card.os_image %}<span><i class="fas fa-cube"></i> {{ card.os_image }}</span>{% endif %}
+                        {% if card.internal_ip %}<span><i class="fas fa-network-wired"></i> {{ card.internal_ip }}</span>{% endif %}
+                        {% if card.kernel_version %}<span><i class="fas fa-microchip"></i> {{ card.kernel_version }}</span>{% endif %}
+                    </div>
+
+                    <!-- App switcher + power controls — always visible -->
+                    <div class="node-actions-bar">
+                        {% if card.available_apps|length > 1 %}
+                        <div class="input-group input-group-sm" style="width:auto;">
+                            <span class="input-group-text" style="font-size:.6rem;padding:1px 5px;height:24px;">App:</span>
+                            <select class="form-select form-select-sm kcos-app-select" style="font-size:.62rem;width:auto;padding:1px 6px;height:24px;" data-node="{{ card.node_name }}">
+                                {% for app in card.available_apps %}
+                                <option value="{{ app.app_id }}" {% if app.app_id == card.current_app_id %}selected{% endif %}>{{ app.ui_name }}</option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-sm btn-outline-info kcos-switch-app-btn" data-node="{{ card.node_name }}" style="font-size:.6rem;padding:1px 6px;height:24px;" title="Switch App">
+                                <i class="fas fa-exchange-alt"></i> Switch
+                            </button>
+                        </div>
+                        {% endif %}
+                        <button class="btn btn-sm btn-outline-warning kcos-power-cycle-btn" data-node="{{ card.node_name }}" style="font-size:.6rem;padding:1px 6px;height:24px;" title="Power Cycle">
+                            <i class="fas fa-redo"></i> Cycle
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary kcos-restart-btn" data-node="{{ card.node_name }}" style="font-size:.6rem;padding:1px 6px;height:24px;" title="Restart">
+                            <i class="fas fa-sync"></i> Restart
+                        </button>
+                    </div>
+
+                    {% include "connect/keysight/_node_hw_error_controls.html" %}
+
+                    {% if card.firmwares %}
+                    <div class="fw-badges">
+                        {% for fw in card.firmwares %}
+                        <span class="badge {% if fw.update_available == 'true' %}bg-warning text-dark{% else %}bg-light text-dark{% endif %}" style="font-size:.5rem;padding:1px 4px;" title="{{ fw.name }}: {{ fw.version }}">
+                            {{ fw.name|truncatechars:8 }} {{ fw.version|truncatechars:10 }}{% if fw.update_available == 'true' %} <i class="fas fa-arrow-up"></i>{% endif %}
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    <!-- Back Panel Ports (compute node internal connections) -->
+                    {% if card.ports %}
+                    {% if is_m8400 %}
+                    <div class="panel-section-label"><i class="fas fa-random me-1"></i>Back Panel Ports (Internal)</div>
+                    {% endif %}
+                    <div class="port-grid">
+                        {% for port in card.ports %}
+                        <div class="port-cell{% if port.owner != 'Free' %} owned{% endif %}"
+                             data-port-id="{{ port.id }}"
+                             data-card="{{ port.card_number }}"
+                             data-port="{{ port.port_number }}"
+                             data-owner="{{ port.owner }}"
+                             data-speed="{{ port.speed }}"
+                             data-phy="{{ port.phy_mode }}"
+                             data-link="{{ port.link_state }}"
+                             data-xcvr="{{ port.transceiver_model }}"
+                             data-xcvr-mfg="{{ port.transceiver_mfg }}"
+                             data-type="{{ port.type }}"
+                             data-tx="{{ port.transmit_state }}"
+                             data-led="{{ port.led_color }}"
+                             data-tepid="{{ port.tepid }}"
+                             data-from="{{ port.from_interface }}"
+                             data-to="{{ port.to_switch_port }}"
+                             data-fec-active="{{ port.fec_active|join:', ' }}"
+                             data-fec-configured="{{ port.fec_configured|join:', ' }}"
+                             data-node="{{ port.node_name }}"
+                             data-xcvr-serial="{{ port.transceiver_serial }}"
+                             data-panel="{{ port.panel_type }}">
+                            <span class="p-num">{{ port.port_number }}</span>
+                            <span class="p-led {{ port.led_color }}"></span>
+                            <div class="port-tooltip">
+                                <b>Node {{ card.card_number }} / P{{ port.port_number }}</b><br>
+                                Link: {{ port.link_state }}<br>
+                                Interface: {{ port.from_interface }}<br>
+                                Speed: {{ port.speed }}<br>
+                                {% if port.transceiver_mfg %}Optic: {{ port.transceiver_mfg }} {{ port.transceiver_model }}<br>{% endif %}
+                                {% if port.fec_active %}FEC: {{ port.fec_active|join:", " }}<br>{% endif %}
+                                Auto-neg: {{ port.auto_negotiation }}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% include "connect/keysight/_slot_lldp_section.html" with card=card is_kcos=True %}
+                </div>
+
+                {% endif %}
+            {% empty %}
+            <div class="text-center py-4 text-muted">
+                <i class="fas fa-inbox" style="font-size:2rem;"></i>
+                <div class="mt-2">No nodes detected. Chassis may still be initializing.</div>
+            </div>
+            {% endfor %}
+
+            {% else %}
+            <!-- ========== IxOS Chassis Layout ========== -->
+            <div class="slots-container">
+            {% for card in cards %}
+            <div class="slot-row {% if card.state == 'cardReady' or card.state == 'ready' %}active{% endif %}">
+                <div class="slot-header">
+                    <div>
+                        <span class="slot-label">Slot {{ card.card_number }}</span>
+                        <span class="slot-card-type ms-2">{{ card.type }}</span>
+                    </div>
+                    <div class="d-flex align-items-center gap-2">
+                        <span class="slot-stats">
+                            {{ card.ports_up }}/{{ card.ports_total }} up | {{ card.ports_owned }} owned | {{ card.state }}
+                        </span>
+                        <span class="badge bg-secondary sn-badge">SN: {{ card.serial_number }}</span>
+                        <span class="slot-res-badges" data-slot="{{ card.card_number }}"></span>
+                    </div>
+                </div>
+
+                {% if card.resource_groups %}
+                <!-- IxOS: show ports grouped by Resource Group (matches "show topology") -->
+                {% for rg in card.resource_groups %}
+                <div class="aresone-rg-block mb-3">
+                    <div style="font-size:.72rem;color:#94a3b8;margin-bottom:8px;border-left:3px solid #6366f1;padding-left:8px;">
+                        <i class="fas fa-layer-group me-1"></i>{% if rg.mode_label %}{{ rg.title }} — {{ rg.mode_label }}{% else %}{{ rg.title }}{% endif %}
+                    </div>
+                    <div class="port-grid">
+                        {% for port in rg.ports %}
+                        <div class="port-cell{% if port.owner != 'Free' %} owned{% endif %}"
+                             data-port-id="{{ port.id }}"
+                             data-card="{{ port.card_number }}"
+                             data-port="{{ port.port_number }}"
+                             data-port-display="{{ port.port_display|default:port.port_number }}"
+                             data-owner="{{ port.owner }}"
+                             data-speed="{{ port.speed }}"
+                             data-phy="{{ port.phy_mode }}"
+                             data-link="{{ port.link_state }}"
+                             data-xcvr="{{ port.transceiver_model }}"
+                             data-xcvr-mfg="{{ port.transceiver_mfg }}"
+                             data-type="{{ port.type }}"
+                             data-tx="{{ port.transmit_state }}"
+                             data-led="{{ port.led_color }}">
+                            <span class="p-num">{{ port.port_display|default:port.port_number }}</span>
+                            <span class="p-led {{ port.led_color }}"></span>
+                            <div class="port-tooltip">
+                                <b>Port {{ port.port_display|default:port.port_number }}</b><br>
+                                Link: {{ port.link_state }}<br>
+                                Owner: {{ port.owner }}<br>
+                                {% if port.speed %}Speed: {{ port.speed }}<br>{% endif %}
+                                {% if port.transceiver_model %}Optic: {{ port.transceiver_model }}<br>{% endif %}
+                                {% if port.phy_mode %}Mode: {{ port.phy_mode }}{% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <!-- Per-RG LLDP -->
+                    {% for port in rg.ports %}
+                        {% if port.lldp %}
+                            {% for n in port.lldp %}
+                            <div style="font-size:.62rem;color:#94a3b8;margin:4px 0 0 12px;">
+                                <i class="fas fa-project-diagram me-1" style="color:#2563eb;"></i>
+                                Port {{ port.port_display|default:port.port_number }}
+                                → {{ n.remote_device|default:"unknown" }}
+                                {% if n.remote_port %}({{ n.remote_port }}){% endif %}
+                                {% if n.mgmt_ip %} @ {{ n.mgmt_ip }}{% endif %}
+                            </div>
+                            {% endfor %}
+                        {% endif %}
+                    {% endfor %}
+                </div>
+                {% endfor %}
+
+                {% else %}
+                <!-- Standard IxOS flat port grid -->
+                <div class="port-grid">
+                    {% for port in card.ports %}
+                    <div class="port-cell{% if port.owner != 'Free' %} owned{% endif %}"
+                         data-port-id="{{ port.id }}"
+                         data-card="{{ port.card_number }}"
+                         data-port="{{ port.port_number }}"
+                         data-port-display="{{ port.port_display|default:port.port_number }}"
+                         data-owner="{{ port.owner }}"
+                         data-speed="{{ port.speed }}"
+                         data-phy="{{ port.phy_mode }}"
+                         data-link="{{ port.link_state }}"
+                         data-xcvr="{{ port.transceiver_model }}"
+                         data-xcvr-mfg="{{ port.transceiver_mfg }}"
+                         data-type="{{ port.type }}"
+                         data-tx="{{ port.transmit_state }}"
+                         data-led="{{ port.led_color }}">
+                        <span class="p-num">{{ port.port_display|default:port.port_number }}</span>
+                        <span class="p-led {{ port.led_color }}"></span>
+                        <div class="port-tooltip">
+                            <b>{{ card.card_number }}/{{ port.port_display|default:port.port_number }}</b><br>
+                            Link: {{ port.link_state }}<br>
+                            Owner: {{ port.owner }}<br>
+                            {% if port.speed %}Speed: {{ port.speed }}<br>{% endif %}
+                            {% if port.transceiver_model %}Optic: {{ port.transceiver_model }}<br>{% endif %}
+                            {% if port.phy_mode %}Mode: {{ port.phy_mode }}{% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% include "connect/keysight/_slot_lldp_section.html" with card=card is_kcos=False %}
+            </div>
+            {% empty %}
+            <div class="text-center py-4 text-muted">
+                <i class="fas fa-inbox" style="font-size:2rem;"></i>
+                <div class="mt-2">No cards detected. Chassis may still be initializing.</div>
+            </div>
+            {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Port detail panel -->
+            <div class="port-detail-panel" id="portDetailPanel">
+                <h6><i class="fas fa-ethernet me-2"></i>Port Details <span id="portDetailTitle"></span></h6>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="port-detail-row"><span class="label">{% if is_kcos %}Node/Port{% else %}Card/Port{% endif %}:</span><span class="value" id="pdCardPort">-</span></div>
+                        <div class="port-detail-row"><span class="label">Link State:</span><span class="value" id="pdLink">-</span></div>
+                        <div class="port-detail-row"><span class="label">Speed:</span><span class="value" id="pdSpeed">-</span></div>
+                        {% if is_kcos %}
+                        <div class="port-detail-row"><span class="label">Interface:</span><span class="value" id="pdFrom">-</span></div>
+                        <div class="port-detail-row"><span class="label">Switch Port:</span><span class="value" id="pdTo">-</span></div>
+                        <div class="port-detail-row"><span class="label">Panel:</span><span class="value" id="pdPanel">-</span></div>
+                        {% else %}
+                        <div class="port-detail-row"><span class="label">PHY Mode:</span><span class="value" id="pdPhy">-</span></div>
+                        {% endif %}
+                    </div>
+                    <div class="col-md-6">
+                        {% if not is_kcos %}
+                        <div class="port-detail-row"><span class="label">Owner:</span><span class="value" id="pdOwner">-</span></div>
+                        {% endif %}
+                        <div class="port-detail-row"><span class="label">Transceiver:</span><span class="value" id="pdXcvr">-</span></div>
+                        <div class="port-detail-row"><span class="label">Manufacturer:</span><span class="value" id="pdMfg">-</span></div>
+                        {% if is_kcos %}
+                        <div class="port-detail-row"><span class="label">Serial:</span><span class="value" id="pdXcvrSerial">-</span></div>
+                        <div class="port-detail-row"><span class="label">FEC Active:</span><span class="value" id="pdFecActive">-</span></div>
+                        <div class="port-detail-row"><span class="label">FEC Config:</span><span class="value" id="pdFecConfig">-</span></div>
+                        <div class="port-detail-row"><span class="label">Auto-neg:</span><span class="value" id="pdAutoNeg">-</span></div>
+                        {% else %}
+                        <div class="port-detail-row"><span class="label">Tx State:</span><span class="value" id="pdTx">-</span></div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% if not is_kcos %}
+                <hr style="border-color:#444;margin:10px 0;">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-success" id="btnTakeOwnership">
+                        <i class="fas fa-hand-paper me-1"></i>Take Ownership
+                    </button>
+                    <button class="btn btn-sm btn-warning" id="btnReleaseOwnership">
+                        <i class="fas fa-hand-peace me-1"></i>Release
+                    </button>
+                    <button class="btn btn-sm btn-info" id="btnReboot">
+                        <i class="fas fa-sync me-1"></i>Reboot
+                    </button>
+                    <button class="btn btn-sm btn-danger" id="btnReset">
+                        <i class="fas fa-undo me-1"></i>Factory Reset
+                    </button>
+                    <span class="ms-auto text-muted" style="font-size:.72rem;" id="selectedCount">0 selected</span>
+                </div>
+                {% else %}
+                <hr style="border-color:#eee;margin:10px 0;">
+                <div class="d-flex gap-2">
+                    <span class="text-muted" style="font-size:.72rem;" id="selectedCount">0 selected</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================================ -->
+<!-- Deployed Applications (KCOS)                                  -->
+<!-- ============================================================ -->
+{% if is_kcos and deployed_apps %}
+<div class="card-custom mb-4">
+    <div class="card-header">
+        <i class="fas fa-boxes me-2"></i>Deployed Applications
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0 deployed-apps-table">
+            <thead class="table-light">
+                <tr>
+                    <th>Application</th>
+                    <th>Chart Name</th>
+                    <th>Version</th>
+                    <th>Last Deployed</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for app in deployed_apps %}
+                <tr>
+                    <td class="fw-semibold">{{ app.display_name }}</td>
+                    <td><code style="font-size:.7rem;">{{ app.chart_name }}</code></td>
+                    <td>
+                        <span class="badge bg-info" style="font-size:.68rem;">{{ app.chart_version_display|default:app.chart_version }}</span>
+                    </td>
+                    <td style="font-size:.72rem;">{{ app.last_deployed|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- ============================================================ -->
+<!-- Ports Table                                                   -->
+<!-- ============================================================ -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-list me-2"></i>All Ports ({{ ports|length }})</span>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-secondary" onclick="exportPortsCSV()" title="Export CSV">
+                <i class="fas fa-download me-1"></i>CSV
+            </button>
+            <select class="form-select form-select-sm" style="width:auto;font-size:.75rem;" id="filterLink">
+                <option value="">All Link States</option>
+                <option value="up">Link Up</option>
+                <option value="down">Link Down</option>
+                <option value="noTransceiver">No Optic</option>
+            </select>
+            {% if not is_kcos %}
+            <select class="form-select form-select-sm" style="width:auto;font-size:.75rem;" id="filterOwner">
+                <option value="">All Owners</option>
+                <option value="Free">Free</option>
+                <option value="owned">Owned</option>
+            </select>
+            {% endif %}
+            {% if is_m8400 %}
+            <select class="form-select form-select-sm" style="width:auto;font-size:.75rem;" id="filterPanel">
+                <option value="">All Panels</option>
+                <option value="front">Front Panel</option>
+                <option value="back">Back Panel</option>
+            </select>
+            {% endif %}
+        </div>
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:.78rem;" id="portsTable">
+            <thead class="table-light">
+                <tr>
+                    <th style="width:30px;"><input type="checkbox" id="checkAll"></th>
+                    <th>{% if is_kcos %}Node{% else %}Card{% endif %}</th>
+                    <th>Port</th>
+                    <th>Link</th>
+                    <th>Speed</th>
+                    {% if is_kcos %}
+                    <th>Interface</th>
+                    <th>Switch Port</th>
+                    <th>FEC</th>
+                    {% if is_m8400 %}<th>Panel</th>{% endif %}
+                    {% else %}
+                    <th>PHY Mode</th>
+                    <th>Owner</th>
+                    {% endif %}
+                    <th>Transceiver</th>
+                    {% if is_kcos %}
+                    <th>Auto-neg</th>
+                    {% else %}
+                    <th>Tx State</th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for port in ports %}
+                <tr data-link="{{ port.link_state }}" data-owner="{{ port.owner }}" data-panel="{{ port.panel_type }}">
+                    <td><input type="checkbox" class="port-check" value="{{ port.id }}"></td>
+                    <td>{{ port.card_number }}</td>
+                    <td>{{ port.port_number }}</td>
+                    <td>
+                        {% if port.link_state == 'up' %}
+                        <span class="badge bg-success" style="font-size:.68rem;">Up</span>
+                        {% elif port.link_state == 'down' %}
+                        <span class="badge bg-danger" style="font-size:.68rem;">Down</span>
+                        {% elif port.link_state == 'noTransceiver' %}
+                        <span class="badge bg-secondary" style="font-size:.68rem;">No Optic</span>
+                        {% elif port.link_state == 'disabled' %}
+                        <span class="badge bg-warning text-dark" style="font-size:.68rem;">Disabled</span>
+                        {% elif port.link_state == 'loopback' %}
+                        <span class="badge" style="font-size:.68rem;background:#f59e0b;color:#fff;">Loopback</span>
+                        {% else %}
+                        <span class="badge bg-secondary" style="font-size:.68rem;">{{ port.link_state|default:"-" }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ port.speed|default:"-" }}</td>
+                    {% if is_kcos %}
+                    <td>{{ port.from_interface|default:"-" }}</td>
+                    <td>{{ port.to_switch_port|default:"-" }}</td>
+                    <td>{{ port.fec_active|join:", "|default:"-" }}</td>
+                    {% if is_m8400 %}<td><span class="badge {% if port.panel_type == 'front' %}bg-primary{% else %}bg-secondary{% endif %}" style="font-size:.6rem;">{{ port.panel_type }}</span></td>{% endif %}
+                    {% else %}
+                    <td>{{ port.phy_mode|default:"-" }}</td>
+                    <td>{% if port.owner == 'Free' %}<span class="text-muted">Free</span>{% else %}<span class="text-warning">{{ port.owner }}</span>{% endif %}</td>
+                    {% endif %}
+                    <td>{{ port.transceiver_mfg|default:"" }} {{ port.transceiver_model|default:"-" }}</td>
+                    {% if is_kcos %}
+                    <td>{{ port.auto_negotiation|default:"-" }}</td>
+                    {% else %}
+                    <td>{{ port.transmit_state|default:"-" }}</td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Logical Ports Table (KCOS) -->
+{% if is_kcos and logical_ports %}
+<div class="card-custom mb-4">
+    <div class="card-header">
+        <i class="fas fa-project-diagram me-2"></i>Logical Ports
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:.78rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>TEP ID</th>
+                    <th>Name</th>
+                    <th>Link</th>
+                    <th>Speed</th>
+                    <th>Mode</th>
+                    <th>Signaling</th>
+                    <th>Precoder</th>
+                    <th>FEC</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lp in logical_ports %}
+                <tr>
+                    <td>{{ lp.tepid|default:lp.id|default:"-" }}</td>
+                    <td>{{ lp.name|default:"-" }}</td>
+                    <td>
+                        {% if lp.link == 'UP' or lp.link == 'up' %}
+                        <span class="badge bg-success" style="font-size:.65rem;">Up</span>
+                        {% elif lp.link == 'DOWN' or lp.link == 'down' %}
+                        <span class="badge bg-danger" style="font-size:.65rem;">Down</span>
+                        {% else %}
+                        <span class="badge bg-secondary" style="font-size:.65rem;">{{ lp.link|default:"-" }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ lp.speed|default:"-" }}</td>
+                    <td>{{ lp.currentMode|default:lp.mode|default:"-" }}</td>
+                    <td>{{ lp.signaling|default:"-" }}</td>
+                    <td>{{ lp.precoder|default:"-" }}</td>
+                    <td>{{ lp.fec|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- L23 FPGA / Front Panel Diagnostics — table view -->
+{% if is_kcos and fpga_ports %}
+<div class="card-custom mb-4">
+    <div class="card-header">
+        <i class="fas fa-microchip me-2"></i>L23 FPGA Engines / Front Panel Diagnostics
+    </div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:.78rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Engine</th>
+                    <th>Status</th>
+                    <th>PCS Link</th>
+                    <th>Eye Height</th>
+                    <th>Eye Width</th>
+                    <th>Reservation</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for fp in fpga_ports %}
+                <tr>
+                    <td>{{ fp.name|default:fp.engine|default:"-" }}</td>
+                    <td>
+                        {% if fp.status == 'active' or fp.status == 'Active' %}
+                        <span class="badge bg-success" style="font-size:.65rem;">Active</span>
+                        {% elif fp.status == 'idle' or fp.status == 'Idle' %}
+                        <span class="badge bg-secondary" style="font-size:.65rem;">Idle</span>
+                        {% else %}
+                        <span class="badge bg-warning text-dark" style="font-size:.65rem;">{{ fp.status|default:"-" }}</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ fp.pcsLinkStatus|default:fp.pcs_link|default:"-" }}</td>
+                    <td>{{ fp.eyeHeight|default:fp.eye_height|default:"-" }}</td>
+                    <td>{{ fp.eyeWidth|default:fp.eye_width|default:"-" }}</td>
+                    <td>{{ fp.reservation|default:fp.owner|default:"Free" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Reservations Panel -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-calendar-check me-2"></i>Reservations for this Chassis</span>
+        <a href="{% url 'keysight_create_reservation' %}" class="btn btn-sm btn-outline-primary">
+            <i class="fas fa-plus me-1"></i>New Reservation
+        </a>
+    </div>
+    <div class="card-body">
+        {% with has_res=False %}
+        {% for res_key, res_items in reservations.items %}
+        {% if res_items %}
+        {% for item in res_items %}
+        <div class="d-flex align-items-center gap-3 mb-2 p-2" style="background:#f8f9fa;border-radius:8px;font-size:.82rem;">
+            <span class="badge {% if item.reservation.status == 'active' %}bg-success{% elif item.reservation.status == 'upcoming' %}bg-primary{% else %}bg-secondary{% endif %}" style="font-size:.65rem;">{{ item.reservation.status }}</span>
+            <strong>{{ item.reservation.title }}</strong>
+            <span class="text-muted">by {{ item.reservation.user.username }}</span>
+            <span>{{ item.reservation.start_time|date:"M j H:i" }} - {{ item.reservation.end_time|date:"M j H:i" }}</span>
+            <span class="text-muted">
+                {% if item.slot_number is not None %}Slot {{ item.slot_number }}{% endif %}
+                {% if item.port_number is not None %} / Port {{ item.port_number }}{% endif %}
+                {% if item.slot_number is None and item.port_number is None %}(Whole chassis){% endif %}
+            </span>
+            <a href="{% url 'keysight_reservation_detail' item.reservation.id %}" class="ms-auto btn btn-sm btn-outline-secondary" style="font-size:.7rem;">
+                <i class="fas fa-eye"></i>
+            </a>
+        </div>
+        {% endfor %}
+        {% endif %}
+        {% endfor %}
+        {% endwith %}
+        {% if not reservations.items %}
+        <div class="text-muted text-center py-3" style="font-size:.85rem;">
+            No active or upcoming reservations for this chassis.
+        </div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Operations Panel -->
+<div class="card-custom mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="fas fa-cogs me-2"></i>Operations</span>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            {% if is_kcos %}
+            <!-- KCOS Snapshots -->
+            <div class="col-md-6">
+                <h6 style="font-size:.85rem;"><i class="fas fa-camera me-2"></i>Snapshots</h6>
+                <div id="snapshotsPanel">
+                    <div class="mb-2">
+                        <div class="input-group input-group-sm">
+                            <input type="text" class="form-control" id="snapshotLabel" placeholder="Snapshot label...">
+                            <button class="btn btn-outline-primary" id="btnCreateSnapshot">
+                                <i class="fas fa-plus me-1"></i>Create
+                            </button>
+                        </div>
+                    </div>
+                    <div id="snapshotsList" class="text-muted" style="font-size:.8rem;">
+                        <i class="fas fa-spinner fa-spin me-1"></i>Loading snapshots...
+                    </div>
+                </div>
+            </div>
+            <!-- KCOS Firmware -->
+            <div class="col-md-6">
+                <h6 style="font-size:.85rem;"><i class="fas fa-download me-2"></i>Firmware</h6>
+                <div id="firmwarePanel" class="text-muted" style="font-size:.8rem;">
+                    Firmware information is displayed per-node above in the chassis diagram.
+                </div>
+            </div>
+            {% else %}
+            <!-- IxOS Upgrade -->
+            <div class="col-md-6">
+                <h6 style="font-size:.85rem;"><i class="fas fa-arrow-circle-up me-2"></i>IxOS Upgrade</h6>
+                <div class="mb-2" style="font-size:.8rem;">
+                    <strong>Current Version:</strong> {{ chassis.ixos_version|default:"N/A" }}
+                </div>
+                <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" id="upgradeVersion" placeholder="Target version...">
+                    <button class="btn btn-outline-warning" id="btnUpgrade">
+                        <i class="fas fa-arrow-up me-1"></i>Upgrade
+                    </button>
+                </div>
+                <div id="upgradeStatus" class="mt-2" style="font-size:.75rem;"></div>
+            </div>
+            <div class="col-md-6">
+                <h6 style="font-size:.85rem;"><i class="fas fa-info-circle me-2"></i>Applications</h6>
+                {% if apps %}
+                <table class="table table-sm mb-0" style="font-size:.78rem;">
+                    {% for name, ver in apps.items %}
+                    <tr><td>{{ name }}</td><td class="fw-semibold">{{ ver }}</td></tr>
+                    {% endfor %}
+                </table>
+                {% else %}
+                <div class="text-muted" style="font-size:.8rem;">No IxOS applications data available.</div>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Hyperview Sensors (if SNMP device is linked) -->
+{% if snmp_device %}
+<div class="card-custom mt-3">
+    <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0"><i class="fas fa-thermometer-half me-2" style="color:var(--ks-red);"></i>Environment Sensors</h6>
+        <a href="{% url 'hyperview_device_detail' snmp_device.id %}" class="btn btn-sm btn-outline-secondary">
+            <i class="fas fa-chart-line me-1"></i>Full Sensor View
+        </a>
+    </div>
+    {% if snmp_sensors %}
+    <div class="row g-2">
+        {% for s in snmp_sensors %}
+        <div class="col-md-3 col-6">
+            <div style="background:#f8f9fa;border-radius:8px;padding:10px 14px;border-left:3px solid {% if 'temperature' in s.type %}#dc3545{% elif 'power' in s.type %}#0d6efd{% elif 'cpu' in s.type %}#198754{% elif 'memory' in s.type %}#6f42c1{% else %}#6c757d{% endif %};">
+                <div style="font-size:.7rem;color:#888;text-transform:uppercase;">{{ s.name }}</div>
+                <div style="font-size:1.2rem;font-weight:700;">
+                    {% if s.value is not None %}{{ s.value }}{{ s.unit }}{% else %}—{% endif %}
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-muted" style="font-size:.82rem;">
+        SNMP device linked but no sensor data yet. Run <code>python manage.py snmp_poll</code> to collect data.
+    </div>
+    {% endif %}
+</div>
+{% endif %}
+
+{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="{% static 'css/chassis.css' %}">
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/chassis.js' %}"></script>
+<script>
+const chassisId = {{ chassis.id }};
+const csrfToken = '{{ csrf_token }}';
+const isKcos = {% if is_kcos %}true{% else %}false{% endif %};
+const isM8400 = {% if is_m8400 %}true{% else %}false{% endif %};
+let selectedPorts = new Set();
+
+/* Wrap compute-node-card elements in a container for horizontal layout */
+(function() {
+    var panel = document.getElementById('chassisPanel');
+    if (!panel) return;
+    var computeCards = panel.querySelectorAll('.compute-node-card');
+    if (computeCards.length === 0) return;
+    var container = document.createElement('div');
+    container.className = 'compute-nodes-container';
+    computeCards[0].parentNode.insertBefore(container, computeCards[0]);
+    computeCards.forEach(function(card) { container.appendChild(card); });
+})();
+
+function saveNodeHwError(bar) {
+    const node = bar.dataset.node || '';
+    const bmc = bar.dataset.bmc || '';
+    const cb = bar.querySelector('.node-hw-error-cb');
+    const notesEl = bar.querySelector('.node-hw-error-notes');
+    const form = new FormData();
+    form.append('node_name', node);
+    form.append('bmc_hostname', bmc);
+    form.append('reported', cb && cb.checked ? '1' : '0');
+    form.append('notes', notesEl ? notesEl.value : '');
+    fetch(`/keysight/api/chassis/${chassisId}/node-hardware-error/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+    }).then(r => r.json()).then(data => {
+        if (!data.ok) { alert(data.error || 'Save failed'); return; }
+        if (notesEl) notesEl.style.display = cb.checked ? 'block' : 'none';
+        const card = bar.closest('.compute-node-card, .slot-row');
+        if (card) card.classList.toggle('node-hw-error', !!cb.checked);
+    }).catch(() => alert('Save failed'));
+}
+
+document.querySelectorAll('.node-hw-error-bar').forEach(bar => {
+    const cb = bar.querySelector('.node-hw-error-cb');
+    const notesEl = bar.querySelector('.node-hw-error-notes');
+    if (cb) {
+        cb.addEventListener('change', () => {
+            if (notesEl) notesEl.style.display = cb.checked ? 'block' : 'none';
+            saveNodeHwError(bar);
+        });
+    }
+    if (notesEl) {
+        let t;
+        notesEl.addEventListener('input', () => {
+            clearTimeout(t);
+            t = setTimeout(() => saveNodeHwError(bar), 600);
+        });
+    }
+});
+
+// --- Port selection ---
+document.querySelectorAll('.port-cell').forEach(cell => {
+    cell.addEventListener('click', function(e) {
+        const pid = this.dataset.portId;
+        if (selectedPorts.has(pid)) {
+            selectedPorts.delete(pid);
+            this.classList.remove('selected');
+        } else {
+            selectedPorts.add(pid);
+            this.classList.add('selected');
+        }
+        updatePortDetail();
+    });
+});
+
+document.getElementById('btnSelectAll').addEventListener('click', function() {
+    document.querySelectorAll('.port-cell').forEach(c => {
+        selectedPorts.add(c.dataset.portId);
+        c.classList.add('selected');
+    });
+    updatePortDetail();
+});
+
+document.getElementById('btnDeselectAll').addEventListener('click', function() {
+    selectedPorts.clear();
+    document.querySelectorAll('.port-cell.selected').forEach(c => c.classList.remove('selected'));
+    document.getElementById('portDetailPanel').classList.remove('visible');
+    document.getElementById('selectedCount').textContent = '0 selected';
+});
+
+function _setTextIfExists(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
+function updatePortDetail() {
+    const panel = document.getElementById('portDetailPanel');
+    const count = selectedPorts.size;
+    document.getElementById('selectedCount').textContent = count + ' selected';
+    if (count === 0) { panel.classList.remove('visible'); return; }
+    panel.classList.add('visible');
+    if (count === 1) {
+        const pid = Array.from(selectedPorts)[0];
+        const cell = document.querySelector(`.port-cell[data-port-id="${pid}"]`);
+        if (cell) {
+            _setTextIfExists('pdCardPort', cell.dataset.card + '/' + cell.dataset.port);
+            _setTextIfExists('pdLink', cell.dataset.link || '-');
+            _setTextIfExists('pdSpeed', cell.dataset.speed || '-');
+            if (isKcos) {
+                _setTextIfExists('pdFrom', cell.dataset.from || '-');
+                _setTextIfExists('pdTo', cell.dataset.to || '-');
+                _setTextIfExists('pdXcvrSerial', cell.dataset.xcvrSerial || '-');
+                _setTextIfExists('pdFecActive', cell.dataset.fecActive || '-');
+                _setTextIfExists('pdFecConfig', cell.dataset.fecConfigured || '-');
+                _setTextIfExists('pdAutoNeg', cell.dataset.autoNegotiation || '-');
+                _setTextIfExists('pdPanel', cell.dataset.panel || '-');
+            } else {
+                _setTextIfExists('pdPhy', cell.dataset.phy || '-');
+                _setTextIfExists('pdOwner', cell.dataset.owner || '-');
+                _setTextIfExists('pdTx', cell.dataset.tx || '-');
+            }
+            _setTextIfExists('pdXcvr', cell.dataset.xcvr || '-');
+            _setTextIfExists('pdMfg', cell.dataset.xcvrMfg || '-');
+        }
+        document.getElementById('portDetailTitle').textContent = '- Port ' + cell.dataset.card + '/' + cell.dataset.port;
+    } else {
+        document.getElementById('portDetailTitle').textContent = '- ' + count + ' ports selected';
+        ['pdCardPort','pdLink','pdSpeed','pdPhy','pdOwner','pdXcvr','pdMfg','pdTx',
+         'pdFrom','pdTo','pdXcvrSerial','pdFecActive','pdFecConfig','pdAutoNeg','pdPanel'].forEach(id => {
+            _setTextIfExists(id, '(multiple)');
+        });
+    }
+}
+
+// --- Port operations (IxOS only) ---
+{% if not is_kcos %}
+function doPortOp(op) {
+    if (selectedPorts.size === 0) return alert('No ports selected.');
+    if (!confirm('Perform "' + op + '" on ' + selectedPorts.size + ' port(s)?')) return;
+    const form = new FormData();
+    form.append('operation', op);
+    selectedPorts.forEach(pid => form.append('port_ids', pid));
+    fetch(`/keysight/api/chassis/${chassisId}/port-operation/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            alert('Operation successful!');
+            location.reload();
+        } else {
+            let errs = (data.results || []).filter(r => !r.success).map(r => `Port ${r.port_id}: ${r.error}`).join('\n');
+            alert('Some operations failed:\n' + (errs || data.error || 'Unknown error'));
+        }
+    })
+    .catch(e => alert('Request failed: ' + e));
+}
+
+document.getElementById('btnTakeOwnership').addEventListener('click', () => doPortOp('take_ownership'));
+document.getElementById('btnReleaseOwnership').addEventListener('click', () => doPortOp('release_ownership'));
+document.getElementById('btnReboot').addEventListener('click', () => doPortOp('reboot'));
+document.getElementById('btnReset').addEventListener('click', () => doPortOp('reset'));
+{% endif %}
+
+// --- KCOS operations ---
+{% if is_kcos %}
+// Chassis reboot (management)
+const rebootBtn = document.getElementById('btnRebootChassis');
+if (rebootBtn) {
+    rebootBtn.addEventListener('click', function() {
+        if (!confirm('WARNING: This will reboot the ENTIRE chassis. All connections will be lost.\n\nAre you sure?')) return;
+        if (!confirm('FINAL CONFIRMATION: Rebooting the chassis cannot be undone. Proceed?')) return;
+        const form = new FormData();
+        fetch(`/keysight/api/chassis/${chassisId}/kcos/reboot-chassis/`, {
+            method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Chassis reboot initiated. The system will be unavailable for several minutes.');
+            } else {
+                alert('Reboot failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(e => alert('Request failed: ' + e));
+    });
+}
+
+// App switch
+document.querySelectorAll('.kcos-switch-app-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const nodeName = this.dataset.node;
+        const select = document.querySelector(`.kcos-app-select[data-node="${nodeName}"]`);
+        const appId = select ? select.value : '';
+        if (!appId) return alert('No app selected.');
+        if (!confirm(`Switch app on node "${nodeName}" to "${appId}"?`)) return;
+        const form = new FormData();
+        form.append('node_name', nodeName);
+        form.append('app_id', appId);
+        fetch(`/keysight/api/chassis/${chassisId}/kcos/switch-app/`, {
+            method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('App switch initiated. It may take a few minutes to complete.');
+                location.reload();
+            } else {
+                alert('App switch failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(e => alert('Request failed: ' + e));
+    });
+});
+
+// Power cycle
+document.querySelectorAll('.kcos-power-cycle-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const nodeName = this.dataset.node;
+        if (!confirm(`Power-cycle node "${nodeName}"? This will restart the node hardware.`)) return;
+        const form = new FormData();
+        form.append('node_name', nodeName);
+        fetch(`/keysight/api/chassis/${chassisId}/kcos/power-cycle-node/`, {
+            method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Power cycle initiated for ' + nodeName);
+                location.reload();
+            } else {
+                alert('Power cycle failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(e => alert('Request failed: ' + e));
+    });
+});
+
+// Restart
+document.querySelectorAll('.kcos-restart-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const nodeName = this.dataset.node;
+        if (!confirm(`Restart node "${nodeName}"?`)) return;
+        const form = new FormData();
+        form.append('node_name', nodeName);
+        fetch(`/keysight/api/chassis/${chassisId}/kcos/restart-node/`, {
+            method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                alert('Restart initiated for ' + nodeName);
+                location.reload();
+            } else {
+                alert('Restart failed: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(e => alert('Request failed: ' + e));
+    });
+});
+{% endif %}
+
+// --- Table filtering ---
+document.getElementById('filterLink').addEventListener('change', filterTable);
+const filterOwnerEl = document.getElementById('filterOwner');
+if (filterOwnerEl) filterOwnerEl.addEventListener('change', filterTable);
+const filterPanelEl = document.getElementById('filterPanel');
+if (filterPanelEl) filterPanelEl.addEventListener('change', filterTable);
+
+function filterTable() {
+    const linkF = document.getElementById('filterLink').value;
+    const ownerF = document.getElementById('filterOwner') ? document.getElementById('filterOwner').value : '';
+    const panelF = document.getElementById('filterPanel') ? document.getElementById('filterPanel').value : '';
+    document.querySelectorAll('#portsTable tbody tr').forEach(row => {
+        const link = row.dataset.link || '';
+        const owner = row.dataset.owner || '';
+        const panel = row.dataset.panel || '';
+        let show = true;
+        if (linkF && link !== linkF) show = false;
+        if (ownerF === 'Free' && owner !== 'Free') show = false;
+        if (ownerF === 'owned' && owner === 'Free') show = false;
+        if (panelF && panel !== panelF) show = false;
+        row.style.display = show ? '' : 'none';
+    });
+}
+
+// --- Table check all ---
+document.getElementById('checkAll').addEventListener('change', function() {
+    document.querySelectorAll('.port-check').forEach(cb => { cb.checked = this.checked; });
+});
+
+// --- Reservation badges on port cells ---
+const reservationData = {
+    {% for res_key, res_items in reservations.items %}
+    {% if res_key != 'chassis_level' %}
+    '{{ res_key }}': [
+        {% for item in res_items %}
+        {user: '{{ item.reservation.user.username|escapejs }}', title: '{{ item.reservation.title|escapejs }}', start: '{{ item.reservation.start_time|date:"M j" }}', end: '{{ item.reservation.end_time|date:"M j" }}'},
+        {% endfor %}
+    ],
+    {% endif %}
+    {% endfor %}
+};
+// Mark reserved slots
+document.querySelectorAll('.slot-res-badges').forEach(span => {
+    const slot = span.dataset.slot;
+    const slotKey = `slot_${slot}`;
+    const resInfo = reservationData[slotKey];
+    if (resInfo && resInfo.length > 0) {
+        resInfo.forEach(r => {
+            span.innerHTML += `<span class="res-badge-slot" title="Reserved by ${r.user}"><i class="fas fa-lock me-1"></i>${r.user} (${r.start}-${r.end})</span>`;
+        });
+    }
+});
+
+// Mark reserved port cells
+document.querySelectorAll('.port-cell').forEach(cell => {
+    const card = cell.dataset.card;
+    const port = cell.dataset.port;
+    const portKey = `slot_${card}_port_${port}`;
+    const slotKey = `slot_${card}`;
+    let resInfo = reservationData[portKey] || reservationData[slotKey] || null;
+    if (resInfo && resInfo.length > 0) {
+        cell.classList.add('reserved');
+        const badge = document.createElement('div');
+        badge.className = 'res-badge-port';
+        badge.title = 'Reserved: ' + resInfo.map(r => `${r.user} (${r.start}-${r.end})`).join(', ');
+        cell.appendChild(badge);
+        const tooltip = cell.querySelector('.port-tooltip');
+        if (tooltip) {
+            tooltip.innerHTML += '<br><b style="color:#fbbf24;">Reserved: ' + resInfo[0].user + '</b>';
+        }
+    }
+});
+
+// --- Auto-refresh every 30s ---
+setInterval(function() {
+    fetch(`/keysight/api/chassis/${chassisId}/data/`)
+        .then(r => r.json())
+        .catch(() => {});
+}, 30000);
+
+// --- Clear cache & refresh ---
+document.getElementById('btnClearCache').addEventListener('click', function() {
+    const btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+    fetch(`/keysight/api/chassis/${chassisId}/clear-cache/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken},
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            btn.innerHTML = '<i class="fas fa-check"></i>';
+            setTimeout(() => location.reload(), 3000);
+        } else {
+            alert('Cache clear failed: ' + (data.error || 'Unknown error'));
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+        }
+    })
+    .catch(e => {
+        alert('Request failed: ' + e);
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-sync-alt"></i>';
+    });
+});
+
+// --- Snapshot operations (KCOS) ---
+{% if is_kcos %}
+function loadSnapshots() {
+    fetch(`/keysight/api/chassis/${chassisId}/snapshots/`)
+        .then(r => r.json())
+        .then(data => {
+            const panel = document.getElementById('snapshotsList');
+            if (!data.success || !data.snapshots || data.snapshots.length === 0) {
+                panel.innerHTML = '<span class="text-muted" style="font-size:.78rem;">No snapshots found.</span>';
+                return;
+            }
+            const snapshots = Array.isArray(data.snapshots) ? data.snapshots : [];
+            let html = '<table class="table table-sm mb-0" style="font-size:.75rem;"><thead><tr><th>Name</th><th>Size</th><th>Actions</th></tr></thead><tbody>';
+            snapshots.forEach(s => {
+                const name = s.name || s.label || '-';
+                const size = s.size || s.reference || '-';
+                html += `<tr>
+                    <td>${name}</td><td>${size}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-success snap-restore" data-name="${name}" style="font-size:.65rem;" title="Restore"><i class="fas fa-undo"></i></button>
+                        <button class="btn btn-sm btn-outline-danger snap-delete" data-name="${name}" style="font-size:.65rem;" title="Delete"><i class="fas fa-trash"></i></button>
+                    </td>
+                </tr>`;
+            });
+            html += '</tbody></table>';
+            panel.innerHTML = html;
+            panel.querySelectorAll('.snap-restore').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const name = this.dataset.name;
+                    if (!confirm(`Restore snapshot "${name}"? This may reboot the chassis.`)) return;
+                    const form = new FormData();
+                    form.append('name', name);
+                    fetch(`/keysight/api/chassis/${chassisId}/snapshot/restore/`, {
+                        method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+                    }).then(r => r.json()).then(d => {
+                        alert(d.success ? 'Restore initiated.' : 'Failed: ' + d.error);
+                    });
+                });
+            });
+            panel.querySelectorAll('.snap-delete').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    const name = this.dataset.name;
+                    if (!confirm(`Delete snapshot "${name}"?`)) return;
+                    const form = new FormData();
+                    form.append('name', name);
+                    fetch(`/keysight/api/chassis/${chassisId}/snapshot/delete/`, {
+                        method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+                    }).then(r => r.json()).then(d => {
+                        if (d.success) loadSnapshots();
+                        else alert('Failed: ' + d.error);
+                    });
+                });
+            });
+        })
+        .catch(() => {
+            document.getElementById('snapshotsList').innerHTML = '<span class="text-danger" style="font-size:.78rem;">Failed to load snapshots.</span>';
+        });
+}
+loadSnapshots();
+
+document.getElementById('btnCreateSnapshot').addEventListener('click', function() {
+    const label = document.getElementById('snapshotLabel').value.trim();
+    if (!label) return alert('Please enter a snapshot label.');
+    if (!confirm(`Create snapshot "${label}"?`)) return;
+    const form = new FormData();
+    form.append('label', label);
+    fetch(`/keysight/api/chassis/${chassisId}/snapshot/create/`, {
+        method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+    }).then(r => r.json()).then(d => {
+        if (d.success) {
+            alert('Snapshot creation initiated.');
+            document.getElementById('snapshotLabel').value = '';
+            setTimeout(loadSnapshots, 3000);
+        } else {
+            alert('Failed: ' + d.error);
+        }
+    }).catch(e => alert('Error: ' + e));
+});
+{% endif %}
+
+// --- IxOS Upgrade ---
+{% if not is_kcos %}
+const btnUpgrade = document.getElementById('btnUpgrade');
+if (btnUpgrade) {
+    btnUpgrade.addEventListener('click', function() {
+        const version = document.getElementById('upgradeVersion').value.trim();
+        if (!version) return alert('Please enter a target version.');
+        if (!confirm(`Upgrade chassis to version "${version}"? This may cause downtime.`)) return;
+        const form = new FormData();
+        form.append('version', version);
+        fetch(`/keysight/api/chassis/${chassisId}/upgrade/`, {
+            method: 'POST', headers: {'X-CSRFToken': csrfToken}, body: form,
+        }).then(r => r.json()).then(d => {
+            const statusEl = document.getElementById('upgradeStatus');
+            if (d.success) {
+                statusEl.innerHTML = '<span class="text-success"><i class="fas fa-check me-1"></i>Upgrade initiated. Monitoring...</span>';
+                pollUpgradeStatus();
+            } else {
+                statusEl.innerHTML = '<span class="text-danger"><i class="fas fa-times me-1"></i>' + d.error + '</span>';
+            }
+        }).catch(e => {
+            document.getElementById('upgradeStatus').innerHTML = '<span class="text-danger">Error: ' + e + '</span>';
+        });
+    });
+}
+
+function pollUpgradeStatus() {
+    fetch(`/keysight/api/chassis/${chassisId}/upgrade/status/`)
+        .then(r => r.json())
+        .then(d => {
+            const statusEl = document.getElementById('upgradeStatus');
+            if (d.success && d.data) {
+                statusEl.innerHTML = '<span class="text-info"><i class="fas fa-spinner fa-spin me-1"></i>' +
+                    JSON.stringify(d.data).substring(0, 200) + '</span>';
+            }
+        })
+        .catch(() => {});
+}
+{% endif %}
+
+/* ---- Quick Reserve from chassis detail ---- */
+(function() {
+    var btn = document.getElementById('btnQuickReserve');
+    if (!btn) return;
+
+    // Build modal HTML dynamically
+    var modalHTML = `
+    <div class="modal fade" id="qrModalDetail" tabindex="-1">
+      <div class="modal-dialog modal-sm">
+        <div class="modal-content" style="border-top:3px solid var(--ks-red,#E31937);">
+          <div class="modal-header py-2">
+            <h6 class="modal-title"><i class="fas fa-calendar-plus me-2"></i>Quick Reserve</h6>
+            <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+          </div>
+          <div class="modal-body py-2">
+            <div class="mb-2"><label style="font-size:.75rem;">Chassis</label>
+              <div style="font-weight:600;font-size:.85rem;">${btn.dataset.chassisName}</div>
+            </div>
+            <div class="mb-2"><label style="font-size:.75rem;">Title</label>
+              <input type="text" id="qrd-title" class="form-control form-control-sm" placeholder="Auto-generated if blank"></div>
+            <div class="mb-2"><label style="font-size:.75rem;">User</label>
+              <div style="font-size:.85rem;">{{ request.user.username }} ({{ request.user.email|default:"no email" }})</div>
+            </div>
+            <div class="row g-2 mb-2">
+              <div class="col-6"><label style="font-size:.75rem;">Slot <span class="text-muted">(opt)</span></label>
+                <input type="number" id="qrd-slot" class="form-control form-control-sm" placeholder="All"></div>
+              <div class="col-6"><label style="font-size:.75rem;">Port <span class="text-muted">(opt)</span></label>
+                <input type="number" id="qrd-port" class="form-control form-control-sm" placeholder="All"></div>
+            </div>
+            <div class="mb-2"><label style="font-size:.75rem;">Duration</label>
+              <select id="qrd-duration" class="form-select form-select-sm">
+                <option value="1h">1 Hour</option><option value="4h" selected>4 Hours</option>
+                <option value="8h">8 Hours</option><option value="24h">24 Hours</option>
+                <option value="1w">1 Week</option><option value="custom">Custom</option>
+              </select></div>
+            <div class="mb-2 d-none" id="qrd-custom-wrap"><label style="font-size:.75rem;">End Time</label>
+              <input type="datetime-local" id="qrd-custom-end" class="form-control form-control-sm"></div>
+            <div class="mb-2"><label style="font-size:.75rem;">Notes <span class="text-muted">(opt)</span></label>
+              <input type="text" id="qrd-notes" class="form-control form-control-sm"></div>
+            <div id="qrd-result" class="d-none mt-2" style="font-size:.8rem;"></div>
+          </div>
+          <div class="modal-footer py-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-sm" style="background:var(--ks-red,#E31937);color:#fff;" id="qrd-submit">
+              <i class="fas fa-check me-1"></i>Reserve</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    var bsModal = new bootstrap.Modal(document.getElementById('qrModalDetail'));
+
+    btn.addEventListener('click', function() {
+        document.getElementById('qrd-result').classList.add('d-none');
+        document.getElementById('qrd-submit').disabled = false;
+        bsModal.show();
+    });
+
+    document.getElementById('qrd-duration').addEventListener('change', function() {
+        document.getElementById('qrd-custom-wrap').classList.toggle('d-none', this.value !== 'custom');
+    });
+
+    document.getElementById('qrd-submit').addEventListener('click', function() {
+        var sb = this; sb.disabled = true;
+        sb.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Reserving...';
+        var fd = new FormData();
+        fd.append('chassis_id', btn.dataset.chassisId);
+        fd.append('title', document.getElementById('qrd-title').value);
+        fd.append('slot_number', document.getElementById('qrd-slot').value);
+        fd.append('port_number', document.getElementById('qrd-port').value);
+        fd.append('duration', document.getElementById('qrd-duration').value);
+        fd.append('custom_end', document.getElementById('qrd-custom-end').value);
+        fd.append('notes', document.getElementById('qrd-notes').value);
+        fetch('{% url "keysight_quick_reserve" %}', {
+            method:'POST', headers:{'X-CSRFToken':'{{ csrf_token }}'}, body:fd
+        }).then(r=>r.json()).then(d=>{
+            var res = document.getElementById('qrd-result');
+            res.classList.remove('d-none');
+            if(d.ok){ res.innerHTML='<span class="text-success"><i class="fas fa-check-circle me-1"></i>Reserved! Ends '+d.end_time+'</span>';
+                setTimeout(()=>{ bsModal.hide(); location.reload(); },2000);
+            } else { res.innerHTML='<span class="text-danger">'+d.error+'</span>'; sb.disabled=false;
+                sb.innerHTML='<i class="fas fa-check me-1"></i>Reserve'; }
+        }).catch(()=>{ sb.disabled=false; sb.innerHTML='<i class="fas fa-check me-1"></i>Reserve'; });
+    });
+})();
+</script>
+{% endblock %}

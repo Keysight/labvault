@@ -1,0 +1,207 @@
+{% extends 'connect/base.html' %}
+{% block title %}Diagnostics Center{% endblock %}
+{% block page_title %}Diagnostics Center{% endblock %}
+
+{% block topbar_actions %}
+<button type="button" class="btn btn-sm btn-outline-secondary" id="diag-refresh"><i class="fas fa-sync-alt me-1"></i> Refresh</button>
+<a href="{% url 'diagnostics_export' %}" class="btn btn-sm btn-outline-primary"><i class="fas fa-file-code me-1"></i> JSON</a>
+<a href="{% url 'diagnostics_bundle_export' %}" class="btn btn-sm btn-nc"><i class="fas fa-file-archive me-1"></i> Full bundle</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+.diag-banner { border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.25rem; border: 1px solid transparent; }
+.diag-banner.ok { background: #ecfdf5; border-color: #6ee7b7; color: #065f46; }
+.diag-banner.bad { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+.diag-stat { background: #fff; border-radius: 10px; padding: 1rem; border: 1px solid #e5e7eb; text-align: center; }
+.diag-stat .num { font-size: 1.6rem; font-weight: 700; line-height: 1.1; }
+.diag-stat .lbl { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: #64748b; margin-top: .35rem; }
+.check-row { border-left: 4px solid #e5e7eb; padding: .65rem .85rem; margin-bottom: .5rem; background: #fff; border-radius: 0 8px 8px 0; }
+.check-row.ok { border-left-color: #22c55e; }
+.check-row.warn { border-left-color: #f59e0b; }
+.check-row.fail { border-left-color: #ef4444; }
+.check-row .name { font-weight: 600; font-size: .88rem; }
+.check-row .detail { font-size: .82rem; color: #475569; margin-top: .15rem; word-break: break-word; }
+.check-row .fix { font-size: .78rem; color: #7c2d12; margin-top: .25rem; }
+.log-box { max-height: 420px; overflow: auto; font-family: ui-monospace, monospace; font-size: .75rem; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: .75rem; }
+.log-line { padding: .15rem 0; border-bottom: 1px solid rgba(255,255,255,.05); }
+.log-line.ERROR, .log-line.CRITICAL { color: #fca5a5; }
+.log-line.WARNING { color: #fde68a; }
+.section-card { background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; }
+.section-card h5 { font-size: .95rem; margin-bottom: .75rem; }
+pre.diag-pre { font-size: .78rem; background: #f8fafc; border-radius: 8px; padding: .75rem; max-height: 280px; overflow: auto; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div id="diag-banner" class="diag-banner {% if report.ok %}ok{% else %}bad{% endif %}">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2">
+    <div>
+      <strong id="diag-overall">{% if report.ok %}All critical checks passed{% else %}Issues detected — review checks below{% endif %}</strong>
+      <div class="small mt-1 opacity-75">Generated <span id="diag-ts">{{ report.generated_at }}</span> · {{ report.hostname }}</div>
+    </div>
+    <div class="text-end small">
+      <div>Revision: <code>{{ report.labvault.revision|default:"unknown" }}</code></div>
+      <div>Demo mode: {{ report.labvault.demo_mode|yesno:"yes,no" }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3 col-6"><div class="diag-stat"><div class="num text-success" id="stat-pass">{{ report.summary.passed }}</div><div class="lbl">Passed</div></div></div>
+  <div class="col-md-3 col-6"><div class="diag-stat"><div class="num text-danger" id="stat-fail">{{ report.summary.failed }}</div><div class="lbl">Failed</div></div></div>
+  <div class="col-md-3 col-6"><div class="diag-stat"><div class="num text-warning" id="stat-warn">{{ report.summary.warnings }}</div><div class="lbl">Warnings</div></div></div>
+  <div class="col-md-3 col-6"><div class="diag-stat"><div class="num" id="stat-total">{{ report.summary.total }}</div><div class="lbl">Total checks</div></div></div>
+</div>
+
+<ul class="nav nav-tabs mb-3" role="tablist">
+  <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#tab-checks">Checks</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-services">Services</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-database">Database</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-inventory">Inventory</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-logs">App logs</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-agg-logs">Aggregated</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-workers">Workers</a></li>
+  <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#tab-env">Environment</a></li>
+</ul>
+
+<div class="tab-content">
+  <div class="tab-pane fade show active" id="tab-checks">
+    {% if report.recommendations %}
+    <div class="alert alert-warning py-2"><strong>Recommended actions</strong><ul class="mb-0 mt-1 small">{% for r in report.recommendations %}<li>{{ r }}</li>{% endfor %}</ul></div>
+    {% endif %}
+    <div id="checks-list">
+      {% for c in report.checks %}
+      <div class="check-row {% if c.ok %}ok{% elif c.severity == 'warn' %}warn{% else %}fail{% endif %}">
+        <div class="name"><span class="badge bg-secondary me-1">{{ c.category }}</span> {{ c.name }}</div>
+        <div class="detail">{{ c.detail }}</div>
+        {% if c.remediation %}<div class="fix"><i class="fas fa-wrench me-1"></i>{{ c.remediation }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-services">
+    <div class="section-card">
+      <h5><i class="fas fa-heartbeat me-1"></i> Fleet heartbeat</h5>
+      <pre class="diag-pre">{{ json_heartbeat }}</pre>
+    </div>
+    <div class="section-card">
+      <h5><i class="fas fa-chart-line me-1"></i> Metrics collector</h5>
+      <pre class="diag-pre">{{ json_collector }}</pre>
+    </div>
+    <div class="section-card">
+      <h5><i class="fas fa-plug me-1"></i> OCS integration</h5>
+      <pre class="diag-pre">{{ json_ocs }}</pre>
+    </div>
+    <div class="section-card">
+      <h5><i class="fas fa-network-wired me-1"></i> API smoke tests</h5>
+      <pre class="diag-pre">{{ json_api_smoke }}</pre>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-database">
+    <div class="section-card">
+      <h5>PostgreSQL / default</h5>
+      <pre class="diag-pre">{{ json_db_default }}</pre>
+    </div>
+    <div class="section-card">
+      <h5>np_timeseries</h5>
+      <pre class="diag-pre">{{ json_db_ts }}</pre>
+    </div>
+    <div class="section-card">
+      <h5>Storage paths</h5>
+      <pre class="diag-pre">{{ json_path_sizes }}</pre>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-inventory">
+    <div class="section-card">
+      <h5>Summary</h5>
+      <pre class="diag-pre">{{ json_inventory }}</pre>
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-agg-logs">
+    <div class="log-box" id="agg-log-box">
+      {% for row in report.aggregated_logs %}
+      <div class="log-line {{ row.level }}"><span class="text-muted">{{ row.ts }}</span> [{{ row.service|default:"?" }}] [{{ row.level }}] {{ row.message }}</div>
+      {% empty %}
+      <div class="text-muted">No aggregated logs yet — set LABVAULT_DIAGNOSTICS_LOG_DIR or POST to /api/diagnostics/ingest/.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-workers">
+    <pre class="diag-pre">{{ json_workers }}</pre>
+  </div>
+
+  <div class="tab-pane fade" id="tab-logs">
+    <div class="log-box" id="log-box">
+      {% for row in report.recent_logs %}
+      <div class="log-line {{ row.level }}"><span class="text-muted">{{ row.ts }}</span> [{{ row.level }}] {{ row.logger }} — {{ row.message }}</div>
+      {% empty %}
+      <div class="text-muted">No WARNING+ entries in ring buffer yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="tab-pane fade" id="tab-env">
+    <pre class="diag-pre">{{ json_env }}</pre>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+  const checksList = document.getElementById('checks-list');
+  const logBox = document.getElementById('log-box');
+  const aggLogBox = document.getElementById('agg-log-box');
+
+  function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+  function renderChecks(checks) {
+    checksList.innerHTML = checks.map(c => {
+      const cls = c.ok ? 'ok' : (c.severity === 'warn' ? 'warn' : 'fail');
+      const fix = c.remediation ? `<div class="fix"><i class="fas fa-wrench me-1"></i>${esc(c.remediation)}</div>` : '';
+      return `<div class="check-row ${cls}"><div class="name"><span class="badge bg-secondary me-1">${esc(c.category)}</span> ${esc(c.name)}</div><div class="detail">${esc(c.detail)}</div>${fix}</div>`;
+    }).join('');
+  }
+
+  function renderLogs(logs) {
+    if (!logs.length) { logBox.innerHTML = '<div class="text-muted">No WARNING+ entries in ring buffer yet.</div>'; return; }
+    logBox.innerHTML = logs.map(r => `<div class="log-line ${esc(r.level)}"><span class="text-muted">${esc(r.ts)}</span> [${esc(r.level)}] ${esc(r.logger)} — ${esc(r.message)}</div>`).join('');
+  }
+
+  function renderAggLogs(logs) {
+    if (!aggLogBox) return;
+    if (!logs.length) { aggLogBox.innerHTML = '<div class="text-muted">No aggregated logs yet.</div>'; return; }
+    aggLogBox.innerHTML = logs.map(r => `<div class="log-line ${esc(r.level)}"><span class="text-muted">${esc(r.ts)}</span> [${esc(r.service||'?')}] [${esc(r.level)}] ${esc(r.message)}</div>`).join('');
+  }
+
+  function applyReport(p) {
+    document.getElementById('diag-ts').textContent = p.generated_at;
+    document.getElementById('stat-pass').textContent = p.summary.passed;
+    document.getElementById('stat-fail').textContent = p.summary.failed;
+    document.getElementById('stat-warn').textContent = p.summary.warnings;
+    document.getElementById('stat-total').textContent = p.summary.total;
+    const banner = document.getElementById('diag-banner');
+    banner.classList.toggle('ok', p.ok);
+    banner.classList.toggle('bad', !p.ok);
+    document.getElementById('diag-overall').textContent = p.ok ? 'All critical checks passed' : 'Issues detected — review checks below';
+    renderChecks(p.checks || []);
+    renderLogs(p.recent_logs || []);
+    renderAggLogs(p.aggregated_logs || []);
+  }
+
+  document.getElementById('diag-refresh').addEventListener('click', () => {
+    fetch('{% url "diagnostics_json_live" %}').then(r => r.json()).then(applyReport).catch(console.error);
+  });
+
+  setInterval(() => {
+    fetch('{% url "diagnostics_json_live" %}').then(r => r.json()).then(applyReport).catch(() => {});
+  }, 30000);
+})();
+</script>
+{% endblock %}

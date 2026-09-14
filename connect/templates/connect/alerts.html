@@ -1,0 +1,62 @@
+{% extends 'connect/base.html' %}
+{% block title %}Alerts - LabVault{% endblock %}
+{% block page_title %}Alerts{% endblock %}
+
+{% block topbar_actions %}
+<form method="post" action="{% url 'acknowledge_all_alerts' %}">
+    {% csrf_token %}
+    <button class="btn btn-sm btn-outline-success"><i class="fas fa-check-double me-1"></i> Ack All</button>
+</form>
+{% endblock %}
+
+{% block content %}
+<div class="mb-3 d-flex gap-2">
+    <a href="?severity=critical" class="btn btn-sm {% if severity_filter == 'critical' %}btn-danger{% else %}btn-outline-danger{% endif %}">Critical</a>
+    <a href="?severity=warning" class="btn btn-sm {% if severity_filter == 'warning' %}btn-warning{% else %}btn-outline-warning{% endif %}">Warning</a>
+    <a href="?severity=info" class="btn btn-sm {% if severity_filter == 'info' %}btn-info{% else %}btn-outline-info{% endif %}">Info</a>
+    <a href="?ack=unack" class="btn btn-sm {% if ack_filter == 'unack' %}btn-primary{% else %}btn-outline-primary{% endif %}">Unacknowledged</a>
+    <a href="{% url 'alerts' %}" class="btn btn-sm btn-outline-secondary">All</a>
+</div>
+
+<div class="card-custom">
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>Time</th><th>Severity</th><th>Type</th><th>Device</th><th>Message</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                    {% for a in alerts %}
+                    <tr class="{% if not a.acknowledged %}{% if a.severity == 'critical' %}table-danger{% elif a.severity == 'warning' %}table-warning{% endif %}{% endif %}">
+                        <td style="font-size:0.8rem;">{{ a.created_at|date:"M d H:i" }}</td>
+                        <td><span class="badge bg-{% if a.severity == 'critical' %}danger{% elif a.severity == 'warning' %}warning text-dark{% else %}info{% endif %}">{{ a.severity }}</span></td>
+                        <td style="font-size:0.85rem;">{{ a.get_alert_type_display }}</td>
+                        <td>{% if a.device %}<a href="{% url 'device_detail' a.device.id %}">{{ a.device }}</a>{% else %}-{% endif %}</td>
+                        <td style="font-size:0.85rem;">{{ a.message|truncatechars:80 }}</td>
+                        <td>{% if a.acknowledged %}<span class="text-success"><i class="fas fa-check"></i></span>{% else %}<span class="text-muted">Open</span>{% endif %}</td>
+                        <td>
+                            {% if not a.acknowledged %}
+                            <button class="btn btn-sm btn-outline-success ack-btn" data-id="{{ a.id }}"><i class="fas fa-check"></i></button>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="7" class="text-center text-muted py-3">No alerts</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.querySelectorAll('.ack-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        fetch(`/alerts/${this.dataset.id}/ack/`, {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'}
+        }).then(() => this.closest('tr').classList.remove('table-danger', 'table-warning'));
+    });
+});
+</script>
+{% endblock %}

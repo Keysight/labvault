@@ -1,0 +1,41 @@
+{% extends "connect/base.html" %}
+{% load ip_display %}
+{% block title %}Audit Log - LabVault{% endblock %}
+
+{% block page_title %}KS Audit Log{% endblock %}
+
+{% block content %}
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-clipboard-list me-2"></i>Recent Activity</div>
+    <div class="card-body p-0">
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Timestamp</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Chassis</th>
+                    <th>Details</th>
+                    <th>Source IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr>
+                    <td>{{ log.timestamp|date:"Y-m-d H:i:s" }}</td>
+                    <td>{{ log.user|default:"-" }}</td>
+                    <td><span class="badge bg-secondary" style="font-size:.68rem;">{{ log.get_action_display }}</span></td>
+                    <td>
+                        {% if log.chassis %}
+                        {% mgmt_address_links object=log.chassis label=log.chassis.ip_address %}
+                        {% else %}-{% endif %}
+                    </td>
+                    <td style="max-width:300px;" class="text-truncate">{{ log.details }}</td>
+                    <td>{{ log.ip_address|default:"-" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

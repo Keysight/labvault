@@ -1,0 +1,40 @@
+# Core framework
+Django>=4.2,<5.0
+django-sslserver==0.22
+
+# API / networking
+jsonrpclib-pelix
+requests
+paramiko
+
+# Process management (watchdog)
+psutil
+
+# Driver plugin manifests (OCS, etc.)
+PyYAML>=6.0
+
+# Environment variable loading
+python-dotenv
+
+# Production WSGI server
+gunicorn
+
+# PostgreSQL / multi-database support
+dj-database-url
+psycopg2-binary
+
+# Excel / document parsing
+
+# SNMP monitoring (Hyperview integration)
+
+# Redfish BMC management
+redfish>=3.3.0
+
+# BACnet/IP for CRAC/HVAC units
+
+# Optional: Active Directory / LDAP authentication
+# Requires system package: sudo dnf install -y openldap-devel
+django-auth-ldap
+
+# Appliance SSH CLI
+asyncssh>=2.14.0

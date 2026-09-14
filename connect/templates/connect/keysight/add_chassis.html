@@ -1,0 +1,33 @@
+{% extends "connect/base.html" %}
+{% block title %}Add Chassis - LabVault{% endblock %}
+
+{% block page_title %}Add Chassis{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-6">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-server me-2"></i>New Ixia Chassis</div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    {% for field in form %}
+                    <div class="mb-3">
+                        <label class="form-label" style="font-size:.85rem;font-weight:600;">{{ field.label }}</label>
+                        {{ field }}
+                        {% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}
+                        {% for error in field.errors %}<div class="text-danger" style="font-size:.8rem;">{{ error }}</div>{% endfor %}
+                    </div>
+                    {% endfor %}
+                    <div class="d-flex gap-2">
+                        <button type="submit" class="btn btn-primary" style="background:var(--ks-blue);border-color:var(--ks-blue);">
+                            <i class="fas fa-plus me-1"></i>Add Chassis
+                        </button>
+                        <a href="{% url 'keysight_dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

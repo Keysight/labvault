@@ -1,0 +1,55 @@
+{% extends "connect/base.html" %}
+{% block title %}SLA Report{% endblock %}
+{% block page_title %}Uptime SLA Report (Last {{ days }} days){% endblock %}
+{% block content %}
+<div class="mb-3">
+    <form method="get" class="d-inline-flex gap-2">
+        <select name="hours" class="form-select form-select-sm" style="width:auto;" onchange="this.form.submit()">
+            <option value="168" {% if hours == 168 %}selected{% endif %}>7 Days</option>
+            <option value="720" {% if hours == 720 %}selected{% endif %}>30 Days</option>
+            <option value="2160" {% if hours == 2160 %}selected{% endif %}>90 Days</option>
+        </select>
+    </form>
+</div>
+<div class="card card-custom">
+    <div class="card-header"><i class="fas fa-heartbeat me-2"></i>Device Availability</div>
+    <div class="card-body p-0">
+        <table class="table table-devices table-hover mb-0">
+            <thead><tr><th>Device</th><th>Total Checks</th><th>Online Checks</th><th>Availability</th><th>SLA Status</th></tr></thead>
+            <tbody>
+            {% for r in report %}
+            <tr>
+                <td><a href="{% url 'device_detail' r.device.id %}">
+                    <i class="fas {{ r.device.vendor_icon }} me-1" style="color:{{ r.device.vendor_color }}"></i>
+                    {{ r.device.hostname|default:r.device.ip_address }}
+                </a></td>
+                <td>{{ r.total_checks }}</td>
+                <td>{{ r.online_checks }}</td>
+                <td>
+                    <div class="d-flex align-items-center gap-2">
+                        <div class="progress flex-grow-1" style="height:8px;">
+                            <div class="progress-bar {% if r.availability >= 99.9 %}bg-success{% elif r.availability >= 99 %}bg-warning{% else %}bg-danger{% endif %}" style="width:{{ r.availability }}%;"></div>
+                        </div>
+                        <span class="fw-bold" style="min-width:60px;">{{ r.availability }}%</span>
+                    </div>
+                </td>
+                <td>
+                    {% if r.availability >= 99.9 %}
+                    <span class="badge bg-success">Excellent</span>
+                    {% elif r.availability >= 99 %}
+                    <span class="badge bg-warning text-dark">Good</span>
+                    {% elif r.availability >= 95 %}
+                    <span class="badge bg-danger">Poor</span>
+                    {% else %}
+                    <span class="badge bg-dark">Critical</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" class="text-center text-muted py-4">No data available. Snapshots are collected over time.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

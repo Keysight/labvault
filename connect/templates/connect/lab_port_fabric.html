@@ -1,0 +1,2450 @@
+{% extends 'connect/base.html' %}
+{% block title %}{{ topo.name }} — Port Fabric Map v3{% endblock %}
+{% block body_attrs %}class="lv-topology-page lv-topology-page--port-fabric"{% endblock %}
+{% block content_area_class %}content-area--topology{% endblock %}
+{% block topbar %}
+{% include "connect/includes/lab_topology_topbar.html" with active_view="port_fabric" sub_nav=sub_nav %}
+{% endblock %}
+
+{% block content %}
+<div class="lv-topo-workspace">
+<style>
+/* ── themes ───────────────────────────────────────────────────────── */
+:root {
+  --pf-bg:#060e1c;--pf-border:#1a3050;--pf-card-bg:#0c1a28;--pf-card-border:#1a3050;
+  --pf-text:#b8c8d8;--pf-text2:#94a3b8;--pf-text3:#64748b;
+  --pf-dev-chassis-fill:#150a28;--pf-dev-switch-fill:#060f20;
+  --pf-dev-ocs-fill:#150a00;--pf-dev-server-fill:#130d00;
+  --pf-tier-line:#0e2030;--pf-port-unused:#060c14;
+}
+body.pf-theme-grey {
+  --pf-bg:#1e2533;--pf-border:#3a4560;--pf-card-bg:#252d3e;--pf-card-border:#3a4560;
+  --pf-text:#ccd6e0;--pf-text2:#a0aec0;--pf-text3:#718096;
+  --pf-dev-chassis-fill:#2d1b4e;--pf-dev-switch-fill:#1a2035;
+  --pf-dev-ocs-fill:#2d1f08;--pf-dev-server-fill:#2a2208;
+  --pf-tier-line:#2a3550;--pf-port-unused:#1a2030;
+}
+body.pf-theme-light {
+  --pf-bg:#f5f7fa;--pf-border:#cbd5e1;--pf-card-bg:#ffffff;--pf-card-border:#e2e8f0;
+  --pf-text:#1e293b;--pf-text2:#475569;--pf-text3:#94a3b8;
+  /* Device fills — light but tinted by type; dark strokes for readability */
+  --pf-dev-chassis-fill:#f5f3ff;--pf-dev-switch-fill:#eff6ff;
+  --pf-dev-ocs-fill:#fff7ed;--pf-dev-server-fill:#fffbeb;
+  --pf-tier-line:#e2e8f0;--pf-port-unused:#e2e8f0;
+}
+/* ── layout ───────────────────────────────────────────────────────── */
+#pf-wrap{display:flex;flex:1;min-height:0;gap:0;}
+#pf-canvas{flex:1 1 0;position:relative;overflow:hidden;background:var(--pf-bg);}
+#pf-svg{width:100%;height:100%;cursor:grab;}
+#pf-svg:active{cursor:grabbing;}
+#pf-side{width:268px;min-width:200px;display:flex;flex-direction:column;
+  gap:6px;padding-left:8px;overflow-y:auto;font-size:.77rem;}
+.pf-card{background:var(--pf-card-bg);border:1px solid var(--pf-card-border);border-radius:5px;padding:8px 10px;color:var(--pf-text);}
+.pf-card h6{color:#7eb8f7;font-size:.68rem;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em;}
+body.pf-theme-light .pf-card h6{color:#1d4ed8;}
+/* theme button active */
+.pf-theme-btn.pf-theme-active{border-color:#f59e0b !important;color:#f59e0b !important;}
+/* ── device ───────────────────────────────────────────────────────── */
+.pf-dev{cursor:default;}
+.pf-dev-bg{rx:7;ry:7;}
+.pf-dev-lbl{font-size:11.5px;fill:#edf2f7;font-family:Arial,sans-serif;font-weight:600;pointer-events:none;}
+.pf-dev-ip {font-size:9px;fill:#4a6080;font-family:'Courier New',monospace;pointer-events:none;}
+.pf-grp-lbl{font-size:7.5px;fill:#3d5570;font-family:Arial,sans-serif;pointer-events:none;}
+/* Light theme overrides for SVG text — CSS fill on SVG text elements */
+body.pf-theme-light .pf-dev-lbl{fill:#1e293b;}
+body.pf-theme-light .pf-dev-ip {fill:#475569;}
+body.pf-theme-light .pf-grp-lbl{fill:#64748b;}
+body.pf-theme-light .pf-cbundle-lbl{fill:#334155;}
+body.pf-theme-light .pf-clbl{fill:#64748b;}
+body.pf-theme-light .pf-plbl{fill:#475569;}
+/* ── ports ────────────────────────────────────────────────────────── */
+.pf-port{cursor:pointer;}
+.pf-port:hover{filter:brightness(1.8) drop-shadow(0 0 4px currentColor);}
+.pf-port.wiring{stroke:#fbbf24!important;stroke-width:2.5!important;animation:pf-pulse .7s infinite;}
+.pf-plbl{font-size:6.5px;fill:#556b80;font-family:'Courier New',monospace;pointer-events:none;
+  display:none;}
+.pf-plbl.show{display:block;}
+@keyframes pf-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+/* port status dots */
+.pf-dot-active{animation:dot-active 1.8s ease-in-out infinite;}
+.pf-dot-alarm {animation:dot-alarm  .7s ease-in-out infinite;}
+.pf-dot-lldp  {animation:dot-lldp   2.5s ease-in-out infinite;}
+@keyframes dot-active{0%,100%{opacity:1;r:2.6}50%{opacity:.35;r:2.2}}
+@keyframes dot-alarm {0%,100%{opacity:1;r:2.8}50%{opacity:.2;r:2}}
+@keyframes dot-lldp  {0%,100%{opacity:.9}50%{opacity:.4}}
+/* ── connections ──────────────────────────────────────────────────── */
+.pf-conn{fill:none;stroke-linecap:round;cursor:pointer;}
+.pf-conn:hover{filter:brightness(1.5);stroke-width:5!important;}
+.pf-conn.sel{stroke-dasharray:none!important;filter:drop-shadow(0 0 4px currentColor);}
+.pf-clbl{font-size:8px;fill:#3d5570;font-family:'Courier New',monospace;pointer-events:none;}
+.pf-cbundle-lbl{font-size:9px;font-family:Arial,sans-serif;pointer-events:none;font-weight:600;}
+/* ── tier dividers ────────────────────────────────────────────────── */
+.pf-tier-lbl{font-size:9.5px;fill:#1e3a55;font-family:Arial,sans-serif;letter-spacing:.08em;
+  text-transform:uppercase;pointer-events:none;}
+/* ── detail panel ─────────────────────────────────────────────────── */
+.pf-dr{display:flex;justify-content:space-between;padding:2px 0;
+  border-bottom:1px solid #1a305012;font-size:.71rem;}
+.pf-dr:last-child{border-bottom:none;}
+.pf-dk{color:#7090a8;min-width:72px;}
+.pf-dv{color:#e8f0f8;text-align:right;word-break:break-all;max-width:152px;}
+/* ── legend dots ──────────────────────────────────────────────────── */
+.pf-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;}
+/* OCS shelf plane (matches device OCS port page) */
+.pf-ocs-shelf-hdr{font-size:7px;fill:#8ab4ff;font-family:Arial,sans-serif;font-weight:600;pointer-events:none;}
+.pf-ocs-bank-bg{fill:rgba(15,15,30,0.55);stroke:#32324d;stroke-width:0.8;}
+.pf-ocs-bank-lbl{font-size:6px;fill:#9ca8c9;font-family:Arial,sans-serif;pointer-events:none;}
+/* ── loading / status ─────────────────────────────────────────────── */
+#pf-loading{position:absolute;inset:0;background:rgba(6,14,28,.8);z-index:100;
+  display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;}
+.pf-spinner{width:28px;height:28px;border:3px solid #1a3050;border-top-color:#22c55e;
+  border-radius:50%;animation:pf-spin .7s linear infinite;}
+@keyframes pf-spin{to{transform:rotate(360deg)}}
+#pf-bar{position:absolute;bottom:6px;left:8px;background:rgba(6,14,28,.85);
+  border:1px solid #1a3050;border-radius:4px;padding:2px 8px;font-size:.66rem;
+  color:#4a6080;pointer-events:none;}
+/* ── wire hint bar ────────────────────────────────────────────────── */
+#pf-wire-bar{display:none;position:absolute;top:8px;left:50%;transform:translateX(-50%);
+  background:#1a3050;border:1px solid #60a5fa;border-radius:4px;padding:4px 14px;
+  color:#7eb8f7;font-size:.76rem;pointer-events:none;z-index:50;}
+/* ── export overlay ───────────────────────────────────────────────── */
+#pf-exp{display:none;position:absolute;inset:0;z-index:200;
+  background:rgba(6,14,28,.93);flex-direction:column;padding:14px;gap:9px;}
+#pf-exp.show{display:flex;}
+.pf-etab{padding:3px 10px;border-radius:4px;cursor:pointer;font-size:.73rem;
+  background:#1a305022;border:1px solid #1a3050;color:#7090a8;}
+.pf-etab.on{background:#1a3050;color:#7eb8f7;}
+#pf-eta{flex:1;background:#080f1a;border:1px solid #1a3050;color:#d8e8f0;
+  font-family:'Courier New',monospace;font-size:.72rem;padding:8px;
+  border-radius:4px;resize:none;outline:none;}
+/* ── stat chips ───────────────────────────────────────────────────── */
+.pf-chip{display:inline-flex;align-items:center;gap:3px;padding:1px 7px;
+  border-radius:10px;font-size:.68rem;font-weight:700;margin:2px;}
+</style>
+
+<div id="pf-wrap">
+  <!-- SVG canvas -->
+  <div id="pf-canvas">
+    <svg id="pf-svg">
+      <defs>
+        <marker id="m-grn"  viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#22c55e"/></marker>
+        <marker id="m-red"  viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#ef4444"/></marker>
+        <marker id="m-amb"  viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#f59e0b"/></marker>
+        <marker id="m-blu"  viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#3b82f6"/></marker>
+        <marker id="m-pur"  viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#8b5cf6"/></marker>
+        <marker id="m-gray" viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#334155"/></marker>
+        <marker id="m-dut"  viewBox="0 -4 8 8" refX="20" refY="0" markerWidth="5" markerHeight="5" orient="auto"><path d="M0,-4L8,0L0,4" fill="#a855f7"/></marker>
+        <filter id="glow-r"><feGaussianBlur stdDeviation="3" result="cb"/><feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+        <filter id="glow-g"><feGaussianBlur stdDeviation="2" result="cb"/><feMerge><feMergeNode in="cb"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <g id="pf-root">
+        <g id="pf-tiers"></g>
+        <g id="pf-conns"></g>
+        <g id="pf-clbls"></g>
+        <g id="pf-devs"></g>
+      </g>
+    </svg>
+    <div id="pf-wire-bar">Click a port to start wiring &nbsp;·&nbsp; Esc to cancel</div>
+    <div id="pf-loading"><div class="pf-spinner"></div><span style="color:#7eb8f7;font-size:.82rem">Loading port fabric…</span></div>
+    <div id="pf-bar">Ready</div>
+
+    <!-- Export/Import overlay -->
+    <div id="pf-exp">
+      <div style="display:flex;gap:5px;align-items:center;">
+        <span style="color:#7eb8f7;font-weight:600;font-size:.78rem;margin-right:8px"><i class="fas fa-file-export me-1"></i>Export / Import</span>
+        <div class="pf-etab on" data-fmt="json">JSON</div>
+        <div class="pf-etab" data-fmt="yaml">YAML</div>
+        <div class="pf-etab" data-fmt="csv">CSV</div>
+        <div class="pf-etab" data-fmt="manifest">Manifest</div>
+        <button id="pf-exp-apply" class="btn btn-sm btn-warning ms-auto" title="⚠️ Replaces ALL topology nodes — use only from Editor page">⚠️ Import (replaces topology)</button>
+        <button id="pf-exp-dl" class="btn btn-sm btn-outline-secondary ms-1">Download</button>
+        <button id="pf-exp-close" class="btn btn-sm btn-outline-danger ms-2">&times;</button>
+      </div>
+      <textarea id="pf-eta" spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div id="pf-side">
+    <!-- Legend (collapsible) -->
+    <details class="pf-card pf-legend" open>
+      <summary><i class="fas fa-circle me-1"></i>Port &amp; link legend</summary>
+      <div style="font-size:.67rem;color:var(--pf-text3);margin-bottom:5px;">Box = link type · dot = oper state</div>
+      <div><span class="pf-dot" style="background:#22c55e"></span> Up</div>
+      <div><span class="pf-dot" style="background:#f59e0b"></span> Admin down</div>
+      <div><span class="pf-dot" style="background:#ef4444"></span> Down / OOS</div>
+      <div style="margin-top:6px;font-size:.65rem;color:var(--pf-text3)">Link types:</div>
+      <div><span style="display:inline-block;width:10px;height:8px;background:#100720;border:1px solid #5b21b6;margin-right:4px;"></span> DAC</div>
+      <div><span style="display:inline-block;width:10px;height:8px;background:#1a0c00;border:1px solid #c2410c;margin-right:4px;"></span> LLDP</div>
+      <div><span style="display:inline-block;width:10px;height:8px;background:#1a0c00;border:1px solid #854d0e;margin-right:4px;"></span> OCS fiber</div>
+    </details>
+    <!-- Stats -->
+    <div class="pf-card" id="pf-stats">
+      <h6><i class="fas fa-tachometer-alt me-1"></i>Live Summary</h6>
+      <div id="pf-chips" style="display:flex;flex-wrap:wrap;"></div>
+      <div style="margin-top:5px;font-size:.65rem;color:#3d5570" id="pf-ts">—</div>
+    </div>
+    <!-- Search -->
+    <div class="pf-card">
+      <h6><i class="fas fa-search me-1"></i>Highlight</h6>
+      <input id="pf-search" type="text" placeholder="IP, port, triplet, health…"
+        style="width:100%;background:#080f1a;border:1px solid #1a3050;color:#d0e0f0;
+               border-radius:4px;padding:3px 7px;font-size:.74rem;outline:none;">
+    </div>
+    <!-- Detail -->
+    <div class="pf-card" id="pf-detail" style="display:none;">
+      <h6 id="pf-dtitle">—</h6>
+      <div id="pf-dbody"></div>
+      <div id="pf-dact" style="display:none;margin-top:7px;">
+        <button id="pf-del" class="btn btn-sm btn-outline-danger" style="font-size:.7rem;">
+          <i class="fas fa-unlink me-1"></i>Remove Link
+        </button>
+      </div>
+    </div>
+    <!-- Add hardware -->
+    <div class="pf-card" id="pf-add-hw">
+      <h6 style="color:#7eb8f7"><i class="fas fa-plus-circle me-1"></i>Add Hardware</h6>
+      <select id="pf-inv-pick" style="width:100%;background:#080f1a;border:1px solid #1a3050;color:#d0e0f0;border-radius:4px;padding:3px 6px;font-size:.72rem;margin-bottom:6px;">
+        <option value="">Loading inventory…</option>
+      </select>
+      <button id="pf-add-node" class="btn btn-sm btn-outline-info w-100" style="font-size:.7rem;">
+        <i class="fas fa-server me-1"></i>Add to Topology
+      </button>
+      <div id="pf-add-sts" style="font-size:.65rem;color:#64748b;margin-top:5px;"></div>
+    </div>
+    <!-- Wire mode -->
+    <div class="pf-card" id="pf-wirep" style="display:none;">
+      <h6 style="color:#fbbf24"><i class="fas fa-pencil-alt me-1"></i>Wiring Mode</h6>
+      <div id="pf-wirests" style="font-size:.71rem;color:#7090a8;">Click any port to start a wire.</div>
+      <button id="pf-wire-cancel" class="btn btn-sm btn-outline-secondary mt-2" style="font-size:.7rem;">
+        Cancel (Esc)
+      </button>
+    </div>
+    <!-- LLDP peers (all vendors — IxOS / AresONE / Sonic / Arista) -->
+    <div class="pf-card pf-lldp-card" id="pf-lldp-panel" style="display:none;">
+      <h6>
+        <span><i class="fas fa-network-wired me-1"></i>LLDP Peers</span>
+        <span id="pf-lldp-count" class="pf-chip" style="font-size:.62rem;padding:1px 6px;margin:0;">0</span>
+      </h6>
+      <input id="pf-lldp-filter" type="text" placeholder="Filter device or port…"
+        style="width:100%;background:#080f1a;border:1px solid #1a3050;color:#d0e0f0;
+               border-radius:4px;padding:3px 7px;font-size:.72rem;margin-bottom:6px;outline:none;">
+      <div id="pf-lldp-table-wrap" style="overflow:auto;flex:1;min-height:120px;">
+        <table id="pf-lldp-table">
+          <thead>
+            <tr>
+              <th>Device</th>
+              <th>Slot / RG</th>
+              <th>Card·Port</th>
+              <th>Remote</th>
+              <th>Peer C·P</th>
+              <th>St</th>
+            </tr>
+          </thead>
+          <tbody id="pf-lldp-tbody"></tbody>
+        </table>
+      </div>
+      <div style="font-size:.62rem;color:#64748b;margin-top:6px;line-height:1.35;">
+        Chassis (IxOS/KCOS), AresONE, Sonic, Arista — click row to highlight port.
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+{% load static %}
+<script src="{% static 'js/topo-layout-modes.js' %}?v=20260528"></script>
+<script>
+(function(){
+'use strict';
+
+const TLM = window.TopoLayoutModes;
+const TOPO_ID = {{ topo.id }};
+const API = `/lab-topology/${TOPO_ID}/port-fabric.json`;
+const DATA_URL = `/lab-topology/${TOPO_ID}/data/`;
+const VALIDATE_URL = `/lab-topology/${TOPO_ID}/validate-link/`;
+const DISCOVER_DAC_URL = `/lab-topology/${TOPO_ID}/discover-dac/`;
+const IMPORT_URL = `/lab-topology/${TOPO_ID}/import/`;
+const INVENTORY_URL = `/lab-topology/${TOPO_ID}/inventory/`;
+const NODE_ADD_URL = `/lab-topology/${TOPO_ID}/nodes/`;
+const LINK_ADD_URL = `/lab-topology/${TOPO_ID}/links/`;
+const CSRF = (document.cookie.match('(^|;)\\s*csrftoken\\s*=\\s*([^;]+)')||[,,'']).pop();
+
+/** Management address for labels (IPv6 when topology is v6). */
+function pfDevAddr(d){
+  if(!d) return '';
+  return String(d.mgmt_display||d.mgmt_ipv6||d.ip||'').trim();
+}
+
+// ── visual constants ──────────────────────────────────────────────────────────
+const PW = 14, PH = 11, PGAP = 3, PPITCH = PW + PGAP;  // port square
+const PROW = 8;          // ports per row (default)
+const HDR  = 42;         // device header height
+const GLBL = 13;         // group label height
+const GROW = PH + PGAP + 3;  // port row height
+const PLBL = 14;         // port index label below square
+const DPAD = 7;          // horizontal device padding
+const DMIN = 158;        // minimum device width
+const OCS_BANK_W = 58, OCS_BANK_H = 30, OCS_SHELF_HDR = 14, OCS_SHELF_GAP = 5;
+const OCS_PORT_W = 11, OCS_PORT_H = 10, OCS_PORT_GAP = 2;
+const RG_H_GAP = 8, SLOT_ROW_HDR = 11, FANOUT_STUB = 7;  // IxOS: RG01+RG02 side-by-side
+
+// Tier Y centers (chassis, ocs, switch, server)
+const TIER_Y = {chassis:180, ocs:480, switch:780, server:1080};
+const TIER_LABELS = {
+  chassis:'Traffic Generators (AresONE-M Chassis)',
+  ocs:'Optical Circuit Switch (Calient CT-S320)',
+  switch:'DUT Switches (Arista)',
+  server:'Servers',
+};
+
+// ── colors ────────────────────────────────────────────────────────────────────
+const HC = {active:'#22c55e',alarm:'#ef4444',lldp_only:'#f59e0b',
+            planned:'#3b82f6',dac:'#8b5cf6',down:'#dc2626',
+            unused:'#1e293b',unknown:'#334155'};
+
+// Port box = link type (DAC purple, LLDP orange, OCS brown, planned grey)
+const LINK_BOX_BG = {ocs:'#1a0c00', dac:'#100720', lldp:'#1c1008', planned:'#060f20', unused:'#080e17'};
+const LINK_BOX_STROKE = {ocs:'#854d0e', dac:'#5b21b6', lldp:'#c2410c', planned:'#1d4ed8', unused:'#0f1f30'};
+// Status dot = operational state (same for all link types)
+const OPER_DOT = {up:'#22c55e', admin_down:'#f59e0b', down:'#ef4444', idle:'#334155'};
+const OPER_DOT_CLASS = {up:'pf-dot-active', down:'pf-dot-alarm', admin_down:'pf-dot-lldp'};
+// Device fill uses CSS variable (theme-aware); stroke stays fixed per device type.
+// In light theme, use darker stroke colours for sufficient contrast on light fills.
+function ds(t){
+  const isLight = document.body.classList.contains('pf-theme-light');
+  const stroke = isLight
+    ? {chassis:'#7c3aed',switch:'#2563eb',ocs:'#c2410c',server:'#b45309'}[t]||'#475569'
+    : {chassis:'#a78bfa',switch:'#60a5fa',ocs:'#fb923c',server:'#fbbf24'}[t]||'#334155';
+  const fillVar = {'chassis':'--pf-dev-chassis-fill','switch':'--pf-dev-switch-fill',
+                   'ocs':'--pf-dev-ocs-fill','server':'--pf-dev-server-fill'}[t]||null;
+  const fill = fillVar
+    ? getComputedStyle(document.body).getPropertyValue(fillVar).trim() || '#0f1923'
+    : getComputedStyle(document.body).getPropertyValue('--pf-bg').trim() || '#0f1923';
+  return {fill, stroke};
+}
+// ── Link line colors (match physical cable convention) ────────────────────────
+// GREEN  = OCS active optical path (fiber, clean signal)
+// RED    = OCS alarm / path down (fiber, bad signal)
+// ORANGE = LLDP-verified DAC connection (seen alive from both ends)
+// PURPLE = DAC configured but not LLDP-confirmed (planned/assumed)
+// GREY   = Planned only (topology schema, no live validation)
+const CONN_STYLE = {
+  ocs_active:{s:'#22c55e',w:2.4,d:null,  m:'url(#m-grn)'},  // ── GREEN  OCS active
+  alarm:     {s:'#ef4444',w:2.8,d:'7,3', m:'url(#m-red)'},  // ── RED    OCS alarm
+  lldp_only: {s:'#f59e0b',w:2.2,d:'4,2', m:'url(#m-amb)'},  // ── ORANGE DAC LLDP-verified
+  planned:   {s:'#94a3b8',w:1.2,d:'3,5', m:'url(#m-gray)'}, // ── GREY   planned only
+  dac:       {s:'#8b5cf6',w:2.0,d:'4,3', m:'url(#m-pur)'}, // ── PURPLE DAC configured, no LLDP
+  b2b:       {s:'#3b82f6',w:2.0,d:'3,2', m:'url(#m-blu)'},  // ── BLUE   same-chassis B2B
+  dut:       {s:'#a855f7',w:2.2,d:null,  m:'url(#m-dut)'},  // ── VIOLET chassis → DUT switch
+  default:   {s:'#4a5568',w:1,  d:'2,4', m:'url(#m-gray)'},
+};
+
+// ── Connection line color: ALWAYS health-based, never type-based ──────────────
+// GREEN=active OCS · RED=alarm OCS · ORANGE=LLDP-verified DAC · GREY=planned/unverified
+// Purple is reserved ONLY for port-square cable-thread stubs (not link lines).
+function cs(c){
+  const h = c.health || '';
+  const kind = c.link_kind || '';
+  const ct = c.cable_type || c.type || '';
+  if(kind==='b2b' || ct==='direct' || c.type==='b2b') return CONN_STYLE.b2b;
+  if(h==='active')    return CONN_STYLE.ocs_active;
+  if(h==='alarm')     return CONN_STYLE.alarm;
+  if(h==='lldp_only'){
+    if(ct==='dac' || c.type==='dac') return CONN_STYLE.dut;
+    return CONN_STYLE.lldp_only;
+  }
+  if(h==='planned'){
+    if(ct==='dac' || c.type==='dac') return CONN_STYLE.dut;
+    return CONN_STYLE.planned;
+  }
+  if(h==='dac' || c.type==='dac') return CONN_STYLE.dac;
+  if(c.type==='ocs_active') return CONN_STYLE.ocs_active;
+  return CONN_STYLE.default;
+}
+
+// ── persistent state via localStorage ────────────────────────────────────────
+const LS_KEY = `pf_state_${TOPO_ID}`;
+function _ls(key, def){ try{ const v=localStorage.getItem(`${LS_KEY}_${key}`); return v!==null?JSON.parse(v):def; }catch{return def;} }
+function _lsSet(key, val){ try{ localStorage.setItem(`${LS_KEY}_${key}`, JSON.stringify(val)); }catch{} }
+
+// ── state ─────────────────────────────────────────────────────────────────────
+let _D = null;           // full API data
+let _pos = {};           // nodeId → {x, y}
+let _bundled = _ls('bundled', true);     // bundle parallel connections?
+let _useTierLayout = _ls('tierLayout', true);
+let _activeTheme = _ls('theme', 'dark');
+let _editMode = false;
+let _wireFrom = null;    // port id being wired
+let _selConn = null;
+let _expFmt = 'json';
+let _filterQ = '';
+
+// ── SVG setup ─────────────────────────────────────────────────────────────────
+const svg = d3.select('#pf-svg');
+const root = svg.select('#pf-root');
+const tierG = root.select('#pf-tiers');
+const connG = root.select('#pf-conns');
+const clblG = root.select('#pf-clbls');
+const devG  = root.select('#pf-devs');
+
+const Z = d3.zoom().scaleExtent([0.04, 6])
+  .on('zoom', e => {
+    root.attr('transform', e.transform);
+    const k = e.transform.k;
+    // Show/hide port labels based on zoom level
+    svg.selectAll('.pf-plbl').classed('show', k > 1.4);
+  });
+svg.call(Z);
+
+// ── geometry ──────────────────────────────────────────────────────────────────
+function operFromPort(port){
+  if(port.oper_state) return port.oper_state;
+  if(port.health==='down') return 'down';
+  if(port.health==='alarm') return 'down';
+  const ls = (port.link_state||'').toLowerCase().replace(/[\s_]/g,'');
+  if(/lossofsignal|loss.*signal|^down$|notconnect|oos/.test(ls)) return 'down';
+  if(port.link_up && port.health!=='unused') return 'up';
+  if(port.health==='active' || port.health==='lldp_only') return 'up';
+  return 'idle';
+}
+function linkTypeFromPort(port){
+  return port.link_type || (port.health==='lldp_only' ? 'lldp' : port.role==='ocs' ? 'ocs' : port.role==='dac' ? 'dac' : 'unused');
+}
+
+function portsPerRow(d, g){
+  if(d.node_type==='ocs' || g.layout==='ocs_bank') return 8;
+  if(g.layout==='rg_horizontal') return Math.min((g.ports||[]).length, 4) || 1;
+  return PROW;
+}
+
+function parseRgGroupLabel(lbl){
+  const m = /^(.+?)\s*·\s*(RG\d+|Resource Group \d+)/i.exec(lbl||'');
+  return m ? {slot: m[1].trim(), rg: m[2].trim()} : null;
+}
+
+function clusterChassisPortGroups(portGroups){
+  const rows = [];
+  let i = 0;
+  while(i < (portGroups||[]).length){
+    const g = portGroups[i];
+    const p = parseRgGroupLabel(g.label);
+    if(p && g.role !== 'ocs'){
+      const groups = [g];
+      let j = i + 1;
+      while(j < portGroups.length){
+        const p2 = parseRgGroupLabel(portGroups[j].label);
+        if(p2 && p2.slot === p.slot && portGroups[j].role !== 'ocs') groups.push(portGroups[j]);
+        else break;
+        j++;
+      }
+      rows.push({type:'rg_row', slot:p.slot, groups});
+      i = j;
+    } else {
+      rows.push({type:'single', group:g});
+      i++;
+    }
+  }
+  return rows;
+}
+
+function useChassisRgLayout(d){
+  return d.node_type==='chassis' && (d.port_groups||[]).some(g=>parseRgGroupLabel(g.label));
+}
+
+function rgGroupWidth(grp){
+  const n = (grp.ports||[]).length || 1;
+  const cols = Math.min(n, 4);
+  return cols * PPITCH + 6;
+}
+
+function setPortLayoutPos(d, portId, x, y){
+  if(!d._pfLayout) d._pfLayout = {};
+  d._pfLayout[portId] = {x, y};
+}
+
+function clearPortLayout(d){ d._pfLayout = {}; }
+
+function drawRgPorts(g, d, grp, bx, py){
+  const ports = grp.ports||[];
+  const pr = portsPerRow(d, grp);
+  const rgLbl = (parseRgGroupLabel(grp.label)||{}).rg || grp.label.slice(-4);
+  g.append('text').attr('class','pf-grp-lbl').attr('x',bx+2).attr('y',py+8)
+    .attr('font-size','6.5px').text(rgLbl.slice(0,8));
+  const portY = py + GLBL;
+  ports.forEach((port,i)=>{
+    const row=Math.floor(i/pr), col=i%pr;
+    const px=bx+col*PPITCH, ppY=portY+row*GROW;
+    drawPortSquare(g, port, d, px, ppY, PW, PH);
+    setPortLayoutPos(d, port.id, px+PW/2, ppY+PH/2);
+    const oper = operFromPort(port);
+    if(oper==='up' || oper==='down'){
+      const threadColor = oper==='up' ? '#22c55e' : '#ef4444';
+      const threadX = px + PW/2, threadY0 = ppY + PH;
+      g.append('line').attr('x1',threadX).attr('y1',threadY0)
+        .attr('x2',threadX).attr('y2',threadY0+FANOUT_STUB)
+        .attr('stroke',threadColor).attr('stroke-width',1.4).attr('stroke-linecap','round').attr('opacity',.85)
+        .attr('pointer-events','none');
+    }
+    g.append('text').attr('class','pf-plbl')
+      .attr('x',px+PW/2).attr('y',ppY+PH+10)
+      .attr('text-anchor','middle').text(port.port_display||port.index||'');
+  });
+  return portY + Math.ceil(ports.length/pr)*GROW + PLBL + FANOUT_STUB;
+}
+
+function ocsDevW(d){
+  let maxW = DMIN;
+  (d.ocs_shelves||[]).forEach(sh=>{
+    const bw = (sh.banks||[]).length * (OCS_BANK_W + 4) + DPAD * 2;
+    maxW = Math.max(maxW, bw);
+  });
+  return Math.min(maxW, 920);
+}
+function ocsDevH(d){
+  let h = HDR;
+  (d.ocs_shelves||[]).forEach(()=>{ h += OCS_SHELF_HDR + OCS_BANK_H + OCS_SHELF_GAP; });
+  return h + DPAD;
+}
+function ocsPortLocal(d, portId){
+  let y = HDR;
+  for(const shelf of (d.ocs_shelves||[])){
+    y += OCS_SHELF_HDR;
+    let bx = DPAD;
+    for(const bank of (shelf.banks||[])){
+      const ports = bank.ports||[];
+      for(let i=0;i<ports.length;i++){
+        if(ports[i].id===portId){
+          const col=i%4, row=Math.floor(i/4);
+          return {x:bx+4+col*(OCS_PORT_W+OCS_PORT_GAP)+OCS_PORT_W/2, y:y+10+row*(OCS_PORT_H+OCS_PORT_GAP)+OCS_PORT_H/2};
+        }
+      }
+      bx += OCS_BANK_W + 4;
+    }
+    y += OCS_BANK_H + OCS_SHELF_GAP;
+  }
+  return {x:ocsDevW(d)/2, y:HDR/2};
+}
+function groupGridH(g, d){
+  if(g.layout==='rg_horizontal'){
+    const n = (g.ports||[]).length || 1;
+    return GLBL + Math.ceil(n/Math.min(n,4))*GROW + PLBL + FANOUT_STUB;
+  }
+  const pr = portsPerRow(d, g);
+  const rows = Math.ceil((g.ports||[]).length/pr) || 0;
+  return rows * GROW + PLBL;
+}
+function grpH(g, d){
+  return GLBL + groupGridH(g, d||{node_type:''});
+}
+function chassisDevH(d){
+  let h = HDR;
+  clusterChassisPortGroups(d.port_groups).forEach(row=>{
+    if(row.type==='rg_row'){
+      h += SLOT_ROW_HDR;
+      const maxN = Math.max(...row.groups.map(g=>(g.ports||[]).length), 1);
+      h += GLBL + Math.ceil(maxN/4)*GROW + PLBL + FANOUT_STUB;
+    } else {
+      h += grpH(row.group, d);
+    }
+  });
+  return h + DPAD;
+}
+function chassisDevW(d){
+  let maxW = DMIN;
+  clusterChassisPortGroups(d.port_groups).forEach(row=>{
+    if(row.type==='rg_row'){
+      const w = row.groups.reduce((s,g)=>s+rgGroupWidth(g)+RG_H_GAP, DPAD*2) - RG_H_GAP;
+      maxW = Math.max(maxW, w);
+    } else {
+      const g = row.group;
+      const cols = Math.min(portsPerRow(d,g), (g.ports||[]).length||1);
+      maxW = Math.max(maxW, cols*PPITCH + DPAD*2);
+    }
+  });
+  return maxW;
+}
+function devH(d){
+  if(d.ocs_shelves && d.ocs_shelves.length) return ocsDevH(d);
+  if(useChassisRgLayout(d)) return chassisDevH(d);
+  let h = HDR;
+  (d.port_groups||[]).forEach(g=>{ h += grpH(g, d); });
+  return h + DPAD;
+}
+function devW(d){
+  if(d.ocs_shelves && d.ocs_shelves.length) return ocsDevW(d);
+  if(useChassisRgLayout(d)) return chassisDevW(d);
+  let maxCols = PROW;
+  (d.port_groups||[]).forEach(g=>{
+    maxCols = Math.max(maxCols, Math.min(portsPerRow(d, g), (g.ports||[]).length||portsPerRow(d,g)));
+  });
+  return Math.max(DMIN, maxCols * PPITCH + DPAD*2);
+}
+
+// Walk port groups — must match drawDevices() layout exactly
+function portLocal(d, portId){
+  const resolved = resolvePortId(d.id, portId);
+  if(d._pfLayout && d._pfLayout[resolved]) return d._pfLayout[resolved];
+  if(d.ocs_shelves && d.ocs_shelves.length) return ocsPortLocal(d, resolved);
+  const dw = devW(d);
+  let y = HDR;
+  if(useChassisRgLayout(d)){
+    for(const row of clusterChassisPortGroups(d.port_groups)){
+      if(row.type==='rg_row'){
+        y += SLOT_ROW_HDR;
+        let bx = DPAD;
+        for(const grp of row.groups){
+          const ports = grp.ports||[];
+          const pr = portsPerRow(d, {...grp, layout:'rg_horizontal'});
+          const portY = y + GLBL;
+          for(let i=0;i<ports.length;i++){
+            if(ports[i].id===resolved){
+              const col=i%pr, r=Math.floor(i/pr);
+              return {x:bx+col*PPITCH+PW/2, y:portY+r*GROW+PH/2};
+            }
+          }
+          bx += rgGroupWidth(grp) + RG_H_GAP;
+        }
+        const maxN = Math.max(...row.groups.map(g=>(g.ports||[]).length),1);
+        y += GLBL + Math.ceil(maxN/4)*GROW + PLBL + FANOUT_STUB;
+      } else {
+        const g = row.group;
+        const pr = portsPerRow(d, g);
+        y += GLBL;
+        for(let i=0;i<(g.ports||[]).length;i++){
+          if(g.ports[i].id===resolved){
+            const col=i%pr, r=Math.floor(i/pr);
+            return {x:DPAD+col*PPITCH+PW/2, y:y+r*GROW+PH/2};
+          }
+        }
+        y += groupGridH(g, d);
+      }
+    }
+    return {x:dw/2, y:HDR/2};
+  }
+  for(const g of (d.port_groups||[])){
+    const pr = portsPerRow(d, g);
+    const ports = g.ports||[];
+    y += GLBL;
+    for(let i=0;i<ports.length;i++){
+      if(ports[i].id===resolved || ports[i].id===portId){
+        const row=Math.floor(i/pr), col=i%pr;
+        return {x: DPAD+col*PPITCH+PW/2, y: y+row*GROW+PH/2};
+      }
+    }
+    y += groupGridH(g, d);
+  }
+  return {x:dw/2, y:HDR/2};
+}
+
+function resolvePortId(devId, portId){
+  if(!portId) return portId;
+  const d = devById(devId);
+  if(!d) return portId;
+  const lbl = portId.split('__').pop();
+  for(const g of (d.port_groups||[])){
+    for(const p of (g.ports||[])){
+      if(p.id===portId) return p.id;
+      if(p.label===lbl || p.id.endsWith('__'+lbl)) return p.id;
+      const em = /^Ethernet(\d+)$/i.exec(lbl||'');
+      if(em && p.index===+em[1]) return p.id;
+      const pm = /^port[_\s]*(\d+)$/i.exec(lbl||'');
+      if(pm){
+        const want = +pm[1];
+        if(p.index===want) return p.id;
+        const pl = /^port[_\s]*(\d+)$/i.exec(p.label||'');
+        if(pl && +pl[1]===want) return p.id;
+      }
+      const sm = /^slot[_\s]*(\d+)/i.exec(lbl||'');
+      if(sm && !/^port_/i.test(lbl||'')){
+        const rg = +sm[1];
+        const dm = /^(\d+)\./.exec(p.label||'');
+        if(dm && +dm[1]===rg) return p.id;
+      }
+      const dm2 = /^(\d+)\.(\d+)$/.exec(lbl||'');
+      if(dm2 && p.label===lbl) return p.id;
+    }
+  }
+  return portId;
+}
+function portExists(devId, portId){
+  const d = devById(devId);
+  if(!d||!portId) return false;
+  const r = resolvePortId(devId, portId);
+  return (d.port_groups||[]).some(g=>(g.ports||[]).some(p=>p.id===r));
+}
+function portCentroid(devId, portIds){
+  const pts = (portIds||[]).map(pid=>portAbs(devId, resolvePortId(devId, pid))).filter(p=>p);
+  if(!pts.length) return bundleAnchor(devId);
+  return {
+    x: pts.reduce((s,p)=>s+p.x,0)/pts.length,
+    y: pts.reduce((s,p)=>s+p.y,0)/pts.length,
+  };
+}
+
+// Absolute port center
+function portAbs(devId, portId){
+  const p = pfDevPos(devId);
+  if(!portId) return p;
+  const d = devById(devId);
+  if(!d) return p;
+  const lp = portLocal(d, portId);
+  const dw=devW(d), dh=devH(d);
+  return {x: p.x-dw/2+lp.x, y: p.y-dh/2+lp.y};
+}
+
+function devById(id){ return (_D?.devices||[]).find(d=>d.id===id); }
+
+/** Safe layout coordinates — connections may reference devices missing from _pos. */
+function pfDevPos(devId){
+  if(!devId) return {x:0, y:0};
+  if(_pos[devId]) return _pos[devId];
+  const d = devById(devId);
+  if(d && d.x != null && d.y != null && (d.x !== 0 || d.y !== 0)) {
+    _pos[devId] = {x: d.x, y: d.y};
+    return _pos[devId];
+  }
+  _pos[devId] = {x: 0, y: 0};
+  return _pos[devId];
+}
+
+// ── tier layout ───────────────────────────────────────────────────────────────
+function tierOf(d){
+  const t = d.node_type;
+  if(t==='chassis') return 'chassis';
+  if(t==='ocs')     return 'ocs';
+  if(t==='switch')  return 'switch';
+  return 'server';
+}
+
+function computeTierLayout(devices){
+  if (!TLM) return {};
+  return TLM.computeTierLayout(devices, {
+    tierY: TIER_Y,
+    sizeOf: d => ({ w: devW(d), h: devH(d) }),
+  });
+}
+
+function mergePos(devices, tierPos){
+  const pos = {};
+  devices.forEach(d=>{
+    if(d.x&&d.y&&(d.x!==0||d.y!==0)) pos[d.id]={x:d.x,y:d.y};
+    else pos[d.id]=tierPos[d.id]||{x:0,y:0};
+  });
+  return pos;
+}
+
+// ── DC Rack layout ────────────────────────────────────────────────────────────
+// Physical datacenter rack arrangement:
+//   Left rack:  All chassis (M01-M08) stacked top→bottom
+//   Center:     OCS S-320 as photonic switching hub
+//   Right rack: Arista switches (DUTs) stacked top→bottom
+//   Bottom:     Supermicro servers below chassis rack
+function computeDCLayout(devices, connections){
+  if (!TLM) return {};
+  return TLM.computeDCLayout(devices, connections, {
+    sizeOf: d => ({ w: devW(d), h: devH(d) }),
+  });
+}
+
+// ── layout mode (tier / rack / free) ───────────────────────────────────────────
+let _layoutMode = _ls('layoutMode', 'dc'); // 'tier' | 'dc' | 'free'
+
+function _uiLayoutMode(mode){
+  if(mode==='dc') return 'rack';
+  return mode;
+}
+function _storedLayoutMode(uiMode){
+  if(uiMode==='rack') return 'dc';
+  return uiMode;
+}
+
+function _applyLayout(mode){
+  _layoutMode = mode;
+  _lsSet('layoutMode', mode);
+  if (TLM) TLM.saveMode(TOPO_ID, 'port_fabric', _uiLayoutMode(mode));
+  if (TLM) TLM.setSegActive(_uiLayoutMode(mode));
+  if(!_D) return;
+  const devs = _D.devices||[], conns = _D.connections||[];
+  if(mode==='tier'){
+    _pos = computeTierLayout(devs);
+    _useTierLayout = true;
+  } else if(mode==='dc'){
+    _pos = computeDCLayout(devs, conns);
+    _useTierLayout = false;
+  } else {
+    _useTierLayout = false;
+    devs.forEach(d=>{
+      if(d.x!=null && d.y!=null && (d.x!==0||d.y!==0)) _pos[d.id]={x:d.x,y:d.y};
+    });
+  }
+  drawTierLines(devs);
+  drawConnections(conns);
+  drawDevices(devs, conns);
+  setTimeout(fitAll, 80);
+}
+
+// ── connection bundles ────────────────────────────────────────────────────────
+// Health priority: lower = more urgent (shown on bundle)
+// alarm=0 (red) → active=1 (green) → lldp_only=2 (orange) → dac=3 (purple) → planned=4 (grey)
+const HP = {alarm:0,active:1,lldp_only:2,dac:3,planned:4,unused:5};
+function worstHealth(conns){
+  return conns.reduce((w,c)=>(HP[c.health]??5)<(HP[w]??5)?c.health:w,'unused');
+}
+
+function computeBundles(conns){
+  const map = {};
+  conns.forEach(c=>{
+    const key=[c.src_device,c.dst_device].sort().join(':::');
+    if(!map[key]) map[key]={src:c.src_device,dst:c.dst_device,conns:[],key};
+    map[key].conns.push(c);
+  });
+  return Object.values(map).map(b=>({
+    ...b,
+    health: worstHealth(b.conns),
+    active: b.conns.filter(c=>c.health==='active').length,
+    alarm:  b.conns.filter(c=>c.health==='alarm').length,
+    loss_avg: (()=>{
+      const ls=b.conns.map(c=>c.loss_db).filter(v=>v!=null&&v>-80);
+      return ls.length ? ls.reduce((s,v)=>s+v,0)/ls.length : null;
+    })(),
+  }));
+}
+
+// ── bezier path ───────────────────────────────────────────────────────────────
+function bezier(s,t,offset=0){
+  if(!s || !t || s.x == null || t.x == null) return '';
+  const dx=t.x-s.x, dy=t.y-s.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist < 1) return `M${s.x},${s.y} L${t.x},${t.y}`;
+  const bend=Math.max(50, Math.abs(dy)*0.55);
+  // Perpendicular offset for parallel bundles
+  const nx=-dy/dist, ny=dx/dist;
+  const ox=offset*nx*0.15, oy=offset*ny*0.15;
+  const c1x=s.x+ox, c1y=s.y+bend+oy;
+  const c2x=t.x+ox, c2y=t.y-bend+oy;
+  return `M${s.x},${s.y} C${c1x},${c1y} ${c2x},${c2y} ${t.x},${t.y}`;
+}
+
+// Port exit point on device edge facing the peer
+function connExit(devId, portId){
+  const d = devById(devId);
+  if(!d) return pfDevPos(devId);
+  const resolved = resolvePortId(devId, portId);
+  if(!resolved || !portExists(devId, resolved)) return bundleAnchor(devId);
+  const pos = pfDevPos(devId);
+  const dw=devW(d), dh=devH(d);
+  const lp = portLocal(d, resolved);
+  const t = tierOf(d);
+  const ax = pos.x-dw/2+lp.x, ay = pos.y-dh/2+lp.y;
+  if(t==='chassis') return {x:ax, y:ay+PH/2+3};
+  if(t==='switch')  return {x:ax, y:ay-PH/2-3};
+  if(t==='ocs')     return {x:ax, y:ay};
+  return {x:ax, y:ay};
+}
+
+// Bundle anchor: edge midpoint (used only when no port IDs resolve)
+function bundleAnchor(devId){
+  const d = devById(devId);
+  if(!d) return pfDevPos(devId);
+  const pos=pfDevPos(devId), dw=devW(d), dh=devH(d);
+  const t=tierOf(d);
+  if(t==='chassis') return {x:pos.x, y:pos.y+dh/2-4};
+  if(t==='switch')  return {x:pos.x, y:pos.y-dh/2+4};
+  if(t==='ocs')     return {x:pos.x+dw/2-8, y:pos.y};
+  return pos;
+}
+function bundleEndpoints(b){
+  const srcIds = b.conns.map(c=>c.src_port).filter(p=>portExists(b.src,p));
+  const dstIds = b.conns.map(c=>c.dst_port).filter(p=>portExists(b.dst,p));
+  if(srcIds.length && dstIds.length){
+    return {sa: portCentroid(b.src, srcIds), ta: portCentroid(b.dst, dstIds)};
+  }
+  const partialSrc = b.conns.map(c=>c.src_port).filter(p=>portExists(b.src,p));
+  const partialDst = b.conns.map(c=>c.dst_port).filter(p=>portExists(b.dst,p));
+  return {
+    sa: partialSrc.length ? portCentroid(b.src, partialSrc) : bundleAnchor(b.src),
+    ta: partialDst.length ? portCentroid(b.dst, partialDst) : bundleAnchor(b.dst),
+  };
+}
+
+// ── LLDP peer panel (IxOS / AresONE / Sonic / Arista) ─────────────────────────
+let _lldpRows=[];
+let _lldpView=_ls('lldpView','0')==='1';
+let _b2bLabels=_ls('b2bLabels','1')==='1';  // front/back port labels on B2B/DAC arcs
+let _lldpSelKey=null;
+
+function pfNormalizeCp(s){
+  const t=String(s||'').trim();
+  let m=/^C(\d+)\/P(\d+)$/i.exec(t);
+  if(m) return `${m[1]}/${m[2]}`;
+  m=/^(\d+)\/(\d+)$/.exec(t);
+  if(m) return `${m[1]}/${m[2]}`;
+  return t.toLowerCase();
+}
+
+function pfSameChassisLldp(dev, port, rd, mgmt){
+  const lip=((dev&&dev.ip)||'').trim();
+  const mg=(mgmt||(port&&port.lldp_mgmt_ip)||'').trim();
+  const host=((dev&&dev.label)||'').trim().toLowerCase().split('.')[0];
+  const rdk=(rd||'').trim().toLowerCase().split('.')[0];
+  return !!(mg&&lip&&mg===lip)||!!(rdk&&host&&(rdk===host||host.includes(rdk)||rdk.includes(host)));
+}
+
+function lldpStatusForPort(port, dev){
+  const op=operFromPort(port);
+  const lip=(dev&&dev.ip)||'';
+  const rd=(port.lldp_remote_device||'').trim();
+  const b2b=pfSameChassisLldp(dev, port, rd, port.lldp_mgmt_ip);
+  if(op==='down'||port.health==='down'||(port.health==='alarm'&&!port.link_up))
+    return {key:'down',label:b2b?'B2B':'Down'};
+  if(b2b&&(port.lldp_remote_port||port.lldp_neighbor))
+    return {key:'lldp',label:'B2B'};
+  if(port.link_up&&(port.health==='active'||port.oper_state==='up'||op==='up'))
+    return {key:'up',label:'Up'};
+  if(port.health==='lldp_only'||port.link_type==='lldp')
+    return {key:'lldp',label:'LLDP'};
+  if(port.lldp_neighbor||port.lldp_remote_device)
+    return {key:'lldp',label:'LLDP'};
+  if(port.link_up) return {key:'up',label:'Up'};
+  return {key:'idle',label:'—'};
+}
+
+function _parseLldpNeighbor(neighbor){
+  if(!neighbor||typeof neighbor!=='string') return {device:'',port:''};
+  const s=neighbor.trim();
+  if(s.includes(':')){
+    const i=s.indexOf(':');
+    return {device:s.slice(0,i).trim(),port:s.slice(i+1).trim()};
+  }
+  return {device:s,port:''};
+}
+
+function pfCardPortLabel(slot, index){
+  const s=slot, i=index;
+  if(s!=null&&s!==''&&i!=null&&i!=='') return `C${s}/P${i}`;
+  return '';
+}
+
+function pfSlotGroupLabel(grp, port){
+  const fromPort=port&&port.slot_group;
+  if(fromPort) return String(fromPort).replace(/^Slot\s+/i,'S').trim();
+  if(!grp||!grp.label) return '—';
+  return String(grp.label).replace(/^Slot\s+/i,'S').trim();
+}
+
+function pfIxosPortLocation(port, grp){
+  const slot=port.slot??port.card_number;
+  const idx=port.index??port.port_number;
+  const cp=pfCardPortLabel(slot, idx);
+  const slotLbl=pfSlotGroupLabel(grp, port);
+  const name=(port.label||port.name||'').trim();
+  if(cp&&slotLbl!=='—') return `${slotLbl} · ${cp}`;
+  if(cp) return `Card ${slot} Port ${idx}`;
+  if(name&&/^c\d+p\d+$/i.test(name)) return `${slotLbl!=='—'?slotLbl+' · ':''}${name}`;
+  return name||port.port_display||port.label||'—';
+}
+
+function pfFormatPeerCardPort(rp){
+  const s=(rp||'').trim();
+  const m=/^(\d+)\/(\d+)$/.exec(s);
+  if(m) return `C${m[1]}/P${m[2]}`;
+  return s||'—';
+}
+
+function pfFormatLldpLocalKey(lp){
+  const s=(lp||'').trim();
+  const m=/^(\d+)\/(\d+)$/.exec(s);
+  if(m) return {slot:m[1], index:m[2], cardPort:`C${m[1]}/P${m[2]}`, slotGroup:`Card ${m[1]}`};
+  return {slot:'', index:'', cardPort:s, slotGroup:'—'};
+}
+
+function _lldpKeyVariants(lp){
+  const s=(lp||'').trim();
+  const out=new Set([s,s.toLowerCase(),s.replace(/\s/g,'')]);
+  const slash=/^(\d+)\/(\d+)$/.exec(s);
+  if(slash){
+    const cn=slash[1], pn=slash[2];
+    out.add(`${cn}/${pn}`); out.add(`c${cn}p${pn}`); out.add(`C${cn}/P${pn}`);
+    out.add(`Card ${cn} Port ${pn}`);
+  }
+  const card=/^card\s*(\d+)\s*port\s*(\d+)$/i.exec(s);
+  if(card){
+    const cn=card[1], pn=card[2];
+    out.add(`${cn}/${pn}`); out.add(`c${cn}p${pn}`); out.add(`C${cn}/P${pn}`);
+  }
+  return out;
+}
+
+function findPortContextForLldp(dev, localPort){
+  const keys=_lldpKeyVariants(localPort);
+  for(const g of (dev.port_groups||[])){
+    for(const p of (g.ports||[])){
+      const slot=p.slot??p.card_number;
+      const idx=p.index??p.port_number;
+      const candidates=[
+        pfCardPortLabel(slot, idx),
+        `${slot}/${idx}`,
+        p.label, p.name, p.port_display,
+        slot!=null&&idx!=null?`c${slot}p${idx}`:'',
+      ].filter(Boolean);
+      for(const c of candidates){
+        if(keys.has(String(c))||keys.has(String(c).toLowerCase())) return {port:p, grp:g};
+      }
+      const idm=/__s(\d+)__(\d+)$/.exec(p.id||'');
+      if(idm&&keys.has(`${idm[1]}/${idm[2]}`)) return {port:p, grp:g};
+    }
+  }
+  return null;
+}
+
+function collectLldpRows(data){
+  const rows=[];
+  const seenLocal=new Set();
+  (data.devices||[]).forEach(dev=>{
+    const pushRow=(row, localCp)=>{
+      const locKey=`${dev.id}|${pfNormalizeCp(localCp)}`;
+      if(seenLocal.has(locKey)) return false;
+      seenLocal.add(locKey);
+      rows.push(row);
+      return true;
+    };
+    (dev.port_groups||[]).forEach(grp=>{
+      (grp.ports||[]).forEach(port=>{
+        let rd=(port.lldp_remote_device||'').trim();
+        let rp=(port.lldp_remote_port||'').trim();
+        const nb=port.lldp_neighbor||'';
+        if(!rd&&nb){
+          const p=_parseLldpNeighbor(nb);
+          rd=p.device; rp=p.port||rp;
+        }
+        const hasPeer=!!(rd||rp);
+        if(!hasPeer) return;
+        const slot=port.slot??port.card_number;
+        const idx=port.index??port.port_number;
+        const localCp=pfCardPortLabel(slot, idx)||port.label||'';
+        pushRow({
+          key:`${dev.id}|${port.id}`,
+          localDevice:dev.label,
+          localIp:dev.ip||'',
+          localSlot:pfSlotGroupLabel(grp, port),
+          localCardPort:localCp||'—',
+          localLocation:pfIxosPortLocation(port, grp),
+          remoteDevice:rd||'—',
+          remoteCardPort:pfFormatPeerCardPort(rp),
+          remotePort:rp||'—',
+          vendor:(dev.vendor||dev.node_type||'').slice(0,12),
+          status:lldpStatusForPort(port, dev),
+          portId:port.id,
+          devId:dev.id,
+        }, localCp);
+      });
+    });
+    (dev.lldp_neighbors||[]).forEach(nbr=>{
+      const lp=(nbr.local_port||'').trim();
+      const rd=(nbr.remote_device||'').trim();
+      const rp=(nbr.remote_port||'').trim();
+      if(!lp||(!rd&&!rp)) return;
+      const ctx=findPortContextForLldp(dev, lp);
+      if(ctx&&ctx.port){
+        const merged=!!(ctx.port.lldp_remote_port||ctx.port.lldp_remote_device||ctx.port.lldp_neighbor);
+        if(merged) return;
+      }
+      const parsed=pfFormatLldpLocalKey(lp);
+      const localCp=ctx?pfCardPortLabel(ctx.port.slot??ctx.port.card_number, ctx.port.index??ctx.port.port_number):parsed.cardPort;
+      const mgmt=(nbr.mgmt_ip||'').trim();
+      const b2b=pfSameChassisLldp(dev, ctx&&ctx.port, rd, mgmt);
+      pushRow({
+        key:`nbr|${dev.id}|${lp}`,
+        localDevice:dev.label,
+        localIp:dev.ip||mgmt||'',
+        localSlot:ctx?pfSlotGroupLabel(ctx.grp, ctx.port):parsed.slotGroup,
+        localCardPort:localCp||lp,
+        localLocation:ctx?pfIxosPortLocation(ctx.port, ctx.grp):lp,
+        remoteDevice:rd||mgmt||'—',
+        remoteCardPort:pfFormatPeerCardPort(rp),
+        remotePort:rp||'—',
+        vendor:(dev.vendor||dev.node_type||'').slice(0,12),
+        status:{key:b2b?'lldp':'lldp', label:b2b?'B2B':'LLDP'},
+        portId:ctx?ctx.port.id:null,
+        devId:dev.id,
+      }, localCp||lp);
+    });
+    Object.entries(dev.lldp_unresolved||{}).forEach(([rd,cnt])=>{
+      const key=`unres|${dev.id}|${rd}`;
+      if(seenLocal.has(key)) return;
+      seenLocal.add(key);
+      rows.push({
+        key,
+        localDevice:dev.label,
+        localIp:dev.ip||'',
+        localSlot:'—',
+        localCardPort:`(${cnt} port${cnt>1?'s':''})`,
+        localLocation:'',
+        remoteDevice:rd,
+        remoteCardPort:'—',
+        remotePort:'—',
+        vendor:(dev.vendor||'').slice(0,12),
+        status:{key:'unresolved',label:'Unresolved'},
+        portId:null,
+        devId:dev.id,
+      });
+    });
+  });
+  rows.sort((a,b)=>{
+    const d=a.localDevice.localeCompare(b.localDevice);
+    return d||(a.localSlot||'').localeCompare(b.localSlot||'')||
+      (a.localCardPort||'').localeCompare(b.localCardPort||'');
+  });
+  return rows;
+}
+
+function highlightLldpRow(row){
+  devG.selectAll('.pf-port').classed('pf-port-hl',false);
+  document.querySelectorAll('#pf-lldp-tbody tr').forEach(tr=>tr.classList.remove('pf-lldp-sel'));
+  if(!row) return;
+  _lldpSelKey=row.key;
+  if(row.portId){
+    devG.selectAll('.pf-port').filter(function(){
+      return d3.select(this).attr('data-port')===row.portId;
+    }).classed('pf-port-hl',true);
+    document.querySelectorAll('#pf-lldp-tbody tr[data-key]').forEach(tr=>{
+      if(tr.getAttribute('data-key')===row.key) tr.classList.add('pf-lldp-sel');
+    });
+  }
+}
+
+function renderLldpPanel(data){
+  _lldpRows=collectLldpRows(data);
+  const filt=(document.getElementById('pf-lldp-filter')?.value||'').toLowerCase();
+  const tbody=document.getElementById('pf-lldp-tbody');
+  const cnt=document.getElementById('pf-lldp-count');
+  if(!tbody) return;
+  if(cnt) cnt.textContent=String(_lldpRows.length);
+  const filtered=_lldpRows.filter(r=>{
+    if(!filt) return true;
+    return [r.localDevice,r.localIp,r.localSlot,r.localCardPort,r.localLocation,
+      r.remoteDevice,r.remoteCardPort,r.remotePort,r.vendor]
+      .some(v=>v&&String(v).toLowerCase().includes(filt));
+  });
+  tbody.innerHTML=filtered.map(r=>{
+    const sk=r.status.key;
+    const cls='pf-lldp-st pf-lldp-st--'+(sk==='up'?'up':sk==='lldp'?'lldp':sk==='down'?'down':sk==='unresolved'?'unresolved':'idle');
+    const locTitle=r.localLocation||'';
+    return `<tr data-key="${r.key.replace(/"/g,'&quot;')}" data-port="${r.portId||''}" data-dev="${r.devId||''}" title="${locTitle.replace(/"/g,'&quot;')}">
+      <td title="${r.localIp}"><span class="pf-lldp-dev">${r.localDevice}</span></td>
+      <td class="pf-lldp-mono pf-lldp-slot">${r.localSlot}</td>
+      <td class="pf-lldp-mono pf-lldp-cp">${r.localCardPort}</td>
+      <td class="pf-lldp-remote">${r.remoteDevice}</td>
+      <td class="pf-lldp-mono pf-lldp-cp">${r.remoteCardPort}</td>
+      <td><span class="${cls}">${r.status.label}</span></td>
+    </tr>`;
+  }).join('')||'<tr><td colspan="6" style="color:#64748b;padding:8px">No LLDP peers. Click <b>Refresh</b> to pull IxOS <code>show lldp-peer-info</code>.</td></tr>';
+  tbody.querySelectorAll('tr[data-key]').forEach(tr=>{
+    tr.addEventListener('click',()=>{
+      const key=tr.getAttribute('data-key');
+      const row=_lldpRows.find(x=>x.key===key);
+      highlightLldpRow(row);
+      if(row&&row.portId) showPortDetail(
+        findPortById(row.portId),
+        (_D.devices||[]).find(d=>d.id===row.devId)||{label:row.localDevice}
+      );
+    });
+  });
+  if(_lldpSelKey){
+    const row=_lldpRows.find(x=>x.key===_lldpSelKey);
+    if(row) highlightLldpRow(row);
+  }
+}
+
+function findPortById(portId){
+  for(const d of (_D?.devices||[])){
+    for(const g of (d.port_groups||[])){
+      for(const p of (g.ports||[])){
+        if(p.id===portId) return p;
+      }
+    }
+  }
+  return {id:portId,label:portId.split('__').pop()};
+}
+
+function setLldpView(on){
+  _lldpView=!!on;
+  _lsSet('lldpView',on?'1':'0');
+  document.getElementById('pf-wrap')?.classList.toggle('pf-lldp-mode',on);
+  const btn=document.getElementById('pf-lldp-view-toggle');
+  if(btn){
+    btn.dataset.active=on?'1':'0';
+    btn.classList.toggle('lv-active-toggle',on);
+  }
+  if(on&&_D) renderLldpPanel(_D);
+}
+
+// ── render ────────────────────────────────────────────────────────────────────
+function render(data){
+  _D=data;
+  updateStats(data);
+  renderLldpPanel(data);
+  const devs = data.devices||[];
+  const conns = data.connections||[];
+  const vl = data.view_layouts && data.view_layouts.port_fabric;
+  // Restore saved view preferences
+  if(vl){
+    if(vl.layout_mode || vl.layoutMode) _layoutMode = vl.layout_mode || vl.layoutMode;
+  } else if (TLM) {
+    const stored = TLM.loadMode(TOPO_ID, 'port_fabric', 'rack');
+    _layoutMode = _storedLayoutMode(stored);
+  }
+  if (TLM) TLM.setSegActive(_uiLayoutMode(_layoutMode));
+  if(vl){
+    if(typeof vl.bundled === 'boolean' && _bundled !== vl.bundled){ _bundled=vl.bundled; _updateBundleBtn(); }
+    if(typeof vl.b2b_labels === 'boolean') _b2bLabels=vl.b2b_labels;
+    if(typeof vl.lldp_view === 'boolean' && vl.lldp_view !== _lldpView) setLldpView(vl.lldp_view);
+    if(vl.theme) applyTheme(vl.theme);
+  }
+  let basePos = {};
+  if(_layoutMode==='tier'){
+    basePos = computeTierLayout(devs);
+  } else if(_layoutMode==='dc'){
+    basePos = computeDCLayout(devs, conns);
+  } else {
+    basePos = {};
+    devs.forEach(d=>{
+      if(d.x!=null && d.y!=null && (d.x!==0||d.y!==0)) basePos[d.id]={x:d.x,y:d.y};
+    });
+  }
+  _pos = mergePos(devs, basePos);
+  if(vl && vl.pos){
+    devs.forEach(d=>{ if(vl.pos[d.id]) _pos[d.id]=vl.pos[d.id]; });
+  }
+  devs.forEach(d=>{ pfDevPos(d.id); });
+  const devIds = new Set(devs.map(d=>d.id));
+  conns.forEach(c=>{
+    if(c.src_device && !devIds.has(c.src_device)) pfDevPos(c.src_device);
+    if(c.dst_device && !devIds.has(c.dst_device)) pfDevPos(c.dst_device);
+  });
+  drawTierLines(devs);
+  drawConnections(conns);
+  drawDevices(devs, conns);
+  applyFilter(_filterQ);
+  setTimeout(fitAll, 120);
+}
+
+function applyTheme(theme){
+  _activeTheme = theme;
+  _lsSet('theme', theme);
+  document.body.classList.remove('pf-theme-grey','pf-theme-light');
+  if(theme==='grey') document.body.classList.add('pf-theme-grey');
+  if(theme==='light') document.body.classList.add('pf-theme-light');
+  // Update canvas background
+  const canvas = document.getElementById('pf-canvas');
+  if(canvas){
+    const bg = getComputedStyle(document.body).getPropertyValue('--pf-bg').trim();
+    canvas.style.background = bg || '';
+  }
+  // Update SVG tier lines text color
+  svg.selectAll('.pf-tier-lbl').attr('fill', theme==='light'?'#64748b':'#1e3a55');
+  // Tier divider lines
+  svg.selectAll('line').filter(function(){return d3.select(this).attr('stroke')==='#0e2030'||d3.select(this).attr('stroke')==='#e2e8f0';})
+    .attr('stroke', theme==='light'?'#e2e8f0':'#0e2030');
+  // Redraw devices for new fill colors
+  if(_D) drawDevices(_D.devices||[], _D.connections||[]);
+  document.querySelectorAll('.pf-theme-btn').forEach(b=>{
+    b.classList.toggle('pf-theme-active', b.dataset.theme===theme);
+  });
+}
+
+// ── tier / rack divider lines ─────────────────────────────────────────────────
+const DC_RACK_LABELS = {
+  '-520': '◀ Traffic Generators (AresONE-M Chassis)',
+  '0':    'Optical Circuit Switch (Calient CT-S320)',
+  '520':  'DUT Switches (Arista) ▶',
+};
+function drawTierLines(devs){
+  tierG.selectAll('*').remove();
+  const svgW = 4000;
+
+  if(_layoutMode === 'dc'){
+    // DC rack view: vertical dividers between rack columns
+    [-260, 260].forEach(vx=>{
+      tierG.append('line').attr('x1',vx).attr('x2',vx)
+        .attr('y1',-800).attr('y2',1600)
+        .attr('stroke','#0e2030').attr('stroke-width',1).attr('stroke-dasharray','6,6');
+    });
+    // Rack column labels at top
+    Object.entries(DC_RACK_LABELS).forEach(([x, label])=>{
+      tierG.append('text').attr('x',+x).attr('y',-30)
+        .attr('class','pf-tier-lbl').attr('text-anchor','middle').text(label);
+    });
+    return;
+  }
+
+  // Tier (horizontal) layout dividers
+  const tiers = {};
+  devs.forEach(d=>{ const t=tierOf(d); tiers[t]=(tiers[t]||0)+1; });
+  Object.entries(TIER_LABELS).forEach(([tier, label])=>{
+    if(!tiers[tier]) return;
+    const y = TIER_Y[tier] - devH({port_groups:[]})/2 - 22;
+    tierG.append('line').attr('x1',-svgW/2).attr('x2',svgW/2)
+      .attr('y1',y).attr('y2',y)
+      .attr('stroke','#0e2030').attr('stroke-width',1).attr('stroke-dasharray','6,6');
+    tierG.append('text').attr('x',-svgW/2+12).attr('y',y-5)
+      .attr('class','pf-tier-lbl').text(label);
+  });
+}
+
+// ── connections ───────────────────────────────────────────────────────────────
+function drawConnections(conns){
+  connG.selectAll('*').remove();
+  clblG.selectAll('*').remove();
+
+  if(_bundled){
+    const bundles = computeBundles(conns);
+    bundles.forEach((b,i)=>{
+      const rep = b.conns.reduce((best,c)=>(HP[c.health]??5)<(HP[best.health]??5)?c:best, b.conns[0]);
+      const h = rep.health==='alarm' ? 'alarm' : rep.health;
+      const style = cs(rep);
+      const {sa, ta} = bundleEndpoints(b);
+      if(!sa || !ta || sa.x == null || ta.x == null) return;
+      const w = Math.min(1.5 + b.conns.length*0.5, 5.5);
+
+      const path = connG.append('path').attr('class','pf-conn')
+        .attr('data-key', b.key)
+        .attr('stroke', style.s)
+        .attr('stroke-width', w)
+        .attr('marker-end', style.m)
+        .attr('d', bezier(sa, ta))
+        .datum(b);
+      if(style.d) path.attr('stroke-dasharray', style.d);
+
+      // Glow for active/alarm connections; mild glow for LLDP-verified DAC
+      if(h==='active')    path.attr('filter','url(#glow-g)').attr('opacity',.85);
+      if(h==='alarm')     path.attr('filter','url(#glow-r)').attr('opacity',.9);
+      if(h==='lldp_only') path.attr('opacity',.82);
+
+      path.on('click', ev=>{ ev.stopPropagation(); selectBundle(b); })
+          .on('mouseenter', ev=>showBundleTip(ev, b))
+          .on('mouseleave', hideTip);
+
+      // Bundle label: count + avg loss
+      const mx=(sa.x+ta.x)/2, my=(sa.y+ta.y)/2;
+      const lbl = b.alarm
+        ? `${b.conns.length}× ⚠${b.alarm}`
+        : b.active
+          ? `${b.conns.length}× ${b.loss_avg!=null?(+b.loss_avg).toFixed(1)+'dB':''}`
+          : `${b.conns.length}×`;
+      const bgW = lbl.length*6+10;
+      clblG.append('rect').attr('x',mx-bgW/2).attr('y',my-9)
+        .attr('width',bgW).attr('height',14).attr('rx',3)
+        .attr('fill','#060e1c').attr('opacity',.8);
+      clblG.append('text').attr('class','pf-cbundle-lbl')
+        .attr('x',mx).attr('y',my+2)
+        .attr('text-anchor','middle')
+        .attr('fill',style.s)
+        .text(lbl);
+    });
+  } else {
+    // Individual paths — for OCS uses per-port positions; for DAC fans out lines
+    conns.forEach((c,i)=>{
+      // For LLDP DAC bundles with port_count > 1, fan multiple thin lines
+      // so it's visually clear how many ports are connected
+      const portCount = c.lldp_port_count || 1;
+      const isLLDPdac = (c.type==='dac' && c.health==='lldp_only' && portCount>1);
+      const style = cs(c);
+
+      if(isLLDPdac){
+        // Fan N individual thin lines slightly offset to show all port connections
+        const maxLines = Math.min(portCount, 8); // cap at 8 visual lines
+        const anchor_src = bundleAnchor(c.src_device);
+        const anchor_dst = bundleAnchor(c.dst_device);
+        const dx = anchor_dst.x - anchor_src.x;
+        const dy = anchor_dst.y - anchor_src.y;
+        const dist = Math.sqrt(dx*dx+dy*dy)||1;
+        const nx=-dy/dist, ny=dx/dist; // perpendicular unit vector
+        const spread = Math.min(maxLines*4, 28); // total spread in pixels
+        for(let fi=0;fi<maxLines;fi++){
+          const t_offset = maxLines>1 ? (fi/(maxLines-1)-0.5)*spread : 0;
+          const sp = {x:anchor_src.x+nx*t_offset, y:anchor_src.y+ny*t_offset};
+          const tp = {x:anchor_dst.x+nx*t_offset, y:anchor_dst.y+ny*t_offset};
+          connG.append('path').attr('class','pf-conn')
+            .attr('stroke',style.s).attr('stroke-width',1.2)
+            .attr('marker-end','').attr('opacity',.75)
+            .attr('d',bezier(sp,tp,0))
+            .datum(c)
+            .on('click',ev=>{ev.stopPropagation();selectConn(c);})
+            .on('mouseenter',ev=>showConnTip(ev,c))
+            .on('mouseleave',hideTip);
+        }
+        // Label: port count
+        const mx=(anchor_src.x+anchor_dst.x)/2, my=(anchor_src.y+anchor_dst.y)/2;
+        const bgW=52; const bgH=14;
+        clblG.append('rect').attr('x',mx-bgW/2).attr('y',my-bgH/2)
+          .attr('width',bgW).attr('height',bgH).attr('rx',3)
+          .attr('fill','#060e1c').attr('opacity',.8);
+        clblG.append('text').attr('class','pf-cbundle-lbl')
+          .attr('x',mx).attr('y',my+5).attr('text-anchor','middle')
+          .attr('fill',style.s).attr('font-size','9px')
+          .text(`DAC ×${portCount}`);
+      } else if(c.src_device===c.dst_device && (c.link_kind==='b2b'||c.type==='b2b'||c.cable_type==='direct')){
+        // ── Same-chassis B2B arc ───────────────────────────────────────────
+        const sp = portAbs(c.src_device, c.src_port);
+        const tp = portAbs(c.dst_device, c.dst_port);
+        if(!sp || !tp || sp.x == null || tp.x == null) return;
+        // Curve drops below the chassis box
+        const arcDrop = 18 + Math.abs(sp.x - tp.x) * 0.12;
+        const arcY = Math.max(sp.y, tp.y) + arcDrop;
+        const mx = (sp.x + tp.x) / 2;
+        connG.append('path').attr('class','pf-conn')
+          .attr('stroke',style.s).attr('stroke-width',style.w)
+          .attr('fill','none').attr('marker-end',style.m)
+          .attr('d',`M${sp.x},${sp.y} Q${mx},${arcY} ${tp.x},${tp.y}`)
+          .datum(c)
+          .on('click',ev=>{ev.stopPropagation();selectConn(c);})
+          .on('mouseenter',ev=>showConnTip(ev,c))
+          .on('mouseleave',hideTip);
+
+        // B2B front/back labels if enabled
+        if(_b2bLabels){
+          const srcLabel = (c.src_port||'').split('__').pop() || '';
+          const dstLabel = (c.dst_port||'').split('__').pop() || '';
+          const labelY = arcY + 10;
+          // Left port label
+          if(srcLabel){
+            clblG.append('text').attr('class','pf-clbl pf-b2b-lbl')
+              .attr('x', sp.x - 2).attr('y', labelY + 2)
+              .attr('text-anchor','end').attr('fill',style.s).attr('font-size','7px')
+              .attr('opacity','0.85').text(srcLabel);
+          }
+          // Right port label
+          if(dstLabel){
+            clblG.append('text').attr('class','pf-clbl pf-b2b-lbl')
+              .attr('x', tp.x + 2).attr('y', labelY + 2)
+              .attr('text-anchor','start').attr('fill',style.s).attr('font-size','7px')
+              .attr('opacity','0.85').text(dstLabel);
+          }
+          // Mid cable type indicator
+          const ctype = c.cable_type||c.link_kind||'B2B';
+          const lbl = ctype==='direct'?'B2B': ctype.toUpperCase();
+          const bgW = lbl.length*5+8;
+          clblG.append('rect').attr('x',mx-bgW/2).attr('y',labelY-8)
+            .attr('width',bgW).attr('height',11).attr('rx',3)
+            .attr('fill','#060e1c').attr('opacity',.8);
+          clblG.append('text').attr('class','pf-cbundle-lbl')
+            .attr('x',mx).attr('y',labelY+1)
+            .attr('text-anchor','middle').attr('fill',style.s).attr('font-size','8px')
+            .text(lbl);
+        }
+
+      } else {
+        // ── Standard connection: DAC→DUT, OCS, planned, cross-device ─────────
+        const sp = connExit(c.src_device, c.src_port);
+        const tp = connExit(c.dst_device, c.dst_port);
+        if(!sp || !tp || sp.x == null || tp.x == null) return;
+        const path = connG.append('path').attr('class','pf-conn')
+          .attr('stroke',style.s).attr('stroke-width',style.w)
+          .attr('marker-end',style.m)
+          .attr('d',bezier(sp,tp,i%3-1))
+          .datum(c);
+        if(style.d) path.attr('stroke-dasharray',style.d);
+        path.on('click',ev=>{ev.stopPropagation();selectConn(c);})
+            .on('mouseenter',ev=>showConnTip(ev,c))
+            .on('mouseleave',hideTip);
+
+        const midX=(sp.x+tp.x)/2, midY=(sp.y+tp.y)/2;
+
+        // Port labels on DUT / direct connections (front/back cable visibility)
+        if(_b2bLabels && (c.type==='dac'||c.type==='b2b'||c.cable_type==='direct'||c.cable_type==='dac')){
+          const srcLabel = (c.src_port||'').split('__').pop()||'';
+          const dstLabel = (c.dst_port||'').split('__').pop()||'';
+          if(srcLabel){
+            clblG.append('text').attr('class','pf-clbl pf-b2b-lbl')
+              .attr('x',sp.x+(midX-sp.x)*0.12).attr('y',sp.y+(midY-sp.y)*0.12-5)
+              .attr('text-anchor','middle').attr('fill',style.s).attr('font-size','7px')
+              .attr('opacity','0.82').text(srcLabel);
+          }
+          if(dstLabel){
+            clblG.append('text').attr('class','pf-clbl pf-b2b-lbl')
+              .attr('x',tp.x+(midX-tp.x)*0.12).attr('y',tp.y+(midY-tp.y)*0.12-5)
+              .attr('text-anchor','middle').attr('fill',style.s).attr('font-size','7px')
+              .attr('opacity','0.82').text(dstLabel);
+          }
+        }
+
+        // Loss label for OCS active
+        if(c.type==='ocs_active'&&c.loss_db!=null&&c.loss_db>-80){
+          clblG.append('text').attr('class','pf-clbl')
+            .attr('x',midX).attr('y',midY-4)
+            .attr('text-anchor','middle').attr('fill',style.s)
+            .text(`${(+c.loss_db).toFixed(1)}dB`);
+        }
+      }
+    });
+  }
+}
+
+function drawPortSquare(g, port, d, px, ppY, pw, ph){
+  const lt = linkTypeFromPort(port);
+  const oper = operFromPort(port);
+  const typeBg = LINK_BOX_BG[lt] || LINK_BOX_BG.unused;
+  const typeStroke = LINK_BOX_STROKE[lt] || LINK_BOX_STROKE.unused;
+  const isWiring = port.id === _wireFrom;
+  const dotColor = OPER_DOT[oper] || OPER_DOT.idle;
+  const dotClass = OPER_DOT_CLASS[oper] || '';
+  const isUsed = oper === 'up' || oper === 'admin_down' || port.link_up;
+
+  g.append('rect').attr('class','pf-port'+(isWiring?' wiring':''))
+    .attr('x',px).attr('y',ppY).attr('width',pw).attr('height',ph)
+    .attr('fill', isUsed ? typeBg : '#060c14')
+    .attr('rx',2)
+    .attr('stroke', isWiring ? '#fbbf24' : typeStroke)
+    .attr('stroke-width', isWiring ? 2 : isUsed ? 1 : 0.5)
+    .attr('data-port',port.id).attr('data-dev',d.id)
+    .on('mouseenter',ev=>showPortTip(ev,port,d))
+    .on('mouseleave',hideTip)
+    .on('click',ev=>{ev.stopPropagation();handlePortClick(port,d);});
+
+  if(dotColor !== OPER_DOT.idle){
+    const dot = g.append('circle')
+      .attr('cx',px+pw-2.5).attr('cy',ppY+ph-2.5).attr('r',2.5)
+      .attr('fill',dotColor).attr('pointer-events','none');
+    if(dotClass) dot.attr('class',dotClass);
+  }
+  const disp = port.port_display || port.index || '';
+  if(disp) g.append('text').attr('class','pf-plbl show')
+    .attr('x',px+pw/2).attr('y',ppY+ph/2+2)
+    .attr('text-anchor','middle').attr('font-size','5px').attr('fill','#9ca3af').text(disp);
+}
+
+function drawOcsDevice(g, d, conns){
+  let py = HDR;
+  (d.ocs_shelves||[]).forEach(shelf=>{
+    g.append('text').attr('class','pf-ocs-shelf-hdr').attr('x',DPAD).attr('y',py+9)
+      .text((shelf.label||'').slice(0,28));
+    py += OCS_SHELF_HDR;
+    let bx = DPAD;
+    (shelf.banks||[]).forEach(bank=>{
+      g.append('rect').attr('class','pf-ocs-bank-bg')
+        .attr('x',bx).attr('y',py).attr('width',OCS_BANK_W).attr('height',OCS_BANK_H).attr('rx',3);
+      g.append('text').attr('class','pf-ocs-bank-lbl').attr('x',bx+OCS_BANK_W/2).attr('y',py+7)
+        .attr('text-anchor','middle').text((bank.label||'').slice(0,10));
+      (bank.ports||[]).forEach((port,i)=>{
+        const col=i%4, row=Math.floor(i/4);
+        const px=bx+4+col*(OCS_PORT_W+OCS_PORT_GAP);
+        const ppY=py+10+row*(OCS_PORT_H+OCS_PORT_GAP);
+        drawPortSquare(g, port, d, px, ppY, OCS_PORT_W, OCS_PORT_H);
+      });
+      bx += OCS_BANK_W + 4;
+    });
+    py += OCS_BANK_H + OCS_SHELF_GAP;
+  });
+}
+
+// ── devices ───────────────────────────────────────────────────────────────────
+function drawDevices(devs, conns){
+  devG.selectAll('g.pf-dev').remove();
+  // Alarm ring: OCS uses live alarm count (patched paths stay green on grid)
+  const alarmDevs = new Set();
+  conns.filter(c=>c.health==='alarm').forEach(c=>{alarmDevs.add(c.src_device);alarmDevs.add(c.dst_device);});
+  devs.forEach(d=>{
+    const dw=devW(d), dh=devH(d);
+    const pos=pfDevPos(d.id);
+    const ox=pos.x-dw/2, oy=pos.y-dh/2;
+    const color=ds(d.node_type);
+    const hasAlarm = d.node_type==='ocs'
+      ? (d.ocs_alarm_count||0) > 0
+      : alarmDevs.has(d.id);
+
+    const g=devG.append('g').attr('class','pf-dev')
+      .attr('data-dev',d.id)
+      .attr('transform',`translate(${ox},${oy})`)
+      .call(d3.drag()
+        .subject(()=>({x:pos.x,y:pos.y}))
+        .on('drag',function(ev){
+          _pos[d.id]={x:ev.x,y:ev.y};
+          d3.select(this).attr('transform',`translate(${ev.x-dw/2},${ev.y-dh/2})`);
+          drawConnections(_D?.connections||[]);
+          updateConnectionPaths();
+        })
+        .on('end',function(ev){
+          fetch(`/lab-topology/${TOPO_ID}/data/`,{method:'POST',
+            headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+            credentials:'same-origin',
+            body:JSON.stringify({nodes:[{id:d.db_pk,x:ev.x,y:ev.y}]})}).catch(()=>{});
+        })
+      );
+
+    // Background (clickable for device detail)
+    g.append('rect').attr('class','pf-dev-bg')
+      .attr('width',dw).attr('height',dh)
+      .attr('fill',color.fill).attr('stroke',color.stroke)
+      .attr('stroke-width',hasAlarm?2:1.5)
+      .attr('cursor','pointer')
+      .on('click',function(ev){ev.stopPropagation();showDeviceDetail(d,_D?.connections||[]);});
+
+    // Alarm glow ring
+    if(hasAlarm){
+      g.append('rect').attr('width',dw+8).attr('height',dh+8).attr('x',-4).attr('y',-4)
+        .attr('rx',10).attr('fill','none').attr('stroke','#ef4444').attr('stroke-width',1.5)
+        .attr('opacity',.4).attr('filter','url(#glow-r)');
+    }
+
+    // Active glow
+    const activeCount=(conns||[]).filter(c=>c.health==='active'&&(c.src_device===d.id||c.dst_device===d.id)).length;
+    if(activeCount>0&&!hasAlarm){
+      g.append('rect').attr('width',dw+4).attr('height',dh+4).attr('x',-2).attr('y',-2)
+        .attr('rx',9).attr('fill','none').attr('stroke','#22c55e').attr('stroke-width',1)
+        .attr('opacity',.25).attr('filter','url(#glow-g)');
+    }
+
+    // Header: label + IP + status strip
+    const lldpConns=(conns||[]).filter(c=>c.health==='lldp_only'&&(c.src_device===d.id||c.dst_device===d.id)).length;
+    const hasUnresolved = d.lldp_unresolved && Object.keys(d.lldp_unresolved||{}).length>0;
+    const statusColor = hasAlarm ? '#ef4444' : activeCount>0 ? '#22c55e'
+                      : (d.node_type==='chassis' && lldpConns>0) ? '#8b5cf6'
+                      : lldpConns>0 ? '#f59e0b' : '#1e3a5f';
+    g.append('rect').attr('width',dw).attr('height',3).attr('fill',statusColor).attr('rx',2);
+    g.append('text').attr('class','pf-dev-lbl').attr('x',8).attr('y',20).text(d.label.slice(0,17));
+    const devAddr=pfDevAddr(d);
+    if(devAddr) g.append('text').attr('class','pf-dev-ip').attr('x',8).attr('y',32).text(devAddr);
+    // Unresolved LLDP badge (on devices that see unknown chassis neighbors)
+    if(hasUnresolved){
+      const unCount=Object.values(d.lldp_unresolved||{}).reduce((s,v)=>s+v,0);
+      g.append('rect').attr('x',dw-38).attr('y',26).attr('width',34).attr('height',10).attr('rx',3)
+        .attr('fill','#1a0800').attr('stroke','#f59e0b').attr('opacity',.9);
+      g.append('text').attr('x',dw-21).attr('y',34).attr('text-anchor','middle')
+        .attr('font-size','7px').attr('fill','#f59e0b').attr('font-family','Arial')
+        .text(`?×${unCount}`);
+    }
+    // Port count badge
+    const totalPorts = (d.port_groups||[]).reduce((s,pg)=>s+(pg.ports||[]).length,0);
+    if(totalPorts>0){
+      g.append('rect').attr('x',dw-34).attr('y',10).attr('width',30).attr('height',14)
+        .attr('rx',3).attr('fill','#0d1f30').attr('stroke','#1e3a5f');
+      g.append('text').attr('x',dw-19).attr('y',21).attr('text-anchor','middle')
+        .attr('font-size','8px').attr('fill','#4a6080').attr('font-family','Arial')
+        .text(`${totalPorts}p`);
+    }
+
+    if(d.ocs_shelves && d.ocs_shelves.length){
+      drawOcsDevice(g, d, conns);
+      return;
+    }
+
+    clearPortLayout(d);
+    let py=HDR;
+    const drawStandardGroup = (grp)=>{
+      g.append('text').attr('class','pf-grp-lbl').attr('x',DPAD).attr('y',py+9)
+        .text(grp.label.slice(0,28));
+      const grpLLDP = (grp.ports||[]).filter(p=>p.lldp_neighbor||p.link_up).length;
+      if(grpLLDP>0){
+        const bx=devW(d)-DPAD-22;
+        g.append('rect').attr('x',bx).attr('y',py+1).attr('width',22).attr('height',10).attr('rx',3)
+          .attr('fill',grp.role==='ocs'?'#1a0c00':'#100720')
+          .attr('stroke',grp.role==='ocs'?'#854d0e':'#5b21b6');
+        g.append('text').attr('x',bx+11).attr('y',py+8.5).attr('text-anchor','middle')
+          .attr('font-size','6.5px').attr('fill',grp.role==='ocs'?'#c2410c':'#7c3aed')
+          .attr('font-family','Arial').text(grpLLDP+'↑');
+      }
+      py+=GLBL;
+      const pr = portsPerRow(d, grp);
+      (grp.ports||[]).forEach((port,i)=>{
+        const row=Math.floor(i/pr), col=i%pr;
+        const px=DPAD+col*PPITCH, ppY=py+row*GROW;
+        drawPortSquare(g, port, d, px, ppY, PW, PH);
+        setPortLayoutPos(d, port.id, px+PW/2, ppY+PH/2);
+        const oper = operFromPort(port);
+        if(oper==='up' || oper==='down'){
+          const threadColor = oper==='up' ? '#22c55e' : '#ef4444';
+          const threadX = px + PW/2, threadY0 = ppY + PH;
+          g.append('line').attr('x1',threadX).attr('y1',threadY0)
+            .attr('x2',threadX).attr('y2',threadY0+FANOUT_STUB)
+            .attr('stroke',threadColor).attr('stroke-width',1.4).attr('stroke-linecap','round').attr('opacity',.85)
+            .attr('pointer-events','none');
+        }
+        g.append('text').attr('class','pf-plbl')
+          .attr('x',px+PW/2).attr('y',ppY+PH+11)
+          .attr('text-anchor','middle').text(port.port_display||port.index||'');
+      });
+      py+=groupGridH(grp, d);
+    };
+
+    if(useChassisRgLayout(d)){
+      clusterChassisPortGroups(d.port_groups).forEach(row=>{
+        if(row.type==='rg_row'){
+          g.append('text').attr('class','pf-grp-lbl').attr('x',DPAD).attr('y',py+9)
+            .attr('font-weight','600').text(row.slot.slice(0,22));
+          py += SLOT_ROW_HDR;
+          let bx = DPAD;
+          row.groups.forEach(grp=>{
+            grp.layout = 'rg_horizontal';
+            const bottom = drawRgPorts(g, d, grp, bx, py);
+            bx += rgGroupWidth(grp) + RG_H_GAP;
+          });
+          py += GLBL + Math.max(...row.groups.map(g=>{
+            const n=(g.ports||[]).length||1;
+            return Math.ceil(n/4)*GROW+PLBL+FANOUT_STUB;
+          }));
+        } else {
+          drawStandardGroup(row.group);
+        }
+      });
+    } else {
+      (d.port_groups||[]).forEach(drawStandardGroup);
+    }
+  });
+}
+
+function updateConnectionPaths(){
+  drawConnections(_D?.connections||[]);
+}
+
+// ── bundle / individual connection selection ──────────────────────────────────
+function selectBundle(b){
+  _selConn=null;
+  const devs = (_D?.devices||[]);
+  const srcDev = devs.find(d=>d.id===b.src);
+  const dstDev = devs.find(d=>d.id===b.dst);
+  connG.selectAll('path.pf-conn').classed('sel', dd=>dd&&dd.key===b.key);
+  const h = b.health;
+  const rows=[
+    ['Devices', `${srcDev?.label||b.src} ↔ ${dstDev?.label||b.dst}`],
+    ['Paths', b.conns.length],
+    ['Worst health', h],
+    ['Active paths', b.active],
+    ['Alarm paths', b.alarm],
+    ['Avg loss', b.loss_avg!=null?`${(+b.loss_avg).toFixed(2)} dB`:'—'],
+  ];
+  // Show individual path detail
+  const pathRows = b.conns.slice(0,8).map(c=>
+    `<div class="pf-dr"><span class="pf-dk">${c.label||c.type}</span>`+
+    `<span class="pf-dv" style="color:${HC[c.health]||'#e8f0f8'}">${c.health}${c.loss_db!=null?' '+((+c.loss_db).toFixed(1))+'dB':''}</span></div>`
+  ).join('');
+  setDetail(`Bundle: ${b.conns.length} paths`, rows, pathRows, false);
+}
+
+function selectConn(c){
+  _selConn=c.id;
+  connG.selectAll('path.pf-conn').classed('sel', d=>d&&d.id===c.id);
+  const rows=[
+    ['Type',   c.type],
+    ['Health', c.health],
+    ['Src port', c.src_port?.split('__')[1]||'—'],
+    ['Dst port', c.dst_port?.split('__')[1]||'—'],
+    ['OCS triplet', c.ocs_triplets?.[0]||'—'],
+    ['Loss',   c.loss_db!=null?`${(+c.loss_db).toFixed(2)} dB`:'—'],
+    ['Path',   c.label||'—'],
+  ];
+  setDetail(c.label||c.id, rows, '', true);
+}
+
+function setDetail(title, rows, extra, showDel){
+  const panel=document.getElementById('pf-detail');
+  panel.style.display='block';
+  document.getElementById('pf-dtitle').textContent=title.slice(0,28);
+  document.getElementById('pf-dbody').innerHTML=
+    rows.map(([k,v])=>
+      `<div class="pf-dr"><span class="pf-dk">${k}</span>`+
+      `<span class="pf-dv" style="color:${k==='Health'?HC[v]||'#e8f0f8':'#e8f0f8'}">${v??'—'}</span></div>`
+    ).join('')+extra;
+  document.getElementById('pf-dact').style.display=showDel?'block':'none';
+}
+
+svg.on('click',()=>{
+  connG.selectAll('path.pf-conn').classed('sel',false);
+  _selConn=null;
+  document.getElementById('pf-detail').style.display='none';
+});
+
+// ── port click / wiring ───────────────────────────────────────────────────────
+function handlePortClick(port, dev){
+  if(!_editMode){
+    showPortDetail(port,dev);
+    return;
+  }
+  if(!_wireFrom){
+    _wireFrom=port.id;
+    document.getElementById('pf-wire-bar').style.display='block';
+    document.getElementById('pf-wirests').textContent=
+      `From: ${dev.label} · ${port.label}`;
+    if(_D) drawDevices(_D.devices,_D.connections);
+  } else {
+    if(port.id!==_wireFrom){
+      const from=findPort(_wireFrom);
+      if(from) createWire(from,{port,dev});
+    }
+    _wireFrom=null;
+    document.getElementById('pf-wire-bar').style.display='none';
+  }
+}
+
+function findPort(pid){
+  for(const d of (_D?.devices||[])){
+    if(d.ocs_shelves){
+      for(const shelf of (d.ocs_shelves||[])){
+        for(const bank of (shelf.banks||[])){
+          for(const p of (bank.ports||[])){
+            if(p.id===pid) return {port:p,dev:d};
+          }
+        }
+      }
+    }
+    for(const g of (d.port_groups||[])){
+      for(const p of (g.ports||[])){
+        if(p.id===pid) return {port:p,dev:d};
+      }
+    }
+  }
+  return null;
+}
+
+async function createWire(from,to){
+  if(!from.dev.db_pk||!to.dev.db_pk){
+    bar('Both devices must be saved topology nodes before wiring.');
+    return;
+  }
+  bar('Saving link…');
+  try{
+    const cable=from.port.role==='ocs'||to.port.role==='ocs'?'optic':'dac';
+    const payload={
+      node_a:from.dev.db_pk,
+      node_b:to.dev.db_pk,
+      port_a:from.port.label,
+      port_b:to.port.label,
+      cable_type:cable,
+      label:`${from.dev.label}:${from.port.label}↔${to.dev.label}:${to.port.label}`,
+    };
+    const r=await fetch(LINK_ADD_URL,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.ok){bar('Link saved.');loadData({live:false});}
+    else bar('Error: '+(d.error||JSON.stringify(d)));
+  }catch(e){bar('Error: '+e.message);}
+}
+
+function cancelWire(){
+  _wireFrom=null;
+  document.getElementById('pf-wire-bar').style.display='none';
+  document.getElementById('pf-wirests').textContent='Click any port to start a wire.';
+  if(_D) drawDevices(_D.devices,_D.connections);
+}
+
+// ── tooltips ──────────────────────────────────────────────────────────────────
+let _tip=null;
+function mkTip(ev,html){
+  removeTip();
+  const box=document.getElementById('pf-canvas').getBoundingClientRect();
+  const x=ev.clientX-box.left+12, y=ev.clientY-box.top-10;
+  const t=document.createElement('div');
+  t.id='pf-tip';
+  t.style.cssText=`position:absolute;left:${x}px;top:${y}px;z-index:500;
+    background:#0c1a28;border:1px solid #1a3050;border-radius:5px;
+    padding:7px 11px;font-size:.72rem;color:#d0e0f0;pointer-events:none;
+    max-width:230px;line-height:1.55;box-shadow:0 4px 16px rgba(0,0,0,.4)`;
+  t.innerHTML=html;
+  document.getElementById('pf-canvas').appendChild(t);
+  _tip=t;
+}
+function removeTip(){if(_tip){_tip.remove();_tip=null;}}
+function hideTip(){removeTip();}
+
+function showPortTip(ev,port,dev){
+  const lt=port.link_type||port.role||'';
+  const typeLabel={'ocs':'Optic / OCS','dac':'DAC','planned':'Planned'}[lt]||lt;
+  const linkIcon=port.link_up?'<span style="color:#22c55e">●</span>':'<span style="color:#334155">○</span>';
+  mkTip(ev,[
+    `<b style="color:${ds(dev.node_type).stroke}">${dev.label}</b> · <b>${port.label}</b>`,
+    `${linkIcon} <span style="color:${HC[port.health]||'#ccc'}">${port.health}</span>  <span style="color:#4a6080;font-size:.9em">${typeLabel} · ${port.speed||''}</span>`,
+    port.ocs_triplet?`<span style="color:#854d0e">⊕ OCS:</span> <code style="color:#fb923c">${port.ocs_triplet}</code>`:'',
+    port.ocs_path_id&&port.ocs_path_id!==port.ocs_triplet?`<span style="color:#4a6080">Path:</span> <code>${port.ocs_path_id}</code>`:'',
+    port.loss_db!=null?`<span style="color:#4a6080">Loss:</span> <b style="color:#22c55e">${(+port.loss_db).toFixed(2)} dB</b>`:'',
+    port.lldp_remote_device?`<span style="color:#5b21b6">⬡ LLDP → </span><b>${port.lldp_remote_device}</b>${port.lldp_remote_port?' :'+port.lldp_remote_port:''}`:
+      port.lldp_neighbor?`<span style="color:#5b21b6">⬡ LLDP:</span> ${port.lldp_neighbor}`:'',
+    port.peer_port_label?`<span style="color:#4a6080">Peer:</span> ${port.peer_port_label}`:'',
+  ].filter(Boolean).join('<br>'));
+}
+
+function showBundleTip(ev,b){
+  mkTip(ev,[
+    `<b>${b.conns.length} connections</b>`,
+    `Health: <span style="color:${HC[b.health]}">${b.health}</span>`,
+    `Active: ${b.active} · Alarm: <span style="color:#ef4444">${b.alarm}</span>`,
+    b.loss_avg!=null?`Avg loss: ${(+b.loss_avg).toFixed(2)} dB`:'',
+  ].filter(Boolean).join('<br>'));
+}
+
+function showConnTip(ev,c){
+  mkTip(ev,[
+    `<b>${c.type}</b> · <span style="color:${HC[c.health]}">${c.health}</span>`,
+    c.label?`Path: <code>${c.label}</code>`:'',
+    c.loss_db!=null?`Loss: <b style="color:#22c55e">${(+c.loss_db).toFixed(2)} dB</b>`:'',
+    `Src: ${c.src_port?.split('__')[1]||''}`,
+    `Dst: ${c.dst_port?.split('__')[1]||''}`,
+  ].filter(Boolean).join('<br>'));
+}
+
+function showDeviceDetail(dev, conns){
+  const myConns = (conns||[]).filter(c=>c.src_device===dev.id||c.dst_device===dev.id);
+  const active=myConns.filter(c=>c.health==='active').length;
+  const alarm=myConns.filter(c=>c.health==='alarm').length;
+  const lldp=myConns.filter(c=>c.health==='lldp_only').length;
+  const unres = dev.lldp_unresolved||{};
+  const rows=[
+    ['Node type', dev.node_type],
+    ['Address', pfDevAddr(dev)||'—'],
+    ['Active OCS', active],
+    ['Alarm OCS', alarm],
+    ['LLDP DAC', lldp],
+  ];
+  let extra='';
+  if(Object.keys(unres).length){
+    extra='<div style="margin-top:6px;padding-top:5px;border-top:1px solid #1a3050;">'
+      +'<div style="font-size:.66rem;color:#f59e0b;margin-bottom:3px;">⚠ Unresolved LLDP neighbors (chassis not in topology):</div>'
+      +Object.entries(unres).map(([h,n])=>
+        `<div class="pf-dr"><span class="pf-dk" style="color:#94a3b8;">${h}</span><span class="pf-dv">${n} ports (LLDP)</span></div>`
+      ).join('')+'</div>';
+  }
+  const portCount=(dev.port_groups||[]).reduce((s,g)=>s+(g.ports||[]).length,0);
+  const portGroups=(dev.port_groups||[]).map(g=>g.label.slice(0,22)+' ('+g.ports.length+')').join('<br>');
+  rows.push(['Ports', portCount+' total']);
+  document.getElementById('pf-detail').style.display='block';
+  document.getElementById('pf-dtitle').textContent=dev.label.slice(0,24);
+  document.getElementById('pf-dbody').innerHTML=
+    rows.map(([k,v])=>`<div class="pf-dr"><span class="pf-dk">${k}</span><span class="pf-dv">${v??'—'}</span></div>`).join('')+extra;
+  document.getElementById('pf-dact').style.display='none';
+}
+
+function showPortDetail(port,dev){
+  const rows=[
+    ['Device',  dev.label],
+    ['Port',    port.label],
+    ['Display', port.port_display||port.index||'—'],
+    ['Health',  port.health],
+    ['Oper',    operFromPort(port)],
+    ['Speed',   port.speed],
+    ['Role',    port.role],
+    ['Link',    port.link_type||'—'],
+    ['Serial',  port.serial||'—'],
+    ['OCS path', port.ocs_path_id||'—'],
+    ['Triplet', port.ocs_triplet||'—'],
+    ['Loss',    port.loss_db!=null?`${(+port.loss_db).toFixed(2)} dB`:'—'],
+    ['Peer',    port.peer_port_label?`${port.peer_port_label}`:'—'],
+    ['LLDP',   port.lldp_neighbor||'—'],
+  ];
+  let extra='';
+  if(dev.node_type==='chassis' && dev.chassis_id){
+    extra=`<a href="/keysight/chassis/${dev.chassis_id}/" target="_blank" rel="noopener" style="color:#60a5fa;font-size:.72rem;">Open in Keysight ↗</a>`;
+  }
+  setDetail(`${dev.label} · ${port.label}`, rows, extra, false);
+}
+
+// ── stats ─────────────────────────────────────────────────────────────────────
+function updateStats(data){
+  const s=data.summary||{};
+  const chips=[
+    ['active','#22c55e','Active'],
+    ['alarm','#ef4444','Alarm'],
+    ['lldp_only','#f59e0b','LLDP'],
+    ['planned','#3b82f6','Planned'],
+    ['dac','#8b5cf6','DAC'],
+    ['unused','#334155','Unused'],
+  ];
+  document.getElementById('pf-chips').innerHTML=chips.map(([k,c,l])=>
+    `<span class="pf-chip" style="background:${c}22;border:1px solid ${c};color:${c};">${s[k]||0} ${l}</span>`
+  ).join('');
+  const o=data.ocs_summary||{};
+  // Source freshness LEDs (from graph meta when LABVAULT_GRAPH_PORT_FABRIC=1)
+  const meta=data.meta;
+  let tsText=`${s.total_ports||0} ports · OCS: ${o.total||0} paths (${o.active||0}✓ ${o.alarm||0}✗) · `+
+    `${new Date(data.fetched_at||0).toLocaleTimeString()}`+(data.ocs_error?` ⚠`:'');
+  if(meta && meta.sources){
+    const srcs=meta.sources;
+    const leds=[['lldp_db','LLDP'],['ocs_live','OCS'],['chassis_links','Chs'],['planned','Plan']].map(([k,label])=>{
+      const ok=srcs[k] && srcs[k].ok!==false;
+      const c=srcs[k]?(ok?'#22c55e':'#ef4444'):'#64748b';
+      return `<span title="${label}: ${srcs[k]?srcs[k].error||'OK':'n/a'}" style="cursor:help;">
+        <span style="width:6px;height:6px;border-radius:50%;background:${c};display:inline-block;margin-right:2px;"></span>${label}</span>`;
+    }).join(' · ');
+    tsText=leds+' · '+tsText;
+  }
+  document.getElementById('pf-ts').innerHTML=tsText;
+}
+
+// ── fit / zoom ────────────────────────────────────────────────────────────────
+function fitAll(){
+  const svgEl=document.getElementById('pf-svg');
+  const rootEl=document.getElementById('pf-root');
+  try{
+    const bb=rootEl.getBBox();
+    if(!bb.width) return;
+    const vw=svgEl.clientWidth||1200, vh=svgEl.clientHeight||700;
+    const s=Math.min(.92*vw/bb.width,.92*vh/bb.height,1.8);
+    const tx=(vw-s*(bb.x*2+bb.width))/2;
+    const ty=(vh-s*(bb.y*2+bb.height))/2;
+    svg.transition().duration(500).call(Z.transform,d3.zoomIdentity.translate(tx,ty).scale(s));
+  }catch(e){}
+}
+
+// ── search ────────────────────────────────────────────────────────────────────
+function applyFilter(q){
+  _filterQ=q;
+  if(!q||!_D){
+    devG.selectAll('g.pf-dev').attr('opacity',1);
+    connG.selectAll('path.pf-conn').attr('opacity',null);
+    return;
+  }
+  const lq=q.toLowerCase();
+  const matchDev=d=>[d.label,d.ip,d.mgmt_display,d.mgmt_ipv6,d.vendor].some(v=>v&&v.toLowerCase().includes(lq));
+  const matchPort=p=>[p.label,p.ocs_triplet,p.health,p.lldp_neighbor,p.ocs_path_id,
+    String(p.loss_db||'')].some(v=>v&&v.toLowerCase().includes(lq));
+  const mds=new Set();
+  (_D.devices||[]).forEach(d=>{
+    if(matchDev(d)||(d.port_groups||[]).some(g=>(g.ports||[]).some(matchPort))) mds.add(d.id);
+  });
+  devG.selectAll('g.pf-dev').attr('opacity',function(){
+    return mds.has(d3.select(this).attr('data-dev'))?1:.08;
+  });
+  connG.selectAll('path.pf-conn').attr('opacity',function(){
+    const c=d3.select(this).datum();
+    if(!c) return null;
+    const key=c.key;
+    if(key){
+      const [sa,da]=key.split(':::');
+      return mds.has(sa)||mds.has(da)?null:.04;
+    }
+    return mds.has(c.src_device)||mds.has(c.dst_device)?null:.04;
+  });
+}
+
+let _st;
+document.getElementById('pf-search').addEventListener('input',function(){
+  clearTimeout(_st);
+  _st=setTimeout(()=>applyFilter(this.value.trim()),180);
+});
+
+// ── controls ──────────────────────────────────────────────────────────────────
+document.getElementById('pf-refresh').addEventListener('click',()=>loadData({live:true, force_refresh:true}));
+document.getElementById('pf-fit').addEventListener('click',fitAll);
+document.getElementById('pf-lldp-view-toggle')?.addEventListener('click',function(){
+  setLldpView(!_lldpView);
+});
+// B2B / DAC front-back labels toggle
+(function(){
+  const btn=document.getElementById('pf-b2b-labels-toggle');
+  if(!btn) return;
+  function updateB2bBtn(){
+    btn.dataset.active=_b2bLabels?'1':'0';
+    btn.classList.toggle('lv-active-toggle',_b2bLabels);
+  }
+  btn.addEventListener('click',function(){
+    _b2bLabels=!_b2bLabels;
+    _lsSet('b2bLabels',_b2bLabels?'1':'0');
+    updateB2bBtn();
+    if(_D){ drawConnections(_D.connections||[]); }
+  });
+  updateB2bBtn();
+})();
+document.getElementById('pf-lldp-filter')?.addEventListener('input',function(){
+  if(_D) renderLldpPanel(_D);
+});
+setLldpView(_lldpView);
+
+if (TLM && TLM.bindLayoutToolbar) {
+  TLM.bindLayoutToolbar({
+    topoId: TOPO_ID,
+    view: 'port_fabric',
+    getMode: () => _uiLayoutMode(_layoutMode),
+    onSelect: (uiMode) => _applyLayout(_storedLayoutMode(uiMode)),
+  });
+}
+
+function _updateBundleBtn(){
+  const btn=document.getElementById('pf-bundle-toggle');
+  const lbl=document.getElementById('pf-bundle-lbl');
+  if(btn&&lbl){
+    btn.style.borderColor=_bundled?'#f59e0b':'#22c55e';
+    btn.style.color=_bundled?'#f59e0b':'#22c55e';
+    lbl.textContent=_bundled?'Bundled':'Per-Port';
+    btn.querySelector('i').className='fas fa-'+(_bundled?'layer-group':'ethernet')+' me-1';
+  }
+}
+document.getElementById('pf-bundle-toggle').addEventListener('click',function(){
+  _bundled=!_bundled;
+  _lsSet('bundled',_bundled);
+  _updateBundleBtn();
+  if(_D){ drawConnections(_D.connections||[]); }
+});
+
+document.getElementById('pf-mode-edit').addEventListener('click',function(){
+  _editMode=!_editMode;
+  this.dataset.active=_editMode?'1':'0';
+  document.getElementById('pf-wirep').style.display=_editMode?'block':'none';
+  if(!_editMode) cancelWire();
+});
+
+document.getElementById('pf-wire-cancel').addEventListener('click',()=>{
+  cancelWire();
+  document.getElementById('pf-mode-edit').click();
+});
+
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape') cancelWire();
+  if((e.key==='f'||e.key==='F')&&!e.ctrlKey) fitAll();
+  if(e.key==='r'&&!e.ctrlKey&&!e.metaKey) loadData({live:true});
+  if(e.key==='b') document.getElementById('pf-bundle-toggle').click();
+});
+
+// ── export ────────────────────────────────────────────────────────────────────
+function buildJSON(){
+  if(!_D) return '{}';
+  return JSON.stringify({
+    schema_version:2, topo_id:TOPO_ID, fetched_at:_D.fetched_at,
+    summary:_D.summary, ocs_summary:_D.ocs_summary,
+    devices:(_D.devices||[]).map(d=>({
+      id:d.db_pk, label:d.label, ip:d.ip, node_type:d.node_type,
+      x:_pos[d.id]?.x||d.x, y:_pos[d.id]?.y||d.y,
+      lldp_summary:d.lldp_summary,
+      lldp_dac_up:d.lldp_dac_up,
+      ocs_active:d.ocs_active_count,
+      ocs_alarm:d.ocs_alarm_count,
+      ports:(d.port_groups||[]).flatMap(g=>(g.ports||[]).map(p=>({
+        label:p.label, role:p.role, link_type:p.link_type,
+        health:p.health, link_up:p.link_up,
+        ocs_triplet:p.ocs_triplet, ocs_path_id:p.ocs_path_id,
+        peer_port:p.peer_port_label, loss_db:p.loss_db,
+        lldp_neighbor:p.lldp_neighbor,
+        lldp_remote_device:p.lldp_remote_device,
+        lldp_remote_port:p.lldp_remote_port,
+      }))),
+    })),
+    connections:(_D.connections||[]).map(c=>({
+      type:c.type, health:c.health, link_up:c.link_up, cable_type:c.cable_type||c.type,
+      src:(_D.devices||[]).find(d=>d.id===c.src_device)?.label, src_port:c.src_port?.split('__')[1]||'',
+      dst:(_D.devices||[]).find(d=>d.id===c.dst_device)?.label, dst_port:c.dst_port?.split('__')[1]||'',
+      ocs_triplets:c.ocs_triplets, loss_db:c.loss_db,
+      lldp_neighbor:c.lldp_neighbor||'', label:c.label,
+    })),
+  },null,2);
+}
+function buildCSV(){
+  const devMap={};
+  (_D?.devices||[]).forEach(d=>devMap[d.id]=d);
+  const rows=[['src_device','src_ip','src_port','src_link_type',
+               'dst_device','dst_ip','dst_port','dst_link_type',
+               'conn_type','health','link_up','cable_type',
+               'ocs_triplet','loss_db','lldp_neighbor','label']];
+  (_D?.connections||[]).forEach(c=>{
+    const s=devMap[c.src_device]||{}, d2=devMap[c.dst_device]||{};
+    // Find source port info
+    const spLabel=c.src_port?.split('__')[1]||'';
+    const dpLabel=c.dst_port?.split('__')[1]||'';
+    const findPort=(dev,label)=>{
+      for(const g of (dev.port_groups||[]))
+        for(const p of (g.ports||[]))
+          if(p.label===label) return p;
+      return {};
+    };
+    const sp2=findPort(s,spLabel), dp2=findPort(d2,dpLabel);
+    rows.push([s.label||'',s.ip||'',spLabel,sp2.link_type||c.type,
+               d2.label||'',d2.ip||'',dpLabel,dp2.link_type||c.type,
+               c.type,c.health,c.link_up?'true':'false',c.cable_type||'',
+               c.ocs_triplets?.[0]||'',
+               c.loss_db!=null?(+c.loss_db).toFixed(2):'',
+               c.lldp_neighbor||'',c.label||'']);
+  });
+  // Also export port-level LLDP data
+  rows.push([]);
+  rows.push(['# Port LLDP Detail']);
+  rows.push(['device','ip','port','role','link_type','health','link_up','lldp_remote_device','lldp_remote_port','ocs_triplet','loss_db']);
+  (_D?.devices||[]).forEach(d=>{
+    (d.port_groups||[]).forEach(g=>{
+      (g.ports||[]).filter(p=>p.link_up||p.lldp_neighbor).forEach(p=>{
+        rows.push([d.label,d.ip,p.label,p.role,p.link_type||p.role,
+          p.health,p.link_up?'true':'false',
+          p.lldp_remote_device||'',p.lldp_remote_port||'',
+          p.ocs_triplet||'',p.loss_db!=null?(+p.loss_db).toFixed(2):'']);
+      });
+    });
+  });
+  return rows.map(r=>r.map(v=>JSON.stringify(v??'')).join(',')).join('\n');
+}
+function buildManifest(){
+  const devs=_D?.devices||[];
+  const conns=(_D?.connections||[]).filter(c=>c.type==='ocs_active');
+  const devMap={};devs.forEach(d=>devMap[d.id]=d);
+  return JSON.stringify({
+    schema_version:1, topo_id:TOPO_ID,
+    chassis:devs.filter(d=>d.node_type==='chassis').map(d=>({label:d.label,ip:pfDevAddr(d)})),
+    switches:devs.filter(d=>d.node_type==='switch').map(d=>({label:d.label,ip:pfDevAddr(d)})),
+    ocs:{ip:pfDevAddr(devs.find(d=>d.node_type==='ocs'))||'',
+         total:_D?.ocs_summary?.total||0,
+         active:_D?.ocs_summary?.active||0},
+    ocs_paths:conns.map(c=>({
+      path_id:c.label,
+      src:`${devMap[c.src_device]?.label}:${c.src_port?.split('__')[1]||''}`,
+      dst:`${devMap[c.dst_device]?.label}:${c.dst_port?.split('__')[1]||''}`,
+      health:c.health, loss_db:c.loss_db,
+    })),
+    requires_calient_ocs:conns.length>0,
+    port_count:(_D?.summary?.active||0)+(_D?.summary?.alarm||0),
+  },null,2);
+}
+function buildYAML(obj,ind=''){
+  if(Array.isArray(obj)) return obj.length?'\n'+obj.map(v=>ind+'- '+buildYAML(v,ind+'  ')).join('\n'):'[]';
+  if(obj&&typeof obj==='object') return '\n'+Object.entries(obj).map(([k,v])=>`${ind}${k}:${' '+buildYAML(v,ind+'  ')}`).join('\n');
+  return JSON.stringify(obj??'');
+}
+
+document.getElementById('pf-export-btn').addEventListener('click',()=>{
+  document.getElementById('pf-exp').classList.add('show');
+  populateExport();
+});
+document.getElementById('pf-exp-close').addEventListener('click',()=>document.getElementById('pf-exp').classList.remove('show'));
+document.querySelectorAll('.pf-etab').forEach(t=>t.addEventListener('click',function(){
+  _expFmt=this.dataset.fmt;
+  document.querySelectorAll('.pf-etab').forEach(x=>x.classList.remove('on'));
+  this.classList.add('on');
+  populateExport();
+}));
+function populateExport(){
+  const ta=document.getElementById('pf-eta');
+  if(_expFmt==='json')     ta.value=buildJSON();
+  else if(_expFmt==='yaml')ta.value=buildYAML(JSON.parse(buildJSON()));
+  else if(_expFmt==='csv') ta.value=buildCSV();
+  else ta.value=buildManifest();
+}
+document.getElementById('pf-exp-dl').addEventListener('click',()=>{
+  const ta=document.getElementById('pf-eta');
+  const ext=_expFmt==='yaml'?'yaml':_expFmt==='csv'?'csv':'json';
+  const b=new Blob([ta.value],{type:'text/plain'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(b);
+  a.download=`port_fabric_${TOPO_ID}.${ext}`;a.click();
+});
+document.getElementById('pf-exp-apply').addEventListener('click',async()=>{
+  // Safety gate: importing replaces ALL topology nodes — requires explicit confirmation
+  if(!confirm(
+    '⚠️ WARNING: This will REPLACE all topology nodes with the JSON below.\n\n'+
+    'Your current layout and any manual node positions will be lost.\n\n'+
+    'Use this only if you have a complete topology export.\n\n'+
+    'Continue? (Cancel to just export/download without importing)'
+  )) return;
+  const ta=document.getElementById('pf-eta');
+  let payload;
+  try{payload=JSON.parse(ta.value);}catch(e){alert('Invalid JSON: '+e.message);return;}
+  const btn=document.getElementById('pf-exp-apply');
+  btn.disabled=true;btn.textContent='Importing…';
+  try{
+    const r=await fetch(IMPORT_URL,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.ok){document.getElementById('pf-exp').classList.remove('show');loadData();}
+    else alert('Error: '+(d.error||JSON.stringify(d)));
+  }catch(e){alert(e.message);}
+  finally{btn.disabled=false;btn.textContent='⚠️ Import (replaces topology)';}
+});
+document.getElementById('pf-del').addEventListener('click',()=>{
+  alert('Topology DB links: delete from the Topology Editor. Live OCS paths require physical patching change.');
+});
+
+// ── load ──────────────────────────────────────────────────────────────────────
+function bar(msg){document.getElementById('pf-bar').textContent=msg;}
+function pfFetchWithTimeout(url, ms){
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), ms||120000);
+  return fetch(url,{credentials:'same-origin',signal:ctrl.signal}).finally(()=>clearTimeout(timer));
+}
+async function loadData(opts={}){
+  const live=opts.live!==false;
+  const force=opts.force_refresh===true;
+  document.getElementById('pf-loading').style.display='flex';
+  bar(force ? 'Fetching live port fabric (forcing chassis refresh)…' : 'Fetching live port fabric…');
+  try{
+    const r=await pfFetchWithTimeout(`${API}?live=${live?1:0}&lldp=1&force_refresh=${force?1:0}`, live?180000:45000);
+    if(!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data=await r.json();
+    render(data);
+    const s=data.summary||{};
+    let msg=`${(data.devices||[]).length} devices · ${s.total_ports||0} ports · `+
+        `${s.active||0} active · ${s.alarm||0} alarm · `+
+        `${(data.connections||[]).length} connections`;
+    const tm=data._timing;
+    if(tm){
+      const cache=tm.cache?` · ${tm.cache}`:'';
+      msg+=` · ${Math.round(tm.total_ms||0)}ms${cache}`;
+      if(tm.chassis_refresh==='background'){
+        msg+=' · chassis LLDP refreshing in background (~2 min)';
+      }
+      if(tm.cache==='miss'){
+        const parts=[];
+        if(tm.triplet_map_ms) parts.push(`map ${tm.triplet_map_ms}ms`);
+        if(tm.ocs_live_ms) parts.push(`ocs ${tm.ocs_live_ms}ms`);
+        if(tm.lldp_ms) parts.push(`lldp ${tm.lldp_ms}ms`);
+        if(tm.devices_ms) parts.push(`build ${tm.devices_ms}ms`);
+        if(tm.post_ms) parts.push(`post ${tm.post_ms}ms`);
+        if(parts.length) msg+=' ('+parts.join(', ')+')';
+      }
+    }
+    bar(msg+'  [b=bundle F=fit R=refresh]');
+  }catch(e){
+    const msg=(e&&e.name==='AbortError')?'Request timed out — try Refresh without force':e.message;
+    bar('Error: '+msg);
+    console.error(e);
+  }
+  finally{document.getElementById('pf-loading').style.display='none';}
+}
+// ── theme buttons ─────────────────────────────────────────────────────────────
+document.querySelectorAll('.pf-theme-btn').forEach(btn=>{
+  btn.addEventListener('click',function(){ applyTheme(this.dataset.theme); });
+});
+
+// ── init persistent state ─────────────────────────────────────────────────────
+_updateBundleBtn();
+if (TLM) TLM.setSegActive(_uiLayoutMode(_layoutMode));
+applyTheme(_activeTheme);
+
+// ── inventory picker (add hardware to topology) ───────────────────────────────
+let _pfInventory=null;
+async function loadPfInventory(){
+  const sel=document.getElementById('pf-inv-pick');
+  try{
+    const r=await fetch(INVENTORY_URL,{credentials:'same-origin'});
+    _pfInventory=await r.json();
+    const opts=['<option value="">— select device or chassis —</option>'];
+    (_pfInventory.devices||[]).forEach(d=>{
+      const tag=d.in_topology?' [in topo]':'';
+      opts.push(`<option value="device:${d.id}" data-kind="device">${d.label} · ${d.ip} (${d.vendor_type})${tag}</option>`);
+    });
+    (_pfInventory.chassis||[]).forEach(c=>{
+      const tag=c.in_topology?' [in topo]':'';
+      opts.push(`<option value="chassis:${c.id}" data-kind="chassis">${c.label} · ${c.ip}${tag}</option>`);
+    });
+    sel.innerHTML=opts.join('');
+  }catch(e){
+    sel.innerHTML='<option value="">Inventory load failed</option>';
+  }
+}
+document.getElementById('pf-add-node').addEventListener('click',async()=>{
+  const sel=document.getElementById('pf-inv-pick');
+  const val=sel.value;
+  const sts=document.getElementById('pf-add-sts');
+  if(!val){sts.textContent='Pick a device or chassis first.';return;}
+  const [kind,id]=val.split(':');
+  let item=null;
+  if(kind==='device'&&_pfInventory){
+    item=(_pfInventory.devices||[]).find(d=>String(d.id)===id);
+  }else if(kind==='chassis'&&_pfInventory){
+    item=(_pfInventory.chassis||[]).find(c=>String(c.id)===id);
+  }
+  if(!item){sts.textContent='Invalid selection.';return;}
+  if(item.in_topology){sts.textContent='Already in this topology.';return;}
+  const payload={
+    label:item.label,
+    node_type:kind==='chassis'?'chassis':(item.vendor_type==='ocs'?'ocs':'switch'),
+    x:80+Math.random()*400,
+    y:80+Math.random()*300,
+  };
+  if(kind==='device') payload.device_id=parseInt(id,10);
+  else payload.chassis_id=parseInt(id,10);
+  if(item.ip) payload.device_ip=item.ip;
+  sts.textContent='Adding…';
+  try{
+    const r=await fetch(NODE_ADD_URL,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify(payload)});
+    const d=await r.json();
+    if(d.ok){
+      sts.textContent='Added '+d.node.label+'. Refreshing…';
+      await loadPfInventory();
+      loadData({live:false});
+    }else{
+      sts.textContent='Error: '+(d.error||'failed');
+    }
+  }catch(e){sts.textContent='Error: '+e.message;}
+});
+loadPfInventory();
+
+async function savePfLayout(){
+  // Capture current viewport transform
+  let viewport = {};
+  try{
+    const t = d3.zoomTransform(document.getElementById('pf-svg'));
+    viewport = { scale: t.k, tx: t.x, ty: t.y };
+  } catch(e){}
+
+  const pos={};
+  (_D?.devices||[]).forEach(d=>{ if(_pos[d.id]) pos[d.id]={x:Math.round(_pos[d.id].x),y:Math.round(_pos[d.id].y)}; });
+
+  // Full schema v2 — consumed by LaaS port-fabric summary and manifest export
+  const pfLayout = {
+    schema_version: 2,
+    layout_mode: _layoutMode,
+    bundled: _bundled,
+    b2b_labels: _b2bLabels,
+    lldp_view: _lldpView,
+    theme: _activeTheme,
+    pos,
+    viewport,
+    device_count: (_D?.devices||[]).length,
+    connection_count: (_D?.connections||[]).length,
+  };
+  bar('Saving Port Fabric layout…');
+  try{
+    const r=await fetch(DATA_URL,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({view_layouts:{ port_fabric: pfLayout }})});
+    const j=await r.json();
+    if(j.ok){
+      bar('Port Fabric layout saved.');
+      document.getElementById('pf-save-layout')?.classList.remove('unsaved');
+    } else {
+      bar('Save failed: '+(j.error||''));
+    }
+  }catch(e){bar('Save error: '+e.message);}
+}
+document.getElementById('pf-save-layout').addEventListener('click',savePfLayout);
+
+document.getElementById('pf-validate-link').addEventListener('click',async()=>{
+  if(!_selConn){alert('Select a connection first (click a link line).');return;}
+  const m=String(_selConn).match(/^plan_(\d+)$/);
+  if(!m){alert('Validate works on planned topology links (DAC). Select a grey/planned or DAC link from the editor.');return;}
+  if(!confirm('Flap switch port to validate this link? Ports will be restored after test.'))return;
+  bar('Validating link…');
+  try{
+    const r=await fetch(VALIDATE_URL,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({link_id:parseInt(m[1],10),refresh_peer:true})});
+    const d=await r.json();
+    alert(d.message||d.error||'Done');
+    bar(d.message||d.error||'Validate finished');
+    loadData({live:true});
+  }catch(e){bar('Validate error: '+e.message);}
+});
+
+document.getElementById('pf-discover-dac').addEventListener('click',async()=>{
+  if(!confirm('Find DAC/B2B links by matching transceiver serials across all ports?'))return;
+  bar('Discovering DAC/B2B…');
+  try{
+    const prev=await fetch(DISCOVER_DAC_URL,{credentials:'same-origin'});
+    const p=await prev.json();
+    if(!p.ok){bar(p.error||'Preview failed');return;}
+    if(!p.pairs||!p.pairs.length){
+      alert('No serial-matched pairs found. Open the chassis in Keysight and refresh cache, or run Discover with refresh.');
+      bar('No DAC pairs — refresh IxOS chassis cache');
+      return;
+    }
+    if(!confirm('Apply '+p.pairs.length+' DAC/B2B link(s)?'))return;
+    const r=await fetch(DISCOVER_DAC_URL,{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({apply:true})});
+    const d=await r.json();
+    alert((d.created||0)+' link(s) created.');
+    loadData({live:true});
+  }catch(e){bar('DAC discover error: '+e.message);}
+});
+
+loadData({live:false});
+// Background refresh uses cached OCS/LLDP (live=false) to avoid flickering disconnects.
+setInterval(()=>loadData({live:false}),120000);
+})();
+</script>
+{% endblock %}

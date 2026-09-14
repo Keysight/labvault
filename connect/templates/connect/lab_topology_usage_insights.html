@@ -1,0 +1,202 @@
+{% extends 'connect/base.html' %}
+{% load static %}
+{% block title %}{{ topo.name }} — Lab Pulse{% endblock %}
+{% block body_attrs %}class="lv-topology-page lv-topology-page--insights"{% endblock %}
+{% block content_area_class %}content-area--topology{% endblock %}
+{% block topbar %}
+{% include "connect/includes/lab_topology_topbar.html" with active_view="usage_insights" sub_nav=sub_nav %}
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/usage-insights.css' %}?v=20260612">
+<link rel="stylesheet" href="{% static 'css/usage-graph-views.css' %}?v=20260609">
+<div class="lv-topo-workspace ui-insights">
+  <header class="ui-toolbar" id="ui-toolbar">
+    <div class="ui-toolbar-left">
+      <h1 class="ui-title"><i class="fas fa-heart-pulse"></i> Lab Pulse</h1>
+      <span class="ui-subtitle">Hardware usage perspectives — experimental</span>
+    </div>
+    <div class="ui-toolbar-mid">
+      <label>Window
+        <select id="ui-window">
+          <option value="4h">Last 4 hours</option>
+          <option value="24h" selected>Last 24 hours</option>
+          <option value="7d">Last 7 days</option>
+        </select>
+      </label>
+      <div id="ui-data-mode" class="ui-data-mode" role="group" aria-label="Data mode"></div>
+      <button type="button" id="ui-refresh" class="ui-btn"><i class="fas fa-sync-alt"></i> Refresh</button>
+    </div>
+    <nav class="ui-graph-links" aria-label="Graph views">
+      {% include "connect/includes/lab_topology_insights_subnav.html" %}
+    </nav>
+    <nav class="ui-view-tabs" aria-label="Insight views">
+      <button type="button" class="ui-view-tab on" data-view="overview">Overview</button>
+      <button type="button" class="ui-view-tab" data-view="trends">Trends</button>
+      <button type="button" class="ui-view-tab" data-view="graph">Stress graph</button>
+      <button type="button" class="ui-view-tab" data-view="bottlenecks">Bottlenecks</button>
+      <button type="button" class="ui-view-tab" data-view="heatmap">Heat matrix</button>
+      <button type="button" class="ui-view-tab" data-view="pcpu">PCPU fleet</button>
+      <button type="button" class="ui-view-tab" data-view="rankings">Top consumers</button>
+      <button type="button" class="ui-view-tab" data-view="waste">Waste radar</button>
+      <button type="button" class="ui-view-tab" data-view="dut-drops" id="ui-dut-tab">DUT drops</button>
+      <button type="button" class="ui-view-tab" data-view="activity">Activity</button>
+    </nav>
+  </header>
+
+  <div id="ui-loading" class="ui-loading" hidden>
+    <i class="fas fa-spinner fa-spin"></i> Loading insights…
+  </div>
+  <div id="ui-error" class="ui-error" hidden></div>
+  <div id="ui-health" class="ui-health" hidden></div>
+
+  <main class="ui-main" id="ui-main">
+    <section class="ui-panel on" data-panel="overview">
+      <div class="ui-kpi-grid" id="ui-kpis"></div>
+      <article class="ui-card ui-card--wide ui-fleet-strip-wrap">
+        <h2>Fleet pulse (time series)</h2>
+        <p class="ui-hint">Rolling bucket averages — watch for spikes that KPI peaks alone can miss.</p>
+        <canvas id="ui-fleet-strip" class="ui-chart-canvas" height="120"></canvas>
+        <div class="ui-chart-legend" id="ui-fleet-legend"></div>
+      </article>
+      <article class="ui-card ui-card--wide" id="ui-discard-card">
+        <div class="ui-discard-head">
+          <div>
+            <h2>Arista input discards (RoCE fabric)</h2>
+            <p class="ui-hint">Switch-side buffer/QoS drops on EOS — compare with traffic-generator retransmits during long CMRI runs.</p>
+          </div>
+          <div class="ui-discard-toolbar">
+            <label class="ui-discard-toggle" title="Show designer/fabric port labels only">
+              <input type="checkbox" id="ui-discard-mapped-only"> Topology-mapped ports only
+            </label>
+            <button type="button" id="ui-discard-refresh" title="Reload insights">Refresh</button>
+          </div>
+        </div>
+        <div id="ui-switch-discards" class="ui-discard-table-wrap"></div>
+      </article>
+      <article class="ui-card ui-card--wide" id="ui-dut-card" hidden>
+        <h2>DUT drops summary</h2>
+        <p class="ui-hint">Per-DUT switch packet drops — click a DUT to drill into the DUT drops tab.</p>
+        <div id="ui-dut-summary"></div>
+      </article>
+
+      <div class="ui-split">
+        <article class="ui-card ui-research" id="ui-research">
+          <h2>Why this view exists</h2>
+          <div id="ui-research-list"></div>
+        </article>
+        <article class="ui-card">
+          <h2>Device snapshot</h2>
+          <div class="ui-device-list" id="ui-device-snapshot"></div>
+        </article>
+      </div>
+    </section>
+
+    <section class="ui-panel" data-panel="trends" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2>Fleet trends</h2>
+        <p class="ui-hint">CPU, memory, traffic, and ownership % over the selected window.</p>
+        <canvas id="ui-trends-fleet" class="ui-chart-canvas ui-chart-canvas--tall" height="220"></canvas>
+        <div class="ui-chart-legend" id="ui-trends-fleet-legend"></div>
+      </article>
+      <article class="ui-card ui-card--wide">
+        <h2>Per-device trends</h2>
+        <div id="ui-trends-devices" class="ui-trend-grid"></div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="graph" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2>Stress graph</h2>
+        <p class="ui-hint" id="ui-graph-hint">Relationship view: devices (circles), hot ports (small nodes), fabric links (lines). Drag to explore.</p>
+        <div class="ui-graph-wrap">
+          <svg id="ui-stress-graph" class="ui-stress-svg" aria-label="Lab stress graph"></svg>
+          <aside class="ui-graph-detail" id="ui-graph-detail">
+            <p class="ui-hint">Click a node for stress details and LaaS context.</p>
+          </aside>
+        </div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="bottlenecks" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2>Bottleneck radar</h2>
+        <p class="ui-hint">Graph-informed findings with suggested LaaS actions — release idle ports, rotate hotspots, split traffic.</p>
+        <div id="ui-bottlenecks" class="ui-bottleneck-list"></div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="heatmap" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2>Device heat matrix</h2>
+        <p class="ui-hint">Compare chassis/switch stress and port utilization at a glance. Darker red = hotter.</p>
+        <div class="ui-heat-wrap">
+          <canvas id="ui-heat-canvas" height="320"></canvas>
+        </div>
+        <div class="ui-heat-legend" id="ui-heat-legend"></div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="pcpu" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2 class="ui-pcpu-panel-title">PCPU fleet</h2>
+        <div class="ui-pcpu-toolbar">
+          <div class="ui-pcpu-legend" id="ui-pcpu-legend"></div>
+          <label class="ui-pcpu-owner-filter-wrap">
+            <span class="ui-sr-only">Filter by owner</span>
+            <select id="ui-pcpu-owner-filter" class="ui-pcpu-owner-filter" aria-label="Filter by owner">
+              <option value="">All owners</option>
+            </select>
+          </label>
+          <div class="ui-pcpu-view-toggle" id="ui-pcpu-view-toggle">
+            <button type="button" class="ui-pcpu-view-btn on" data-pcpu-view="compact">Compact</button>
+            <button type="button" class="ui-pcpu-view-btn" data-pcpu-view="detail">RG detail</button>
+          </div>
+        </div>
+        <div class="ui-pcpu-grid" id="ui-pcpu-grid"></div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="dut-drops" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2>DUT packet drops</h2>
+        <p class="ui-hint">Switch-side input discards grouped by DUT — correlated with PCPU port for retransmit comparison during CMRI RoCEv2 runs.</p>
+        <div class="ui-dut-toolbar">
+          <label class="ui-discard-toggle" title="Show fabric-mapped port labels only">
+            <input type="checkbox" id="ui-dut-mapped-only"> Topology-mapped ports only
+          </label>
+        </div>
+        <div class="ui-dut-grid" id="ui-dut-drops"></div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="rankings" hidden>
+      <div class="ui-rank-grid" id="ui-rankings"></div>
+    </section>
+
+    <section class="ui-panel" data-panel="waste" hidden>
+      <article class="ui-card ui-card--wide">
+        <h2>Waste radar</h2>
+        <p class="ui-hint">Ports that are owned/reserved but show no meaningful traffic — the classic lab hoarding signal.</p>
+        <div id="ui-waste-list" class="ui-waste-list"></div>
+      </article>
+    </section>
+
+    <section class="ui-panel" data-panel="activity" hidden>
+      <article class="ui-card">
+        <h2>Event activity</h2>
+        <div id="ui-activity"></div>
+      </article>
+    </section>
+  </main>
+</div>
+
+<script type="module">
+import { initUsageInsights } from '{% static "js/lab-graph/usage-insights.js" %}?v=20260911e';
+initUsageInsights({
+  topoId: {{ topo.id }},
+  apiUrl: '/lab-topology/{{ topo.id }}/usage-insights.json',
+  usageUrl: '/lab-topology/{{ topo.id }}/usage/',
+});
+</script>
+{% endblock %}

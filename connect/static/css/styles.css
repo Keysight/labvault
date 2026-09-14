@@ -1,0 +1,41 @@
+/* Sidebar styles */
+#sidebar {
+    width: 200px;
+    height: 100vh;
+    position: fixed;
+    top: 0;
+    left: 0;
+    background-color: #111;
+    overflow-x: hidden;
+    padding-top: 16px;
+}
+
+#sidebar a {
+    padding: 8px 16px;
+    text-decoration: none;
+    font-size: 18px;
+    color: #ffffff;
+    display: block;
+}
+
+#sidebar a:hover {
+    color: #f1f1f1;
+}
+
+/* Sub-tabs styles */
+#sub-tabs {
+    margin-left: 210px;
+    padding: 0px 10px;
+}
+
+.sub-tab {
+    background-color: #ccc;
+    display: inline-block;
+    padding: 10px;
+    margin-right: 4px;
+    cursor: pointer;
+}
+
+.sub-tab:hover {
+    background-color: #aaa;
+}

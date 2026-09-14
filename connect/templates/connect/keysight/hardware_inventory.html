@@ -1,0 +1,459 @@
+{% extends "connect/base.html" %}
+{% load ip_display %}
+{% block title %}Hardware Inventory - LabVault{% endblock %}
+
+{% block page_title %}Hardware Inventory{% endblock %}
+
+{% block extra_css %}
+<style>
+.status-dot.orange { background: #f97316; box-shadow: 0 0 0 2px rgba(249,115,22,.3); }
+.status-dot.orange.blink { animation: hw-orange-blink 1.4s ease-in-out infinite; }
+@keyframes hw-orange-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+#inventoryTable td { vertical-align: middle !important; line-height: 1.35; white-space: nowrap; }
+#inventoryTable th:nth-child(1), #inventoryTable td:nth-child(1) { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+#inventoryTable td .hw-chassis-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+#inventoryTable th:nth-child(2), #inventoryTable td:nth-child(2) { min-width: 180px; white-space: nowrap; }
+#inventoryTable td .hw-team-tags-line { white-space: nowrap; }
+#inventoryTable td .hw-reserved-line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; display: inline-block; vertical-align: middle; font-size:.7rem; }
+</style>
+{% endblock %}
+
+{% block topbar_actions %}
+<a href="?{{ request.GET.urlencode }}&format=csv" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-download me-1"></i>Export CSV
+</a>
+{% endblock %}
+
+{% block content %}
+
+{% if view_filter != 'reservations' %}
+{% include "connect/keysight/_dashboard_filters.html" %}
+{% endif %}
+
+<!-- Summary Cards (hidden when viewing Reservations tab) -->
+{% if view_filter != 'reservations' %}
+{% if hw_cache_warming %}
+<div class="alert alert-info py-2 mb-3" style="font-size:.78rem;">
+    <i class="fas fa-sync-alt fa-spin me-1"></i>
+    Chassis data is still loading in the background. Refresh this page in a minute for the full inventory.
+</div>
+{% endif %}
+<div class="row g-3 mb-4">
+    <div class="col-md-3 col-6">
+        <div class="stat-card">
+            <div class="stat-value">{{ total_items }}</div>
+            <div class="stat-label">Total Items</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="stat-card">
+            <div class="stat-value" style="color:var(--ks-blue);">{{ total_cards }}</div>
+            <div class="stat-label">Cards / Nodes</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="stat-card">
+            <div class="stat-value" style="color:#28a745;">{{ total_ports }}</div>
+            <div class="stat-label">Ports</div>
+        </div>
+    </div>
+    <div class="col-md-3 col-6">
+        <div class="stat-card">
+            <div class="stat-value" style="color:#f59e0b;">{{ total_xcvrs }}</div>
+            <div class="stat-label">Transceivers</div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- View toggle: All | Reserved | Reservations -->
+<ul class="nav nav-tabs mb-3" style="font-size:.85rem;">
+    <li class="nav-item">
+        <a class="nav-link {% if not view_filter %}active{% endif %}" href="?{% if team_tag_filter %}team_tag={{ team_tag_filter }}&{% endif %}{% if type_filter %}type={{ type_filter }}&{% endif %}{% if chassis_filter %}chassis={{ chassis_filter }}&{% endif %}{% if search_q %}q={{ search_q }}{% endif %}">All</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if view_filter == 'reserved' %}active{% endif %}" href="?view=reserved{% if team_tag_filter %}&team_tag={{ team_tag_filter }}{% endif %}{% if type_filter %}&type={{ type_filter }}{% endif %}{% if chassis_filter %}&chassis={{ chassis_filter }}{% endif %}{% if search_q %}&q={{ search_q }}{% endif %}">Reserved</a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if view_filter == 'reservations' %}active{% endif %}" href="?view=reservations">Reservations</a>
+    </li>
+</ul>
+
+<!-- Item-level filters (hidden when viewing Reservations tab) -->
+{% if view_filter != 'reservations' %}
+<div class="card-custom mb-4">
+    <div class="card-body">
+        <form method="get" class="row g-2 align-items-end">
+            {% if team_tag_filter %}<input type="hidden" name="team_tag" value="{{ team_tag_filter }}">{% endif %}
+            {% if view_filter %}<input type="hidden" name="view" value="{{ view_filter }}">{% endif %}
+            <div class="col-md-3">
+                <label class="form-label" style="font-size:.8rem;">Search</label>
+                <input type="text" class="form-control form-control-sm" name="q" value="{{ search_q }}"
+                       placeholder="Search by serial, model, IP...">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" style="font-size:.8rem;">Type</label>
+                <select name="type" class="form-select form-select-sm">
+                    <option value="">All Types</option>
+                    <option value="card" {% if type_filter == 'card' %}selected{% endif %}>Cards / Nodes</option>
+                    <option value="port" {% if type_filter == 'port' %}selected{% endif %}>Ports</option>
+                    <option value="transceiver" {% if type_filter == 'transceiver' %}selected{% endif %}>Transceivers</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" style="font-size:.8rem;">Chassis</label>
+                <select name="chassis" class="form-select form-select-sm">
+                    <option value="">All Chassis</option>
+                    {% for ch in all_chassis %}
+                    <option value="{{ ch.id }}" {% if chassis_filter == ch.id|stringformat:"d" %}selected{% endif %}>
+                        {{ ch.hostname|default:ch.ip_address }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-2">
+                <button type="submit" class="btn btn-sm btn-primary w-100" style="background:var(--ks-blue);border-color:var(--ks-blue);">
+                    <i class="fas fa-filter me-1"></i>Filter
+                </button>
+            </div>
+            <div class="col-md-2">
+                <a href="{% url 'keysight_hardware_inventory' %}" class="btn btn-sm btn-outline-secondary w-100">
+                    <i class="fas fa-times me-1"></i>Clear
+                </a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if view_filter == 'reservations' %}
+<div class="card-custom" style="border-top:3px solid #f97316;">
+    <div class="card-header d-flex align-items-center">
+        <span class="status-dot orange blink me-2" style="flex-shrink:0;" title="Reservation"></span>
+        <span><i class="fas fa-calendar-check me-2"></i>Current &amp; upcoming reservations</span>
+        <a href="{% url 'keysight_create_reservation' %}" class="btn btn-sm ms-auto" style="background:#f97316;color:#fff;font-size:.78rem;">
+            <i class="fas fa-plus me-1"></i>New reservation
+        </a>
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" style="font-size:.8rem;">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:70px;"></th>
+                        <th data-sortable>Chassis</th>
+                        <th data-sortable>Resource</th>
+                        <th data-sortable>Title</th>
+                        <th data-sortable>User</th>
+                        <th data-sortable>Start</th>
+                        <th data-sortable>End</th>
+                        <th data-sortable>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in reservation_rows %}
+                    <tr>
+                        <td>
+                            <a href="{% url 'keysight_reservation_detail' row.reservation.id %}" class="btn btn-sm btn-outline-secondary" style="font-size:.65rem;padding:2px 6px;" title="View"><i class="fas fa-eye"></i></a>
+                            <form method="post" action="{% url 'keysight_delete_reservation' row.reservation.id %}" class="d-inline" onsubmit="return confirm('Delete this reservation?');">
+                                {% csrf_token %}
+                                <button type="submit" class="btn btn-sm btn-outline-danger" style="font-size:.65rem;padding:2px 6px;" title="Delete"><i class="fas fa-trash-alt"></i></button>
+                            </form>
+                        </td>
+                        <td>
+                            {% mgmt_address_links object=row.chassis label=row.chassis.hostname|default:row.chassis.ip_address %}
+                        </td>
+                        <td style="font-size:.75rem;">{{ row.scope_str }}</td>
+                        <td>
+                            <a href="{% url 'keysight_reservation_detail' row.reservation.id %}" class="text-decoration-none fw-semibold">{{ row.reservation.title|truncatechars:28 }}</a>
+                        </td>
+                        <td>{{ row.reservation.user.get_full_name|default:row.reservation.user.username }}</td>
+                        <td style="font-size:.75rem;">{{ row.reservation.start_time|date:"M j, H:i" }}</td>
+                        <td style="font-size:.75rem;">{{ row.reservation.end_time|date:"M j, H:i" }}</td>
+                        <td>
+                            <span class="badge {% if row.status == 'active' %}bg-success{% elif row.status == 'upcoming' %}bg-primary{% else %}bg-secondary{% endif %}" style="font-size:.65rem;">{{ row.status|title }}</span>
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="8" class="text-center text-muted py-4">
+                            <i class="fas fa-calendar-alt" style="font-size:2rem;"></i>
+                            <div class="mt-2">No current or upcoming reservations.</div>
+                            <a href="{% url 'keysight_create_reservation' %}" class="btn btn-sm mt-2" style="background:#f97316;color:#fff;">Create reservation</a>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% else %}
+{% if hw_error_chassis %}
+<div class="alert alert-warning py-2 mb-3" style="font-size:.78rem;">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    {{ hw_error_chassis }} unit(s) flagged with reported hardware errors — look for <i class="fas fa-exclamation-triangle"></i> in the Chassis / Model columns.
+</div>
+{% endif %}
+<!-- Inventory Table -->
+<div class="card-custom">
+    <div class="card-header">
+        <i class="fas fa-list me-2"></i>Inventory ({{ total_items }} items{% if view_filter == 'reserved' %} reserved{% endif %})
+    </div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0" style="font-size:.78rem;" id="inventoryTable">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width:40px;"></th>
+                        <th data-sortable>Chassis</th>
+                        <th data-sortable>Team Tags</th>
+                        <th data-sortable data-sort-type="number">Slot</th>
+                        <th data-sortable data-sort-type="number">Port</th>
+                        <th data-sortable>Type</th>
+                        <th data-sortable>Model</th>
+                        <th data-sortable>Serial</th>
+                        <th data-sortable>Speed</th>
+                        <th data-sortable>Link</th>
+                        <th data-sortable>Owner</th>
+                        <th data-sortable>State</th>
+                        <th>Reserved</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in inventory %}
+                    <tr>
+                        <td>
+                            <button class="btn btn-sm btn-outline-warning hw-qr-btn" style="font-size:.6rem;padding:1px 4px;"
+                                    data-chassis-id="{{ row.chassis_id }}" data-chassis-name="{{ row.chassis_hostname }}"
+                                    data-slot="{{ row.slot }}" data-port="{{ row.port|default:'' }}" title="Quick Reserve">
+                                <i class="fas fa-calendar-plus"></i>
+                            </button>
+                        </td>
+                        <td>
+                            <span class="hw-chassis-line">
+                                {% if row.hardware_error_reported %}
+                                <i class="fas fa-exclamation-triangle text-warning me-1" title="Reported hardware error{% if row.chassis_notes %}: {{ row.chassis_notes|truncatechars:120 }}{% endif %}"></i>
+                                {% endif %}
+                                {% mgmt_address_links fqdn=row.chassis_fqdn label=row.chassis_fqdn|default:row.chassis_hostname mgmt_addr=row.chassis_ip internal_url=row.chassis_detail_url %}
+                                <span class="text-muted" style="font-size:.7rem;"> · {{ row.chassis_type }}</span>
+                            </span>
+                        </td>
+                        <td>
+                            <span class="hw-team-tags-line">
+                                {% if row.team_tags_list %}
+                                    {% for t in row.team_tags_list|slice:":3" %}<span class="badge me-1" style="font-size:.6rem;background:#ede9fe;color:#5b21b6;">{{ t }}</span>{% endfor %}
+                                    {% if row.team_tags_list|length > 3 %}
+                                    <span class="badge me-1" style="font-size:.58rem;background:#e5e7eb;color:#4b5563;cursor:help;" title="{{ row.team_tags_list|join:', ' }}">+ more</span>
+                                    {% endif %}
+                                {% else %}
+                                    <span class="text-muted" style="font-size:.7rem;">—</span>
+                                {% endif %}
+                            </span>
+                        </td>
+                        <td>{{ row.slot }}</td>
+                        <td>{{ row.port|default:"-" }}</td>
+                        <td>
+                            {% if row.item_type == 'card' %}
+                            <span class="badge bg-primary" style="font-size:.65rem;">Card</span>
+                            {% elif row.item_type == 'port' %}
+                            <span class="badge bg-success" style="font-size:.65rem;">Port</span>
+                            {% elif row.item_type == 'transceiver' %}
+                            <span class="badge bg-warning text-dark" style="font-size:.65rem;">Xcvr</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ row.model|default:"-" }}{% if row.hardware_error_reported and row.item_type == 'card' %} <i class="fas fa-exclamation-triangle text-warning ms-1" title="Reported hardware issue{% if row.chassis_notes %}: {{ row.chassis_notes|truncatechars:120 }}{% endif %}{% if row.node_name %} ({{ row.node_name }}){% endif %}"></i>{% endif %}</td>
+                        <td>{{ row.serial|default:"-" }}</td>
+                        <td>{{ row.speed|default:"-" }}</td>
+                        <td>
+                            {% if row.link_state == 'up' %}
+                            <span class="badge bg-success" style="font-size:.65rem;">Up</span>
+                            {% elif row.link_state == 'down' %}
+                            <span class="badge bg-danger" style="font-size:.65rem;">Down</span>
+                            {% else %}
+                            {{ row.link_state|default:"-" }}
+                            {% endif %}
+                        </td>
+                        <td>{{ row.owner|default:"-" }}</td>
+                        <td>{{ row.state|default:"-" }}</td>
+                        <td>
+                            {% if row.reservation_info %}
+                                <span class="status-dot orange me-1" style="vertical-align:middle;" title="Reserved"></span>
+                                <span class="hw-reserved-line" title="{% for ri in row.reservation_info %}{{ ri.title }} — {{ ri.user }} until {{ ri.end_time }}{% if not forloop.last %} / {% endif %}{% endfor %}">
+                                    {% for ri in row.reservation_info %}
+                                        <span style="color:#b45309;">{{ ri.title|truncatechars:18 }} — {{ ri.user }} until {{ ri.end_time }}</span>{% if not forloop.last %}; {% endif %}
+                                    {% endfor %}
+                                </span>
+                            {% else %}
+                                <span class="text-muted" style="font-size:.7rem;">—</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="13" class="text-center text-muted py-4">
+                            <i class="fas fa-inbox" style="font-size:2rem;"></i>
+                            <div class="mt-2">No hardware found. Make sure at least one chassis is online.</div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+<!-- Quick Reserve Modal (inside content block so it is rendered) -->
+<div class="modal fade" id="hwQrModal" tabindex="-1">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content" style="border-top:3px solid var(--ks-red,#E31937);">
+            <div class="modal-header py-2">
+                <h6 class="modal-title"><i class="fas fa-calendar-plus me-2"></i>Quick Reserve</h6>
+                <button type="button" class="btn-close btn-close-sm" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body py-2">
+                {% csrf_token %}
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Chassis</label>
+                    <div id="hwqr-chassis-label" style="font-weight:600;font-size:.85rem;"></div>
+                    <input type="hidden" id="hwqr-chassis-id">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Title</label>
+                    <input type="text" id="hwqr-title" class="form-control form-control-sm" placeholder="Auto-generated if blank">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">User</label>
+                    <div style="font-size:.85rem;">{{ request.user.username }} ({{ request.user.email|default:"no email" }})</div>
+                </div>
+                <div class="row g-2 mb-2">
+                    <div class="col-6">
+                        <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Slot</label>
+                        <input type="text" id="hwqr-slot" class="form-control form-control-sm" placeholder="All">
+                    </div>
+                    <div class="col-6">
+                        <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Port</label>
+                        <input type="text" id="hwqr-port" class="form-control form-control-sm" placeholder="All">
+                    </div>
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Duration</label>
+                    <select id="hwqr-duration" class="form-select form-select-sm">
+                        <option value="1h">1 Hour</option>
+                        <option value="4h" selected>4 Hours</option>
+                        <option value="8h">8 Hours</option>
+                        <option value="24h">24 Hours</option>
+                        <option value="1w">1 Week</option>
+                        <option value="custom">Custom End Time</option>
+                    </select>
+                </div>
+                <div class="mb-2 d-none" id="hwqr-custom-wrap">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">End Time</label>
+                    <input type="datetime-local" id="hwqr-custom-end" class="form-control form-control-sm">
+                </div>
+                <div class="mb-2">
+                    <label class="form-label" style="font-size:.75rem;margin-bottom:2px;">Notes <span class="text-muted">(opt)</span></label>
+                    <input type="text" id="hwqr-notes" class="form-control form-control-sm" placeholder="Optional notes">
+                </div>
+                <div id="hwqr-result" class="d-none mt-2" style="font-size:.8rem;"></div>
+            </div>
+            <div class="modal-footer py-2">
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-sm" style="background:var(--ks-red,#E31937);color:#fff;" id="hwqr-submit">
+                    <i class="fas fa-check me-1"></i>Reserve
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Client-side table search
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.querySelector('input[name="q"]');
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            const q = this.value.toLowerCase();
+            document.querySelectorAll('#inventoryTable tbody tr').forEach(row => {
+                row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+    }
+
+    /* ---- HW Inventory Quick Reserve ---- */
+    var modal = document.getElementById('hwQrModal');
+    if (!modal) return;
+    var bsModal = new bootstrap.Modal(modal);
+
+    document.querySelectorAll('.hw-qr-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            document.getElementById('hwqr-chassis-id').value = btn.dataset.chassisId;
+            document.getElementById('hwqr-chassis-label').textContent = btn.dataset.chassisName;
+            document.getElementById('hwqr-title').value = '';
+            document.getElementById('hwqr-slot').value = btn.dataset.slot || '';
+            document.getElementById('hwqr-port').value = btn.dataset.port || '';
+            document.getElementById('hwqr-notes').value = '';
+            document.getElementById('hwqr-result').classList.add('d-none');
+            document.getElementById('hwqr-submit').disabled = false;
+            bsModal.show();
+        });
+    });
+
+    document.getElementById('hwqr-duration').addEventListener('change', function() {
+        document.getElementById('hwqr-custom-wrap').classList.toggle('d-none', this.value !== 'custom');
+    });
+
+    document.getElementById('hwqr-submit').addEventListener('click', function() {
+        var submitBtn = this;
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Reserving...';
+        var resultDiv = document.getElementById('hwqr-result');
+
+        var csrfInput = document.querySelector('#hwQrModal [name=csrfmiddlewaretoken]');
+        var token = (csrfInput && csrfInput.value) ? csrfInput.value : '{{ csrf_token|escapejs }}';
+
+        var fd = new FormData();
+        fd.append('csrfmiddlewaretoken', token);
+        fd.append('chassis_id', document.getElementById('hwqr-chassis-id').value);
+        fd.append('title', document.getElementById('hwqr-title').value);
+        fd.append('slot_number', document.getElementById('hwqr-slot').value);
+        fd.append('port_number', document.getElementById('hwqr-port').value);
+        fd.append('duration', document.getElementById('hwqr-duration').value);
+        fd.append('custom_end', document.getElementById('hwqr-custom-end').value);
+        fd.append('notes', document.getElementById('hwqr-notes').value);
+
+        fetch('{% url "keysight_quick_reserve" %}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': token, 'Accept': 'application/json'},
+            body: fd,
+            credentials: 'same-origin',
+        })
+        .then(function(r) {
+            if (!r.ok && r.status === 403) {
+                return { ok: false, error: 'Session expired or invalid. Please refresh the page and try again.' };
+            }
+            return r.json();
+        })
+        .then(function(data) {
+            resultDiv.classList.remove('d-none');
+            if (data.ok) {
+                resultDiv.innerHTML = '<span class="text-success"><i class="fas fa-check-circle me-1"></i>Reserved! Ends ' + data.end_time + '</span>';
+                setTimeout(function() { bsModal.hide(); }, 2000);
+            } else {
+                resultDiv.innerHTML = '<span class="text-danger"><i class="fas fa-times-circle me-1"></i>' + (data.error || 'Failed') + '</span>';
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = '<i class="fas fa-check me-1"></i>Reserve';
+            }
+        })
+        .catch(function() {
+            resultDiv.classList.remove('d-none');
+            resultDiv.innerHTML = '<span class="text-danger">Request failed.</span>';
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '<i class="fas fa-check me-1"></i>Reserve';
+        });
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,308 @@
+{% extends "connect/base.html" %}
+{% block title %}Node &amp; BMC Inventory - LabVault{% endblock %}
+{% block page_title %}Node &amp; BMC Inventory{% endblock %}
+
+{% block topbar_actions %}
+<a href="?{{ request.GET.urlencode }}&format=csv" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-download me-1"></i>Export CSV
+</a>
+<a href="{% url 'keysight_hardware_inventory' %}" class="btn btn-sm btn-outline-secondary ms-1">
+    <i class="fas fa-list me-1"></i>Port Inventory
+</a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+:root { --ks-red: #E31937; }
+
+/* Summary cards */
+.ni-stat { background:#fff; border-radius:8px; padding:14px 18px; box-shadow:0 1px 4px rgba(0,0,0,.06); border-top:3px solid var(--ks-red); text-align:center; }
+.ni-stat .val { font-size:1.6rem; font-weight:700; color:#1a1a2e; }
+.ni-stat .lbl { font-size:.68rem; text-transform:uppercase; letter-spacing:.5px; color:#888; margin-top:2px; }
+
+/* Filters */
+.ni-filters { background:#fff; border-radius:8px; padding:12px 16px; box-shadow:0 1px 4px rgba(0,0,0,.06); margin-bottom:16px; }
+
+/* Node cards */
+.node-card {
+    background:#fff; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,.06);
+    border-left:4px solid #d1d5db; margin-bottom:12px; overflow:hidden; transition:border-color .15s;
+}
+.node-card.mgmt { border-left-color: var(--ks-red); }
+.node-card.compute { border-left-color: #1a1a2e; }
+.node-card .nc-header {
+    display:flex; align-items:center; justify-content:space-between; padding:10px 14px;
+    border-bottom:1px solid #f0f0f0; background:#fafafa; cursor:pointer;
+}
+.node-card .nc-header:hover { background:#f5f5f5; }
+.node-card .nc-body { padding:12px 14px; display:none; }
+.node-card.open .nc-body { display:block; }
+.nc-name { font-weight:700; font-size:.82rem; color:#1a1a2e; }
+.nc-chassis { font-size:.66rem; color:#888; }
+.nc-badges { display:flex; gap:4px; align-items:center; flex-wrap:wrap; }
+.nc-badge { display:inline-flex; align-items:center; gap:3px; padding:2px 8px; border-radius:4px; font-size:.62rem; font-weight:600; }
+.nc-badge.role-mgmt { background:#fce4ec; color:#c62828; }
+.nc-badge.role-compute { background:#e8eaf6; color:#283593; }
+.nc-badge.status-ready { background:#e8f5e9; color:#2e7d32; }
+.nc-badge.status-notready { background:#fff3e0; color:#e65100; }
+.nc-badge.power-on { background:#e8f5e9; color:#2e7d32; }
+.nc-badge.power-off { background:#ffebee; color:#c62828; }
+
+/* Detail grid */
+.nc-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media(max-width:768px){ .nc-grid { grid-template-columns:1fr; } }
+.nc-section { border:1px solid #eee; border-radius:6px; overflow:hidden; }
+.nc-section-title {
+    background:#f8f9fa; padding:6px 10px; font-size:.68rem; font-weight:700;
+    text-transform:uppercase; letter-spacing:.3px; color:#555; border-bottom:1px solid #eee;
+}
+.nc-section-title i { margin-right:4px; color:var(--ks-red); }
+.nc-kv { padding:4px 10px; font-size:.72rem; display:flex; justify-content:space-between; border-bottom:1px solid #f5f5f5; }
+.nc-kv:last-child { border-bottom:none; }
+.nc-kv .k { color:#888; font-weight:600; }
+.nc-kv .v { color:#333; font-family:'SFMono-Regular',Consolas,monospace; text-align:right; max-width:60%; word-break:break-all; }
+
+/* FRU / firmware table */
+.fru-table { width:100%; font-size:.7rem; border-collapse:collapse; }
+.fru-table th { font-size:.6rem; text-transform:uppercase; letter-spacing:.3px; color:#888; font-weight:600; padding:4px 8px; border-bottom:1px solid #eee; text-align:left; }
+.fru-table td { padding:4px 8px; border-bottom:1px solid #f5f5f5; }
+.fru-table .fw-update { color:#f59e0b; font-weight:600; }
+
+/* Toggle icon */
+.nc-toggle { transition:transform .15s; color:#ccc; font-size:.8rem; }
+.node-card.open .nc-toggle { transform:rotate(180deg); }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Summary -->
+<div class="row g-3 mb-3">
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val">{{ total_nodes }}</div>
+            <div class="lbl">Total Nodes</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:var(--ks-red);">{{ total_mgmt }}</div>
+            <div class="lbl">Management</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#1a1a2e;">{{ total_compute }}</div>
+            <div class="lbl">Compute</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#2e7d32;">{{ total_online }}</div>
+            <div class="lbl">Online (Ready)</div>
+        </div>
+    </div>
+    <div class="col-6 col-md">
+        <div class="ni-stat">
+            <div class="val" style="color:#555;">{{ total_bmcs }}</div>
+            <div class="lbl">BMC Reachable</div>
+        </div>
+    </div>
+</div>
+
+<!-- Team Tag filter chips -->
+{% if tag_stats %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+    <span style="font-size:.7rem;color:#888;font-weight:500;">Team:</span>
+    {% for ts in tag_stats %}
+    <a href="{{ ts.toggle_url }}" class="badge text-decoration-none"
+       style="font-size:.78rem;padding:5px 12px;{% if ts.is_selected %}background:#7c3aed;color:#fff;{% else %}background:#ede9fe;color:#5b21b6;{% endif %}">
+        {{ ts.value }} &middot; {{ ts.count }}
+    </a>
+    {% endfor %}
+    {% if team_tag_filter %}
+    <a href="?{% if chassis_filter %}chassis={{ chassis_filter }}&{% endif %}{% if search_q %}q={{ search_q }}{% endif %}"
+       class="badge bg-secondary text-decoration-none" style="font-size:.78rem;padding:5px 12px;">Clear tag</a>
+    {% endif %}
+</div>
+{% endif %}
+
+<!-- Filters -->
+<div class="ni-filters">
+    <form method="get" class="row g-2 align-items-end">
+        {% if team_tag_filter %}<input type="hidden" name="team_tag" value="{{ team_tag_filter }}">{% endif %}
+        <div class="col-md-4">
+            <label class="form-label" style="font-size:.72rem;font-weight:600;">Search</label>
+            <input type="text" class="form-control form-control-sm" name="q" value="{{ search_q }}"
+                   placeholder="Search by name, serial, IP..." id="nodeSearch">
+        </div>
+        <div class="col-md-3">
+            <label class="form-label" style="font-size:.72rem;font-weight:600;">Chassis</label>
+            <select name="chassis" class="form-select form-select-sm">
+                <option value="">All Chassis</option>
+                {% for ch in all_chassis %}
+                <option value="{{ ch.id }}" {% if chassis_filter == ch.id|stringformat:"d" %}selected{% endif %}>
+                    {{ ch.hostname|default:ch.ip_address }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <button type="submit" class="btn btn-sm w-100" style="background:var(--ks-red);color:#fff;font-size:.78rem;">
+                <i class="fas fa-filter me-1"></i>Filter
+            </button>
+        </div>
+        <div class="col-md-2">
+            <a href="{% url 'keysight_node_inventory' %}" class="btn btn-sm btn-outline-secondary w-100" style="font-size:.78rem;">
+                <i class="fas fa-times me-1"></i>Clear
+            </a>
+        </div>
+        <div class="col-md-1 text-end">
+            <button type="button" class="btn btn-sm btn-outline-secondary" style="font-size:.72rem;" onclick="toggleAll()" title="Expand/Collapse All">
+                <i class="fas fa-expand-arrows-alt"></i>
+            </button>
+        </div>
+    </form>
+</div>
+
+{% if chassis_errors %}
+<div class="alert alert-warning py-2" style="font-size:.75rem;">
+    <i class="fas fa-exclamation-triangle me-1"></i>
+    Failed to fetch from: {% for e in chassis_errors %}{{ e.chassis }}{% if not forloop.last %}, {% endif %}{% endfor %}
+</div>
+{% endif %}
+
+<!-- Node Cards -->
+<div id="nodeList">
+{% for node in nodes %}
+<div class="node-card {% if node.role == 'Management' %}mgmt{% else %}compute{% endif %}" data-search="{{ node.node_name|lower }} {{ node.serial_number|lower }} {{ node.chassis_hostname|lower }} {{ node.bmc_ip }} {{ node.internal_ip }}">
+    <div class="nc-header" onclick="this.parentElement.classList.toggle('open')">
+        <div>
+            <span class="nc-name">{{ node.node_name }}</span>
+            <span class="nc-chassis">
+                &middot; <a href="{% url 'keysight_chassis_detail' node.chassis_id %}" class="text-decoration-none" style="color:#888;" onclick="event.stopPropagation();">{% firstof node.chassis_fqdn node.chassis_hostname %}</a>
+                <span style="color:#bbb;">({{ node.chassis_type }}) · {{ node.chassis_ip }}</span>
+            </span>
+        </div>
+        <div class="nc-badges">
+            <span class="nc-badge {% if node.role == 'Management' %}role-mgmt{% else %}role-compute{% endif %}">{{ node.role }}</span>
+            <span class="nc-badge {% if node.status == 'Ready' %}status-ready{% else %}status-notready{% endif %}">{{ node.status }}</span>
+            {% if node.bmc_power and node.bmc_power != 'unknown' %}
+            <span class="nc-badge {% if node.bmc_power == 'on' %}power-on{% else %}power-off{% endif %}">
+                <i class="fas fa-plug" style="font-size:.5rem;"></i>{{ node.bmc_power }}
+            </span>
+            {% endif %}
+            {% if node.team_tags_list %}
+            {% for t in node.team_tags_list %}<span class="badge" style="font-size:.58rem;background:#ede9fe;color:#5b21b6;padding:2px 7px;">{{ t }}</span>{% endfor %}
+            {% endif %}
+            {% if node.serial_number %}
+            <span style="font-size:.62rem;color:#999;font-family:monospace;">S/N: {{ node.serial_number }}</span>
+            {% endif %}
+            <i class="fas fa-chevron-down nc-toggle"></i>
+        </div>
+    </div>
+    <div class="nc-body">
+        <div class="nc-grid">
+            <!-- System Info -->
+            <div class="nc-section">
+                <div class="nc-section-title"><i class="fas fa-server"></i>System</div>
+                <div class="nc-kv"><span class="k">Node Name</span><span class="v">{{ node.node_name }}</span></div>
+                <div class="nc-kv"><span class="k">Role</span><span class="v">{{ node.role }}</span></div>
+                <div class="nc-kv"><span class="k">Status</span><span class="v">{{ node.status }}</span></div>
+                <div class="nc-kv"><span class="k">Serial Number</span><span class="v">{{ node.serial_number|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">Internal IP</span><span class="v">{{ node.internal_ip|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">OS Image</span><span class="v">{{ node.os_image|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">Kernel</span><span class="v">{{ node.kernel_version|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">Kubernetes</span><span class="v">{{ node.k8s_version|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">Runtime</span><span class="v">{{ node.container_runtime|default:"-" }}</span></div>
+            </div>
+
+            <!-- BMC Info -->
+            <div class="nc-section">
+                <div class="nc-section-title"><i class="fas fa-microchip"></i>BMC / IPMI</div>
+                <div class="nc-kv"><span class="k">BMC Name</span><span class="v">{{ node.bmc_name|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">BMC Hostname</span><span class="v">{{ node.bmc_hostname|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">BMC IP</span>
+                    <span class="v">
+                        {% if node.bmc_ip %}
+                        <span style="color:var(--ks-red);font-weight:600;">{{ node.bmc_ip }}</span>
+                        {% else %}-{% endif %}
+                    </span>
+                </div>
+                <div class="nc-kv"><span class="k">Power State</span><span class="v">{{ node.bmc_power|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">BIOS Version</span><span class="v">{{ node.bios_version|default:"-" }}</span></div>
+                <div class="nc-kv"><span class="k">BMC Firmware</span><span class="v">{{ node.bmc_firmware_name|default:"" }} {{ node.bmc_firmware|default:"-" }}</span></div>
+            </div>
+        </div>
+
+        <!-- Firmware / FRU Table -->
+        {% if node.nics or node.ssds or node.firmware_components %}
+        <div class="nc-section mt-3" style="grid-column:1/-1;">
+            <div class="nc-section-title"><i class="fas fa-cogs"></i>Firmware / FRU ({{ node.firmware_count }} components)</div>
+            <table class="fru-table">
+                <thead>
+                    <tr><th>Component</th><th>Name / Model</th><th>Version</th><th>Update</th></tr>
+                </thead>
+                <tbody>
+                    {% for fw in node.firmware_components %}
+                    <tr>
+                        <td><strong>{{ fw.type }}</strong></td>
+                        <td>{{ fw.name }}</td>
+                        <td><code>{{ fw.version }}</code></td>
+                        <td>{% if fw.update_available %}<span class="fw-update"><i class="fas fa-arrow-circle-up"></i> Available</span>{% else %}<span style="color:#ccc;">-</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for nic in node.nics %}
+                    <tr>
+                        <td><strong>{{ nic.type }}</strong></td>
+                        <td>{{ nic.name }}</td>
+                        <td><code>{{ nic.version }}</code></td>
+                        <td>{% if nic.update_available %}<span class="fw-update"><i class="fas fa-arrow-circle-up"></i> Available</span>{% else %}<span style="color:#ccc;">-</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                    {% for ssd in node.ssds %}
+                    <tr>
+                        <td><strong>{{ ssd.type }}</strong></td>
+                        <td>{{ ssd.name }}</td>
+                        <td><code>{{ ssd.version }}</code></td>
+                        <td>{% if ssd.update_available %}<span class="fw-update"><i class="fas fa-arrow-circle-up"></i> Available</span>{% else %}<span style="color:#ccc;">-</span>{% endif %}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% empty %}
+<div class="text-center text-muted py-5">
+    <i class="fas fa-server" style="font-size:2.5rem;color:#ddd;"></i>
+    <div class="mt-2">No nodes found. Make sure at least one KCOS chassis is online.</div>
+</div>
+{% endfor %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// Toggle all cards
+let allOpen = false;
+function toggleAll() {
+    allOpen = !allOpen;
+    document.querySelectorAll('.node-card').forEach(card => {
+        if (allOpen) card.classList.add('open');
+        else card.classList.remove('open');
+    });
+}
+
+// Live client-side search
+document.getElementById('nodeSearch').addEventListener('input', function() {
+    const q = this.value.toLowerCase();
+    document.querySelectorAll('.node-card').forEach(card => {
+        const searchData = card.dataset.search || card.textContent.toLowerCase();
+        card.style.display = !q || searchData.includes(q) ? '' : 'none';
+    });
+});
+</script>
+{% endblock %}

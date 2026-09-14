@@ -1,0 +1,30 @@
+/* Chassis diagram — static styling (no transitions or animations on slots/ports) */
+
+.port-cell {
+    transition: none;
+}
+
+/* Responsive: smaller ports on narrow screens */
+@media (max-width: 992px) {
+    .port-cell { width: 34px; height: 30px; }
+    .port-cell .p-num { font-size: .55rem; }
+}
+
+@media (max-width: 576px) {
+    .port-cell { width: 28px; height: 26px; }
+    .port-grid { gap: 3px; }
+}
+
+/* Slot hover is styled in chassis_detail.html (light theme); do not override with dark bg */
+
+.port-cell.selected {
+    animation: none;
+    box-shadow: 0 0 8px var(--ks-accent);
+}
+
+@media print {
+    .sidebar { display: none !important; }
+    .main-content { margin-left: 0 !important; }
+    .port-tooltip { display: none !important; }
+    .port-cell { border: 1px solid #999 !important; }
+}

@@ -1,0 +1,23 @@
+{% extends 'connect/base.html' %}
+{% block title %}ARP Table - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}ARP: {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a></div>
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-table me-2"></i> ARP Table ({{ entries|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>IP Address</th><th>MAC Address</th><th>Interface</th><th>Age</th></tr></thead>
+                <tbody>
+                    {% for e in entries %}
+                    <tr><td class="fw-bold">{{ e.ip }}</td><td><code>{{ e.mac }}</code></td><td>{{ e.interface }}</td><td>{{ e.age }}</td></tr>
+                    {% empty %}
+                    <tr><td colspan="4" class="text-center text-muted py-3">No ARP entries or not supported</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

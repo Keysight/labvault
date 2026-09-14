@@ -1,0 +1,62 @@
+{% extends "connect/base.html" %}
+{% block title %}Licenses - {{ chassis.ip_address }} - LabVault{% endblock %}
+
+{% block page_title %}Licenses - {{ chassis.hostname|default:chassis.ip_address }}{% endblock %}
+
+{% block topbar_actions %}
+<a href="{% url 'keysight_chassis_detail' chassis.id %}" class="btn btn-sm btn-outline-secondary">
+    <i class="fas fa-arrow-left me-1"></i>Back to Chassis
+</a>
+{% endblock %}
+
+{% block content %}
+
+{% if error %}
+<div class="alert alert-warning" style="font-size:.85rem;">
+    <i class="fas fa-exclamation-triangle me-2"></i>{{ error }}
+</div>
+{% endif %}
+
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-key me-2"></i>License Activations</div>
+    <div class="card-body p-0">
+        {% if licenses %}
+        <table class="table table-sm table-hover mb-0" style="font-size:.82rem;">
+            <thead class="table-light">
+                <tr>
+                    <th>Part Number</th>
+                    <th>Description</th>
+                    <th>Qty</th>
+                    <th>Maintenance</th>
+                    <th>Expiry</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for lic in licenses %}
+                <tr>
+                    <td class="fw-semibold">{{ lic.partNumber|default:"-" }}</td>
+                    <td>{{ lic.description|default:"-" }}</td>
+                    <td>{{ lic.quantity|default:"-" }}</td>
+                    <td>{{ lic.maintenanceDate|default:"-" }}</td>
+                    <td>{{ lic.expiryDate|default:"-" }}</td>
+                    <td>
+                        {% if lic.isExpired %}
+                        <span class="badge bg-danger" style="font-size:.68rem;">Expired</span>
+                        {% else %}
+                        <span class="badge bg-success" style="font-size:.68rem;">Active</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="text-center py-4 text-muted">
+            <i class="fas fa-ban" style="font-size:2rem;"></i>
+            <div class="mt-2">No license data available.</div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

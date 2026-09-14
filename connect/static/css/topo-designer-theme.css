@@ -1,0 +1,236 @@
+/* Lab Topology Designer — canvas themes (Classic / Grey / Light) */
+
+body.lv-topology-page--designer {
+  --lt-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  --lt-canvas-bg: linear-gradient(135deg, #0a0a1a 0%, #12122a 100%);
+  --lt-text: #e2e8f0;
+  --lt-text-muted: #94a3b8;
+  --lt-text-dim: #6b7a8f;
+  --lt-border: #2a2a4a;
+  --lt-border-soft: rgba(255, 255, 255, 0.07);
+  --lt-accent: #818cf8;
+  --lt-accent-hover: #6b7ff8;
+  --lt-sidebar-bg: #0f0f23;
+  --lt-sidebar-border: #2a2a4a;
+  --lt-input-bg: #1a1a2e;
+  --lt-input-border: #3a3a5a;
+  --lt-status-bg: #1a1a2e;
+  --lt-node-border: #4a4a7a;
+  --lt-node-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  --lt-node-header-bg: rgba(0, 0, 0, 0.35);
+  --lt-link-label-halo: #0a0a1a;
+  --lt-link-sublabel: #6e7681;
+  --lt-node-switch: #1e3a5f;
+  --lt-node-server: #1a3a1a;
+  --lt-node-ocs: #3a1a4a;
+  --lt-node-chassis: #3a2a1a;
+  --lt-node-aresone: #2a1a3a;
+  --lt-node-firewall: #3a1a1a;
+  --lt-node-generic: #1a1a2e;
+  --lt-port-bg: rgba(255, 255, 255, 0.07);
+  --lt-port-border: rgba(255, 255, 255, 0.12);
+  --lt-port-text: #94a3b8;
+  --lt-slot-bg: rgba(0, 0, 0, 0.25);
+  --lt-port-cell-bg: #1f2937;
+  --lt-port-cell-border: #4b5563;
+}
+
+body.pf-theme-grey.lv-topology-page--designer {
+  --lt-canvas-bg: linear-gradient(145deg, #1a1f2e 0%, #252b3b 100%);
+  --lt-sidebar-bg: #1e2533;
+  --lt-sidebar-border: #3a4560;
+  --lt-input-bg: #252d3e;
+  --lt-input-border: #3a4560;
+  --lt-status-bg: #252d3e;
+  --lt-link-label-halo: #1a1f2e;
+}
+
+/* Claude-inspired light: warm cream, terracotta accent, system UI typography */
+body.pf-theme-light.lv-topology-page--designer {
+  --lt-font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --lt-canvas-bg: #faf9f5;
+  --lt-text: #1f1e1d;
+  --lt-text-muted: #6b6966;
+  --lt-text-dim: #8a8782;
+  --lt-border: #e5e4df;
+  --lt-border-soft: rgba(31, 30, 29, 0.08);
+  --lt-accent: #c96442;
+  --lt-accent-hover: #d97757;
+  --lt-sidebar-bg: #ffffff;
+  --lt-sidebar-border: #e5e4df;
+  --lt-input-bg: #ffffff;
+  --lt-input-border: #d4d3ce;
+  --lt-status-bg: #ffffff;
+  --lt-node-border: #d4d3ce;
+  --lt-node-shadow: 0 2px 12px rgba(31, 30, 29, 0.08);
+  --lt-node-header-bg: rgba(31, 30, 29, 0.06);
+  --lt-link-label-halo: #faf9f5;
+  --lt-link-sublabel: #8a8782;
+  --lt-node-switch: #eff6ff;
+  --lt-node-server: #ecfdf5;
+  --lt-node-ocs: #fdf4ff;
+  --lt-node-chassis: #fff7ed;
+  --lt-node-aresone: #f5f3ff;
+  --lt-node-firewall: #fef2f2;
+  --lt-node-generic: #ffffff;
+  --lt-port-bg: rgba(31, 30, 29, 0.04);
+  --lt-port-border: #e5e4df;
+  --lt-port-text: #6b6966;
+  --lt-slot-bg: rgba(31, 30, 29, 0.03);
+  --lt-port-cell-bg: #f5f4f0;
+  --lt-port-cell-border: #d4d3ce;
+}
+
+body.lv-topology-page--designer #lt-wrap {
+  font-family: var(--lt-font);
+}
+
+body.lv-topology-page--designer #lt-canvas-wrap {
+  background: var(--lt-canvas-bg);
+}
+
+body.lv-topology-page--designer .lt-node {
+  color: var(--lt-text);
+  border-color: var(--lt-node-border);
+  box-shadow: var(--lt-node-shadow);
+}
+
+body.lv-topology-page--designer .lt-node:hover {
+  border-color: var(--lt-accent-hover);
+  box-shadow: 0 4px 20px rgba(217, 119, 87, 0.22);
+}
+
+body.pf-theme-light.lv-topology-page--designer .lt-node:hover {
+  box-shadow: 0 4px 16px rgba(201, 100, 66, 0.18);
+}
+
+body.lv-topology-page--designer .lt-node.selected {
+  border-color: var(--lt-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lt-accent) 45%, transparent);
+}
+
+body.lv-topology-page--designer .lt-node[data-vtype="switch"] { background: var(--lt-node-switch); }
+body.lv-topology-page--designer .lt-node[data-vtype="server"] { background: var(--lt-node-server); }
+body.lv-topology-page--designer .lt-node[data-vtype="ocs"] { background: var(--lt-node-ocs); }
+body.lv-topology-page--designer .lt-node[data-vtype="chassis"] { background: var(--lt-node-chassis); }
+body.lv-topology-page--designer .lt-node[data-vtype="aresone"] { background: var(--lt-node-aresone); }
+body.lv-topology-page--designer .lt-node[data-vtype="firewall"] { background: var(--lt-node-firewall); }
+body.lv-topology-page--designer .lt-node[data-vtype="generic"] { background: var(--lt-node-generic); }
+
+body.lv-topology-page--designer .lt-node-header {
+  background: var(--lt-node-header-bg);
+}
+
+body.lv-topology-page--designer .lt-node-ports {
+  border-top-color: var(--lt-border-soft);
+}
+
+body.lv-topology-page--designer .lt-port {
+  background: var(--lt-port-bg);
+  border-color: var(--lt-port-border);
+  color: var(--lt-port-text);
+}
+
+body.lv-topology-page--designer .lt-port:hover {
+  background: color-mix(in srgb, var(--lt-accent) 18%, transparent);
+  border-color: var(--lt-accent-hover);
+  color: var(--lt-text);
+}
+
+body.lv-topology-page--designer .lt-slot-view {
+  border-top-color: var(--lt-border-soft);
+}
+
+body.lv-topology-page--designer .lt-slot-row {
+  background: var(--lt-slot-bg);
+}
+
+body.lv-topology-page--designer .lt-slot-hdr {
+  color: var(--lt-text-muted);
+}
+
+body.lv-topology-page--designer .lt-port-cell {
+  background: var(--lt-port-cell-bg);
+  border-color: var(--lt-port-cell-border);
+}
+
+body.lv-topology-page--designer .lt-port-cell .p-num {
+  color: var(--lt-text);
+}
+
+body.lv-topology-page--designer #lt-sidebar {
+  background: var(--lt-sidebar-bg);
+  border-color: var(--lt-sidebar-border);
+  color: var(--lt-text);
+}
+
+body.lv-topology-page--designer .lt-sidebar-title {
+  color: var(--lt-text-dim);
+  border-bottom-color: var(--lt-border);
+}
+
+body.lv-topology-page--designer .lt-form-group label {
+  color: var(--lt-text-muted);
+}
+
+body.lv-topology-page--designer .lt-form-group input,
+body.lv-topology-page--designer .lt-form-group select,
+body.lv-topology-page--designer .lt-form-group textarea {
+  background: var(--lt-input-bg);
+  border-color: var(--lt-input-border);
+  color: var(--lt-text);
+}
+
+body.lv-topology-page--designer #lt-status {
+  background: var(--lt-status-bg);
+  border-color: var(--lt-input-border);
+  color: var(--lt-text-muted);
+}
+
+/* Scenario planner chips — light theme readability */
+body.pf-theme-light.lv-topology-page--designer .sc-chip {
+  background: #f5f4f0;
+  border-color: #cbd5e1;
+  color: #334155;
+}
+
+body.pf-theme-light.lv-topology-page--designer .sc-stat {
+  background: #f5f4f0;
+  border-color: #e5e4df;
+}
+
+body.pf-theme-light.lv-topology-page--designer .sc-patch-row:hover,
+body.pf-theme-light.lv-topology-page--designer .sc-pm-row:hover {
+  background: rgba(31, 30, 29, 0.04);
+}
+
+/* Warm Claude toolbar when Designer uses light theme */
+body.pf-theme-light.lv-topology-page--designer.lv-topology-page {
+  background: #faf9f5;
+}
+
+body.pf-theme-light.lv-topology-page--designer .lv-topo-toolbar {
+  background: #faf9f5;
+  border-bottom-color: #e5e4df;
+  color: #1f1e1d;
+}
+
+body.pf-theme-light.lv-topology-page--designer .lv-tb-row--secondary {
+  background: #f5f4f0;
+}
+
+body.pf-theme-light.lv-topology-page--designer .lv-topo-name-input {
+  color: #1f1e1d;
+  background: #ffffff;
+  border-color: #e5e4df;
+}
+
+body.pf-theme-light.lv-topology-page--designer .lv-topo-name-input:focus {
+  border-color: #c96442;
+  box-shadow: 0 0 0 2px rgba(201, 100, 66, 0.2);
+}
+
+body.pf-theme-light.lv-topology-page--designer .lv-topo-views a.lv-active-designer {
+  background: #fff0eb;
+  color: #c96442;
+}

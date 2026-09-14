@@ -1,0 +1,1348 @@
+{% extends 'connect/base.html' %}
+{% load static %}
+{% block title %}{{ topo.name }} — Topology &amp; Utilization{% endblock %}
+{% block body_attrs %}class="lv-topology-page lv-topology-page--usage" data-usage-theme="carbon"{% endblock %}
+{% block content_area_class %}content-area--topology{% endblock %}
+{% block topbar %}
+{% include "connect/includes/lab_topology_topbar.html" with active_view="usage" sub_nav=sub_nav %}
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="{% static 'css/usage-graph-views.css' %}?v=20260609">
+<div class="lv-topo-workspace">
+
+<div id="ug-wrap">
+  <div id="ug-toolbar">
+    <span>Window</span>
+    <select id="ug-range">
+      <option value="1">1h</option>
+      <option value="4" selected>4h</option>
+      <option value="12">12h</option>
+      <option value="24">24h</option>
+      <option value="168">7d</option>
+    </select>
+    <span class="ug-toolbar-sep">|</span>
+    <span>Metrics</span>
+    <div class="ug-metric-chips" id="ug-metric-chips"></div>
+    <span class="ug-toolbar-sep">|</span>
+    <div class="ug-legend-strip" title="Port utilization heat colors">
+      <span class="ug-leg-label">Heat</span>
+      <span class="ug-leg" style="background:#334155" title="Idle"></span>
+      <span class="ug-leg" style="background:#22c55e" title="Light"></span>
+      <span class="ug-leg" style="background:#3b82f6" title="Moderate"></span>
+      <span class="ug-leg" style="background:#f59e0b" title="Heavy"></span>
+      <span class="ug-leg" style="background:#ef4444" title="In use"></span>
+    </div>
+    <span class="ug-toolbar-sep">|</span>
+    <span>Data</span>
+    <div id="ug-data-mode" class="ugv-data-mode ui-data-mode" role="group" aria-label="Data mode"></div>
+    <span class="ug-toolbar-sep">|</span>
+    <button type="button" id="ug-reset-btn" title="Clear brush and reset graph zoom">Reset</button>
+    <label><input type="checkbox" id="ug-auto-refresh" checked> Auto (60s)</label>
+    <button type="button" id="ug-refresh-btn">Refresh</button>
+    <span id="ug-brush-hint">Brush timeline to filter topology</span>
+    <span id="ug-filter-active" title="Active granular filters"></span>
+    <span id="ug-window-label"></span>
+  </div>
+  <div id="ug-body">
+    <div id="ug-stage">
+      <div id="ug-center">
+        <div id="ug-nav-bars">
+          <div class="ug-pill-row" id="ug-device-bar">
+            <span class="ug-pill-label">Device</span>
+          </div>
+          <div class="ug-pill-row" id="ug-slot-bar">
+            <span class="ug-pill-label">Slot</span>
+          </div>
+        </div>
+        <div id="ug-canvas-col">
+          <div id="ug-graph-hint">Click pills to multi-select chassis &amp; fanout · Ctrl+click ports · owner chips filter users</div>
+          <div id="ug-svg-host"></div>
+          <div id="ug-loading">Loading topology…</div>
+        </div>
+      </div>
+      <div id="ug-rail" class="expanded">
+        <div class="ug-rail-tabs">
+          <button type="button" class="ug-rail-tab on" data-tab="info" title="Inspector">Info</button>
+          <button type="button" class="ug-rail-tab" data-tab="filter" title="Granular filters">Filter</button>
+          <button type="button" class="ug-rail-tab" data-tab="ports" title="Ports by duty">Ports</button>
+          <button type="button" id="ug-rail-toggle" title="Collapse panel">›</button>
+        </div>
+        <div id="ug-rail-panels">
+          <div class="ug-panel" id="ug-panel-info">
+            <h6>Inspector</h6>
+            <div id="ug-inspector-body" style="font-size:.75rem;color:#94a3b8;">Hover a lane or port for live metrics.</div>
+            <div class="ug-stat-inline" style="margin-top:8px;padding-top:6px;border-top:1px solid #1e3a5f33;">
+              <span>Ports <strong id="ug-stat-ports">—</strong></span>
+              <span>Live <strong id="ug-stat-inuse">—</strong></span>
+              <span>Eps <strong id="ug-stat-episodes">—</strong></span>
+            </div>
+          </div>
+          <div class="ug-panel" id="ug-panel-filter" hidden>
+            <h6>Granular filter</h6>
+            <p style="font-size:.65rem;color:#64748b;margin:0 0 8px;">Combine chassis, fanout slot, user, and port selections. All active filters intersect.</p>
+            <div id="ug-filter-chips" style="margin-bottom:8px;"></div>
+            <button type="button" id="ug-clear-filters" style="width:100%;font-size:.72rem;padding:4px;">Clear all filters</button>
+          </div>
+          <div class="ug-panel" id="ug-panel-ports" hidden>
+            <h6>Ports by duty</h6>
+            <p style="font-size:.65rem;color:#64748b;margin:0 0 6px;">Ctrl+click (⌘+click) rows to add/remove ports from the filter.</p>
+            <input type="search" class="ug-port-search" id="ug-port-filter" placeholder="Filter ports…">
+            <div id="ug-port-list" style="max-height:calc(100vh - 320px);overflow-y:auto;font-size:.72rem;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div id="ug-timeline-dock">
+      <div id="ug-timeline-resize"></div>
+      <div id="ug-timeline-head">
+        <div class="ug-tl-head-row ug-tl-head-controls">
+          <strong>Timeline</strong>
+          <span id="ug-timeline-scale-hint"></span>
+          <span id="ug-slice-label" title="Locked time slice"></span>
+          <div class="ug-tl-filter">
+            <label><input type="checkbox" id="ug-high-usage-only"> High usage</label>
+            <select id="ug-high-usage-threshold" title="CPU/Mem threshold">
+              <option value="70" selected>≥70%</option>
+              <option value="90">≥90%</option>
+            </select>
+          </div>
+          <label style="margin:0;font-size:.68rem;" title="Start/end caps + dashed line for port ownership"><input type="checkbox" id="ug-ownership-visuals" checked> Ownership</label>
+          <label style="margin:0;font-size:.68rem;" title="Show link up/down transition ticks (off by default)"><input type="checkbox" id="ug-link-visuals"> Link events</label>
+          <label style="margin:0;font-size:.68rem;" title="Vertical ticks when CPU/Mem crosses threshold"><input type="checkbox" id="ug-overload-markers"> Spikes</label>
+          <label style="margin:0;font-size:.68rem;" title="Topology-mapped switch ports only when Input discards metric is on"><input type="checkbox" id="ug-discard-mapped-only"> Fabric ports only</label>
+          <label style="margin:0;font-size:.68rem;" title="Show per-port CPU, memory, traffic, and ownership lanes (heavier — enable when needed)"><input type="checkbox" id="ug-port-lanes"> Port lanes</label>
+          <button type="button" id="ug-slice-apply" title="Lock brush range as timeline window">Apply slice</button>
+          <button type="button" id="ug-slice-clear" title="Clear locked slice">Clear slice</button>
+          <button type="button" id="ug-timeline-fullscreen" title="Expand timeline to fill workspace">Full</button>
+          <span style="font-size:.65rem;color:#475569;">Brush filters topology</span>
+          <button type="button" id="ug-timeline-toggle" style="margin-left:auto;">Hide</button>
+        </div>
+        <div class="ug-tl-head-row ug-tl-group-order" id="ug-group-order-bar" aria-label="Timeline device group order"></div>
+        <div class="ug-tl-head-row ug-tl-head-legends">
+          <div id="ug-owner-legend-wrap">
+            <div id="ug-owner-legend" title="Click owners to toggle user filter (multi-select)"></div>
+            <button type="button" id="ug-owner-toggle" hidden>+0 more</button>
+          </div>
+          <span id="ug-timeline-legend-hint" title="CPU/Mem lines use 0–100% scale in short windows; traffic uses per-lane peak scale">
+            <span class="tl-leg"><span class="tl-leg-cap" style="background:#94a3b8"></span><span class="tl-leg-thread"></span><span class="tl-leg-cap" style="background:#94a3b8"></span> ownership</span>
+            <span class="tl-leg"><span style="color:#38bdf8;font-weight:600">—</span> CPU <span style="color:#64748b;font-weight:400">(left)</span></span>
+            <span class="tl-leg"><span style="color:#a78bfa;font-weight:600">—</span> Mem <span style="color:#64748b;font-weight:400">(right)</span></span>
+            <span class="tl-leg"><span style="color:#22d3ee;font-weight:600">↓</span> Tput in <span style="color:#64748b;font-weight:400">(left)</span></span>
+            <span class="tl-leg"><span style="color:#fb923c;font-weight:600">↑</span> Tput out <span style="color:#64748b;font-weight:400">(right)</span></span>
+            <span class="tl-leg"><span style="color:#f43f5e;font-weight:600">—</span> Input discards</span>
+          </span>
+        </div>
+        <div id="ug-timeline-summary" aria-live="polite"></div>
+      </div>
+      <div id="ug-timeline-scroll">
+        <div id="ug-timeline-host"></div>
+        <div id="ug-timeline-loading" style="display:none;">Loading timeline…</div>
+      </div>
+    </div>
+  </div>
+  <button type="button" id="ug-exit-fullscreen" title="Exit timeline fullscreen (Esc)">Exit fullscreen</button>
+</div>
+</div>
+
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script type="module">
+import { renderUsageGraph, formatDuty } from '{% static "js/lab-graph/usage-force-graph.js" %}?v=20260625';
+import { renderTimelinePanel, METRIC_DEFS, activeResourceKeysInRange, PCT_WARN, computeTimelineSummary,
+  DEVICE_GROUP_DEFS, DEFAULT_DEVICE_GROUP_ORDER, normalizeDeviceGroupOrder,
+} from '{% static "js/lab-graph/timeline-graph.js" %}?v=20260609a';
+import { filterDeviceBySlots } from '{% static "js/lab-graph/chassis-layout.js" %}?v=20260618';
+import { computeGranularFilterKeys, intersectKeySets, listSlotsForDevices } from '{% static "js/lab-graph/usage-granular-filters.js" %}?v=20260618';
+import { mountDataModeToggle, getStoredDataMode } from '{% static "js/lab-graph/usage-data-mode.js" %}?v=20260609';
+import { applyDataModeToTimeline } from '{% static "js/lab-graph/usage-graph-data.js" %}?v=20260609';
+
+const TOPO_ID = {{ topo.id }};
+const FABRIC_URL = `/lab-topology/${TOPO_ID}/usage-graph.json`;
+const TIMELINE_URL = `/lab-topology/${TOPO_ID}/timeline-graph.json`;
+const FABRIC_QUICK_QS = 'live=0&lldp=0&ocs=0&reservations=1';
+const FABRIC_LIVE_QS = 'live=1&lldp=1&ocs=1&reservations=1';
+
+let graphInstance = null;
+let timelineInstance = null;
+let lastGraph = null;
+let lastTimeline = null;
+let lastTimelineRaw = null;
+let usageDataMode = getStoredDataMode();
+let brushFrom = null;
+let brushTo = null;
+let brushActiveKeys = null;
+let refreshTimer = null;
+let hoverKey = null;
+let focusDeviceIds = new Set();
+let focusSlots = new Set();
+let includePortLanes = false;
+let collapsedDeviceKeys = new Set();
+let ocsCollapseInitialized = false;
+const GROUP_ORDER_KEY = 'labvault-ug-group-order';
+let deviceGroupOrder = loadDeviceGroupOrder();
+let sideTab = 'info';
+let portFilterText = '';
+let portKeyFilter = new Set();
+let sliceFrom = null;
+let sliceTo = null;
+let ownerFilterSet = new Set();
+let highUsageOnly = false;
+let highUsageThreshold = PCT_WARN;
+let showOverloadMarkers = false;
+let showOwnershipVisuals = true;
+let showLinkVisuals = false;
+let ownersLegendExpanded = false;
+let lastOwnerLegendEntries = [];
+let timelineFullscreen = false;
+let dockHeightBeforeFullscreen = null;
+const TL_HEIGHT_KEY = 'labvault-ug-tl-h';
+const SWITCH_DISCARD_SCOPE_KEY = 'lab_pulse:switch_discard_scope';
+
+let filterDebounceTimer = null;
+let lastGraphLayoutKey = '';
+const DEFAULT_TIMELINE_METRICS = ['cpu_pct', 'mem_pct', 'bps_in', 'bps_out'];
+const enabledMetrics = new Set(DEFAULT_TIMELINE_METRICS);
+const FETCH_TIMEOUT_MS = 90000;
+let timelineFetchController = null;
+let graphFetchController = null;
+let timelineLoadSeq = 0;
+let graphLoadSeq = 0;
+let timelinePaintScheduled = false;
+let switchDiscardMappedOnly = sessionStorage.getItem(SWITCH_DISCARD_SCOPE_KEY) === 'mapped';
+
+function isFabricMappedPortLabel(label) {
+  return !/^Ethernet\d/i.test(String(label || '').trim());
+}
+
+function computeSwitchDiscardLaneKeys(data) {
+  if (!enabledMetrics.has('input_discards') || !data) return null;
+  const keys = new Set();
+  const buckets = data.metric_buckets || {};
+  const catalog = data.catalog || {};
+  for (const [key, meta] of Object.entries(catalog)) {
+    if (!key.includes('__')) continue;
+    const series = buckets[key]?.input_discards;
+    if (!series?.some((p) => Number(p[1]) > 0)) continue;
+    const label = meta.label || key.split('__').pop();
+    if (switchDiscardMappedOnly && !isFabricMappedPortLabel(label)) continue;
+    keys.add(key);
+  }
+  return keys;
+}
+
+function intersectLaneKeys(base, extra) {
+  if (!extra) return base;
+  if (!base) return extra;
+  const out = new Set();
+  for (const k of base) {
+    if (extra.has(k)) out.add(k);
+  }
+  return out;
+}
+
+async function fetchJson(url, { signal, timeoutMs = FETCH_TIMEOUT_MS } = {}) {
+  const timeout = new AbortController();
+  const onAbort = () => timeout.abort();
+  if (signal) signal.addEventListener('abort', onAbort);
+  const timer = setTimeout(() => timeout.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, {
+      credentials: 'same-origin',
+      signal: timeout.signal,
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.json();
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(signal?.aborted ? 'Request cancelled' : 'Request timed out');
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (signal) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+function loadDeviceGroupOrder() {
+  try {
+    const raw = localStorage.getItem(GROUP_ORDER_KEY);
+    if (raw) return normalizeDeviceGroupOrder(JSON.parse(raw));
+  } catch (_) { /* ignore */ }
+  return [...DEFAULT_DEVICE_GROUP_ORDER];
+}
+
+function saveDeviceGroupOrder() {
+  try {
+    localStorage.setItem(GROUP_ORDER_KEY, JSON.stringify(deviceGroupOrder));
+  } catch (_) { /* ignore */ }
+}
+
+function moveDeviceGroup(groupId, direction) {
+  const idx = deviceGroupOrder.indexOf(groupId);
+  if (idx < 0) return;
+  const swap = idx + direction;
+  if (swap < 0 || swap >= deviceGroupOrder.length) return;
+  const next = [...deviceGroupOrder];
+  [next[idx], next[swap]] = [next[swap], next[idx]];
+  deviceGroupOrder = next;
+  saveDeviceGroupOrder();
+  renderGroupOrderBar();
+  if (lastTimelineRaw) paintTimeline(lastTimelineRaw);
+}
+
+function renderGroupOrderBar() {
+  const bar = document.getElementById('ug-group-order-bar');
+  if (!bar) return;
+  bar.innerHTML = `<span class="ug-pill-label">Groups</span>${
+    deviceGroupOrder.map((gid, i) => {
+      const def = DEVICE_GROUP_DEFS.find((d) => d.id === gid) || { label: gid };
+      const up = i > 0
+        ? `<button type="button" class="ug-group-move" data-group="${gid}" data-dir="-1" title="Move ${def.label} up">↑</button>`
+        : '';
+      const down = i < deviceGroupOrder.length - 1
+        ? `<button type="button" class="ug-group-move" data-group="${gid}" data-dir="1" title="Move ${def.label} down">↓</button>`
+        : '';
+      return `<span class="ug-group-chip">${up}<span class="ug-group-name">${def.label}</span>${down}</span>`;
+    }).join('')
+  }`;
+  bar.querySelectorAll('.ug-group-move').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      moveDeviceGroup(btn.dataset.group, Number(btn.dataset.dir));
+    });
+  });
+}
+
+function applyDefaultOcsCollapse(catalog) {
+  if (ocsCollapseInitialized || !catalog) return;
+  for (const [key, meta] of Object.entries(catalog)) {
+    if (!meta.parent && meta.profile === 'ocs') collapsedDeviceKeys.add(key);
+  }
+  ocsCollapseInitialized = true;
+}
+
+function scheduleTimelinePaint(data, opts = {}) {
+  if (!data) return;
+  if (timelinePaintScheduled) return;
+  timelinePaintScheduled = true;
+  requestAnimationFrame(() => {
+    timelinePaintScheduled = false;
+    paintTimeline(data, opts);
+  });
+}
+
+function initMetricChips() {
+  const host = document.getElementById('ug-metric-chips');
+  host.innerHTML = METRIC_DEFS.map((m) => {
+    const dash = m.dash ? 'dash' : '';
+    const on = enabledMetrics.has(m.id) ? ' on' : '';
+    return `<button type="button" class="ug-metric-chip${on}" data-metric="${m.id}">
+      <span class="swatch ${dash}" style="color:${m.color};background:${m.dash ? 'transparent' : m.color}"></span>${m.label}
+    </button>`;
+  }).join('');
+  host.querySelectorAll('.ug-metric-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = btn.dataset.metric;
+      if (enabledMetrics.has(id)) {
+        if (enabledMetrics.size <= 1) return;
+        enabledMetrics.delete(id);
+        btn.classList.remove('on');
+      } else {
+        enabledMetrics.add(id);
+        btn.classList.add('on');
+      }
+      if (lastTimelineRaw) scheduleTimelineRefresh();
+    });
+  });
+}
+
+function heatCellColor(v) {
+  if (v >= 0.75) return '#ef4444';
+  if (v >= 0.5) return '#f59e0b';
+  if (v >= 0.25) return '#3b82f6';
+  if (v > 0.05) return '#22c55e';
+  return '#1e293b';
+}
+
+function rangeHours() {
+  return parseInt(document.getElementById('ug-range').value, 10) || 4;
+}
+
+function timelineQuery() {
+  const to = sliceTo
+    ? sliceTo.toISOString()
+    : (brushTo ? brushTo.toISOString() : new Date().toISOString());
+  let from;
+  if (sliceFrom) {
+    from = sliceFrom.toISOString();
+  } else if (brushFrom) {
+    from = brushFrom.toISOString();
+  } else {
+    const d = new Date();
+    d.setHours(d.getHours() - rangeHours());
+    from = d.toISOString();
+  }
+  return `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}&bucket=5m`;
+}
+
+function timelineViewMs(data) {
+  const winFrom = data?.window?.from ? new Date(data.window.from).getTime() : 0;
+  const winTo = data?.window?.to ? new Date(data.window.to).getTime() : Date.now();
+  if (brushFrom && brushTo) {
+    return { fromMs: brushFrom.getTime(), toMs: brushTo.getTime() };
+  }
+  return { fromMs: winFrom, toMs: winTo };
+}
+
+function computeLaneFilterKeys(data) {
+  if (!data) return null;
+  // Chassis-only focus is handled by focusDeviceIds in deviceLanes — avoid double-filtering ports.
+  const hasNonDeviceFilters = focusSlots.size || ownerFilterSet.size || portKeyFilter.size || highUsageOnly;
+  if (focusDeviceIds.size && !hasNonDeviceFilters) return null;
+  const { fromMs, toMs } = timelineViewMs(data);
+  return computeGranularFilterKeys({
+    graph: lastGraph,
+    timeline: data,
+    fromMs,
+    toMs,
+    deviceIds: focusDeviceIds,
+    slots: focusSlots,
+    owners: ownerFilterSet,
+    portKeys: portKeyFilter,
+    highUsageOnly,
+    highUsageThreshold,
+  });
+}
+
+function focusIncludesChassis() {
+  if (!focusDeviceIds.size || !lastGraph?.devices) return false;
+  return [...focusDeviceIds].some((id) => {
+    const dev = lastGraph.devices.find((d) => d.id === id);
+    return dev?.node_type === 'chassis';
+  });
+}
+
+function ensurePortLanesForFilters() {
+  const needPorts = focusIncludesChassis()
+    || ownerFilterSet.size
+    || portKeyFilter.size
+    || focusSlots.size;
+  if (needPorts && !includePortLanes) {
+    includePortLanes = true;
+    document.getElementById('ug-port-lanes').checked = true;
+  }
+}
+
+function updateFilterActiveLabel() {
+  const el = document.getElementById('ug-filter-active');
+  if (!el) return;
+  const parts = [];
+  if (focusDeviceIds.size) parts.push(`${focusDeviceIds.size} chassis`);
+  if (focusSlots.size) parts.push(`${focusSlots.size} fanout`);
+  if (ownerFilterSet.size) parts.push(`${ownerFilterSet.size} user`);
+  if (portKeyFilter.size) parts.push(`${portKeyFilter.size} port`);
+  if (highUsageOnly) parts.push(`≥${highUsageThreshold}%`);
+  el.textContent = parts.length ? `Filter: ${parts.join(' · ')}` : '';
+}
+
+function renderFilterPanel() {
+  const host = document.getElementById('ug-filter-chips');
+  if (!host) return;
+  const chips = [];
+  for (const id of focusDeviceIds) {
+    const dev = (lastGraph?.devices || []).find((d) => d.id === id);
+    chips.push({ kind: 'device', id, label: dev?.label || id });
+  }
+  for (const s of focusSlots) chips.push({ kind: 'slot', id: s, label: `Slot ${s}` });
+  for (const o of ownerFilterSet) chips.push({ kind: 'owner', id: o, label: o });
+  for (const k of portKeyFilter) {
+    const meta = lastTimeline?.catalog?.[k];
+    chips.push({ kind: 'port', id: k, label: meta?.label ? `${meta.label}` : k });
+  }
+  if (!chips.length) {
+    host.innerHTML = '<span style="color:#64748b;font-size:.72rem;">No filters — use device/slot pills, owner chips, or Ctrl+click ports.</span>';
+    return;
+  }
+  host.innerHTML = chips.map((c) =>
+    `<span class="ug-filter-chip">${c.label}<button type="button" data-rm="${c.kind}" data-id="${String(c.id).replace(/"/g, '&quot;')}" title="Remove">×</button></span>`
+  ).join('');
+  host.querySelectorAll('button[data-rm]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const kind = btn.dataset.rm;
+      const id = btn.dataset.id;
+      if (kind === 'device') focusDeviceIds.delete(id);
+      else if (kind === 'slot') focusSlots.delete(id);
+      else if (kind === 'owner') ownerFilterSet.delete(id);
+      else if (kind === 'port') portKeyFilter.delete(id);
+      applyGranularFilters();
+    });
+  });
+}
+
+function graphLayoutKey() {
+  const fd = [...focusDeviceIds].sort().join('\0');
+  const fs = [...focusSlots].sort().join('\0');
+  return `${fd}|${fs}|${includePortLanes ? 1 : 0}`;
+}
+
+function scheduleTimelineRefresh() {
+  clearTimeout(filterDebounceTimer);
+  filterDebounceTimer = setTimeout(() => {
+    if (lastTimelineRaw) scheduleTimelinePaint(lastTimelineRaw);
+  }, 60);
+}
+
+function applyGranularFilters() {
+  ensurePortLanesForFilters();
+  updateFilterActiveLabel();
+  renderFilterPanel();
+  if (lastGraph) {
+    renderDeviceBar(lastGraph);
+    renderSlotBar(lastGraph);
+    renderPortList(lastGraph);
+  }
+  const layoutKey = graphLayoutKey();
+  if (graphInstance && layoutKey === lastGraphLayoutKey) {
+    syncTopologyFromFilters(lastTimeline);
+  } else {
+    lastGraphLayoutKey = layoutKey;
+    repaintGraph();
+  }
+  scheduleTimelineRefresh();
+}
+
+function combinedTopologyKeys(data) {
+  const { fromMs, toMs } = timelineViewMs(data);
+  let keys = brushActiveKeys;
+  if (!keys && (brushFrom && brushTo)) {
+    keys = activeResourceKeysInRange(data, fromMs, toMs);
+  }
+  const laneKeys = computeLaneFilterKeys(data);
+  if (laneKeys?.size) {
+    keys = keys ? intersectKeySets(keys, laneKeys) : laneKeys;
+  }
+  return keys;
+}
+
+function updateSliceLabel() {
+  const el = document.getElementById('ug-slice-label');
+  if (!el) return;
+  if (sliceFrom && sliceTo) {
+    el.textContent = `Slice: ${sliceFrom.toISOString().slice(0, 16)} → ${sliceTo.toISOString().slice(0, 16)}`;
+  } else {
+    el.textContent = '';
+  }
+}
+
+function effectiveFocusDevice() {
+  if (focusDeviceIds.size === 1) return [...focusDeviceIds][0];
+  const devs = lastGraph?.devices || [];
+  if (!focusDeviceIds.size && devs.length === 1) return devs[0].id;
+  return null;
+}
+
+function timelineFocusDeviceIds() {
+  if (focusDeviceIds.size) return focusDeviceIds;
+  return null;
+}
+
+function latestMetricValues(data, resourceKey) {
+  if (!data?.metric_buckets?.[resourceKey]) return [];
+  const rows = [];
+  for (const def of METRIC_DEFS) {
+    if (!enabledMetrics.has(def.id)) continue;
+    const series = data.metric_buckets[resourceKey][def.id];
+    if (!series?.length) continue;
+    const last = series[series.length - 1];
+    let val = last[1];
+    if (def.id === 'port_ownership') val = val >= 0.5 ? 'Owned' : 'Free';
+    else if (def.id === 'bps_in' || def.id === 'bps_out') val = formatBps(val);
+    else if (def.id === 'link_speed_gbps') val = `${val} Gbps`;
+    else if (def.id === 'input_discards') val = `${Math.round(Number(val) || 0)} drops/interval`;
+    else val = `${Math.round(val)}%`;
+    rows.push({ label: def.label, val, color: def.color });
+  }
+  return rows;
+}
+
+function formatBps(v) {
+  const n = Number(v) || 0;
+  if (n >= 1e9) return `${(n / 1e9).toFixed(2)} Gbps`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} Mbps`;
+  if (n >= 1e3) return `${(n / 1e3).toFixed(0)} Kbps`;
+  return `${Math.round(n)} bps`;
+}
+
+function renderOwnerLegend(entries) {
+  lastOwnerLegendEntries = entries || [];
+  const el = document.getElementById('ug-owner-legend');
+  const toggleBtn = document.getElementById('ug-owner-toggle');
+  if (!el) return;
+  if (!entries?.length) {
+    el.innerHTML = '';
+    if (toggleBtn) toggleBtn.hidden = true;
+    return;
+  }
+  const maxCollapsed = 8;
+  const expanded = ownersLegendExpanded || entries.length <= maxCollapsed;
+  const shown = expanded ? entries : entries.slice(0, maxCollapsed);
+  const rest = entries.length - shown.length;
+  el.classList.toggle('expanded', expanded);
+  el.innerHTML = `<span style="color:#64748b;margin-right:2px;">Owners</span>${
+    shown.map(({ owner, color }) => {
+      const on = ownerFilterSet.has(owner);
+      return `<span class="ug-owner-chip filterable${on ? ' filter-on' : ''}" data-owner="${owner.replace(/"/g, '&quot;')}" style="border-color:${color}"><span class="ug-owner-dot" style="background:${color}"></span>${owner}</span>`;
+    }).join('')
+  }`;
+  if (toggleBtn) {
+    if (rest > 0 && !expanded) {
+      toggleBtn.hidden = false;
+      toggleBtn.textContent = `+${rest} more`;
+    } else if (entries.length > maxCollapsed && expanded) {
+      toggleBtn.hidden = false;
+      toggleBtn.textContent = 'Fewer';
+    } else {
+      toggleBtn.hidden = true;
+    }
+  }
+  el.querySelectorAll('.ug-owner-chip[data-owner]').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      const owner = chip.dataset.owner;
+      if (ownerFilterSet.has(owner)) ownerFilterSet.delete(owner);
+      else ownerFilterSet.add(owner);
+      renderOwnerLegend(lastOwnerLegendEntries);
+      applyGranularFilters();
+    });
+  });
+}
+
+function renderTimelineSummaryStrip(data) {
+  const el = document.getElementById('ug-timeline-summary');
+  if (!el || !data) return;
+  const { fromMs, toMs } = timelineViewMs(data);
+  const s = computeTimelineSummary(data, { fromMs, toMs });
+  const laneFilterKeys = computeLaneFilterKeys(data);
+  const visiblePorts = laneFilterKeys
+    ? Object.keys(data.catalog || {}).filter((k) => laneFilterKeys.has(k)).length
+    : s.port_count;
+  const hotCls = s.hot_cpu_ports > 0 ? ' hot' : '';
+  const discardCls = s.total_input_discards > 0 ? ' warn' : '';
+  const cpuCls = s.avg_cpu_peak != null && s.avg_cpu_peak >= PCT_WARN ? ' warn' : '';
+  const memCls = s.avg_mem_peak != null && s.avg_mem_peak >= PCT_WARN ? ' warn' : '';
+  const discardExtra = enabledMetrics.has('input_discards') && s.total_input_discards > 0
+    ? `<span class="ug-tl-stat${discardCls}"><span class="ug-tl-stat-label">Input discards</span><strong>${s.total_input_discards} (${s.switch_discard_ports} ports)</strong></span>
+    <span class="ug-tl-stat"><span class="ug-tl-stat-label">First discard</span><strong>${s.first_discard_at ? new Date(s.first_discard_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}</strong></span>`
+    : '';
+  el.innerHTML = `
+    <span class="ug-tl-stat"><span class="ug-tl-stat-label">Devices</span><strong>${s.device_count}</strong></span>
+    <span class="ug-tl-stat"><span class="ug-tl-stat-label">Ports</span><strong>${visiblePorts}${laneFilterKeys ? ` / ${s.port_count}` : ''}</strong></span>
+    <span class="ug-tl-stat${cpuCls}"><span class="ug-tl-stat-label">Avg CPU peak</span><strong>${s.avg_cpu_peak != null ? `${s.avg_cpu_peak}%` : '—'}</strong></span>
+    <span class="ug-tl-stat${memCls}"><span class="ug-tl-stat-label">Avg Mem peak</span><strong>${s.avg_mem_peak != null ? `${s.avg_mem_peak}%` : '—'}</strong></span>
+    <span class="ug-tl-stat${hotCls}"><span class="ug-tl-stat-label">Hot ports</span><strong>${s.hot_cpu_ports}</strong></span>
+    <span class="ug-tl-stat"><span class="ug-tl-stat-label">Ownership</span><strong>${s.owned_episodes}</strong></span>
+    <span class="ug-tl-stat"><span class="ug-tl-stat-label">Peak traffic</span><strong>${s.traffic_peak_bps ? formatBps(s.traffic_peak_bps) : '—'}</strong></span>
+    ${discardExtra}
+  `;
+}
+
+function syncTopologyFromFilters(data) {
+  const keys = combinedTopologyKeys(data);
+  if (graphInstance?.setActiveFilter) {
+    graphInstance.setActiveFilter(keys && keys.size ? keys : null);
+  }
+  if (lastGraph) renderPortList(lastGraph);
+}
+
+function updateTimelineScaleHint() {
+  const el = document.getElementById('ug-timeline-scale-hint');
+  if (!el) return;
+  const hrs = rangeHours();
+  if (brushFrom && brushTo) {
+    const h = (brushTo - brushFrom) / 3600000;
+    el.textContent = h <= 24 ? '· CPU/Mem 0–100% scale' : '';
+  } else {
+    el.textContent = hrs <= 24 ? '· CPU/Mem 0–100% scale' : '';
+  }
+}
+
+function updateInspector(resourceKey) {
+  const body = document.getElementById('ug-inspector-body');
+  if (!resourceKey || !lastTimeline) {
+    body.innerHTML = 'Hover a lane or port for live metrics.';
+    return;
+  }
+  const meta = lastTimeline.catalog?.[resourceKey] || {};
+  const metrics = latestMetricValues(lastTimeline, resourceKey);
+  const evts = (lastTimeline.events?.[resourceKey] || []).slice(-5).reverse();
+  const ownEvts = evts.filter((e) => e.event_type === 'port_owned' || e.event_type === 'port_released');
+  const ip = meta.mgmt_ip || meta.chassis_ip || '';
+  const ipLine = ip
+    ? `<div style="font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.66rem;color:#7dd3fc;margin-bottom:6px;">${meta.chassis_ip && !meta.mgmt_ip ? 'chassis ' : ''}${ip}</div>`
+    : '';
+  body.innerHTML = `
+    <div style="margin-bottom:2px;color:#e2e8f0;font-weight:600;">${meta.label || resourceKey}</div>
+    ${ipLine}
+    ${metrics.length ? metrics.map((m) =>
+      `<div class="ug-stat"><span style="color:${m.color}">${m.label}</span><span>${m.val}</span></div>`
+    ).join('') : '<div style="color:#64748b">No samples in window.</div>'}
+    ${ownEvts.length ? `<div style="margin-top:8px;color:#64748b;font-size:.68rem;">Ownership</div>` +
+      ownEvts.map((e) => {
+        const pl = e.payload || {};
+        const who = e.event_type === 'port_owned' ? pl.owner : pl.previous_owner;
+        const action = e.event_type === 'port_owned' ? 'took' : 'released';
+        return `<div style="font-size:.68rem;color:#94a3b8;">${who || '?'} ${action} · ${(e.started_at || '').slice(0, 16)}</div>`;
+      }).join('') : ''}
+    ${evts.filter((e) => e.event_type !== 'port_owned' && e.event_type !== 'port_released').length ? `<div style="margin-top:8px;color:#64748b;font-size:.68rem;">Other events</div>` +
+      evts.filter((e) => e.event_type !== 'port_owned' && e.event_type !== 'port_released').map((e) =>
+        `<div style="font-size:.68rem;color:#94a3b8;">${e.event_type} · ${(e.started_at || '').slice(11, 16)}</div>`
+      ).join('') : ''}
+  `;
+}
+
+function crossHover(resourceKey) {
+  hoverKey = resourceKey;
+  if (timelineInstance?.setHighlight) timelineInstance.setHighlight(resourceKey);
+  if (graphInstance?.setHighlight) graphInstance.setHighlight(resourceKey);
+  updateInspector(resourceKey);
+  document.querySelectorAll('.ug-port-row').forEach((row) => {
+    row.classList.toggle('ug-active', resourceKey && row.dataset.key === resourceKey);
+  });
+}
+
+function setBrushHint(from, to, activeCount) {
+  const el = document.getElementById('ug-brush-hint');
+  if (!from || !to) {
+    el.textContent = 'Brush timeline to filter topology';
+    el.classList.remove('active');
+    return;
+  }
+  el.textContent = `Filtered: ${from.toISOString().slice(11, 16)}–${to.toISOString().slice(11, 16)} · ${activeCount} resources`;
+  el.classList.add('active');
+}
+
+function applyGraphFilter(from, to, activeKeys) {
+  brushActiveKeys = activeKeys;
+  if (graphInstance?.setActiveFilter) {
+    graphInstance.setActiveFilter(activeKeys && activeKeys.size ? activeKeys : null);
+  }
+  setBrushHint(from, to, activeKeys?.size || 0);
+}
+
+function findPortOnDevice(device, rkey) {
+  for (const p of device.ports || []) {
+    if (p.resource_key === rkey) return p;
+  }
+  for (const pg of device.port_groups || []) {
+    for (const p of pg.ports || []) {
+      if (p.resource_key === rkey) return p;
+    }
+  }
+  for (const sh of device.ocs_shelves || []) {
+    for (const bank of sh.banks || []) {
+      for (const p of bank.ports || []) {
+        if (p.resource_key === rkey) return p;
+      }
+    }
+  }
+  return null;
+}
+
+function basePortKeysForScope() {
+  if (!lastGraph) return null;
+  let devs = lastGraph.devices || [];
+  if (focusDeviceIds.size) devs = devs.filter((d) => focusDeviceIds.has(d.id));
+  const keys = new Set();
+  for (const dev of devs) {
+    const view = focusSlots.size ? filterDeviceBySlots(dev, focusSlots) : dev;
+    for (const p of view.ports || []) {
+      if (p.resource_key) keys.add(p.resource_key);
+    }
+  }
+  return keys.size ? keys : null;
+}
+
+function allowedPortKeysForFocus() {
+  const keys = basePortKeysForScope();
+  if (!lastTimeline) return keys;
+  const { fromMs, toMs } = timelineViewMs(lastTimeline);
+  const laneKeys = computeGranularFilterKeys({
+    graph: lastGraph,
+    timeline: lastTimeline,
+    fromMs,
+    toMs,
+    deviceIds: focusDeviceIds,
+    slots: focusSlots,
+    owners: ownerFilterSet,
+    portKeys: null,
+    highUsageOnly,
+    highUsageThreshold,
+  });
+  if (laneKeys?.size) {
+    if (keys) return new Set([...keys].filter((k) => laneKeys.has(k)));
+    return laneKeys;
+  }
+  return keys;
+}
+
+function portMatchesFocus(p, devId) {
+  const rkey = p.resource_key || '';
+  const allowed = allowedPortKeysForFocus();
+  if (allowed && !allowed.has(rkey)) return false;
+  if (portFilterText) {
+    const hay = `${p.label} ${devId} ${rkey}`.toLowerCase();
+    if (!hay.includes(portFilterText)) return false;
+  }
+  return true;
+}
+
+function renderPortList(graph) {
+  const ports = [];
+  for (const dev of graph.devices || []) {
+    for (const p of dev.ports || []) {
+      if (!portMatchesFocus(p, dev.label)) continue;
+      ports.push({ dev: dev.label, devId: dev.id, ...p });
+    }
+  }
+  ports.sort((a, b) => {
+    const d = (b.utilization?.duty_cycle_31d || 0) - (a.utilization?.duty_cycle_31d || 0);
+    if (d !== 0) return d;
+    if (b.utilization?.in_use && !a.utilization?.in_use) return 1;
+    if (a.utilization?.in_use && !b.utilization?.in_use) return -1;
+    return String(a.label).localeCompare(String(b.label));
+  });
+  const el = document.getElementById('ug-port-list');
+  el.innerHTML = ports.slice(0, 200).map((p) => {
+    const u = p.utilization || {};
+    const picked = portKeyFilter.has(p.resource_key);
+    const heat = (u.heatmap_31d || []).map((v) =>
+      `<span class="ug-heat-cell" style="background:${heatCellColor(v)}" title="${Math.round(v * 100)}%"></span>`
+    ).join('');
+    return `<div class="ug-port-row${picked ? ' ug-port-picked' : ''}" data-key="${p.resource_key}">
+      <div><input type="checkbox" class="ug-port-check" ${picked ? 'checked' : ''} tabindex="-1">
+        <strong>${p.dev}</strong> · ${p.label}
+        <span class="ug-duty-badge">${formatDuty(u.duty_cycle_31d)}</span>
+        ${u.in_use ? '<span style="color:#ef4444;margin-left:4px;">● live</span>' : ''}
+      </div>
+      <div class="ug-heat-row">${heat}</div>
+    </div>`;
+  }).join('') || '<div style="color:#64748b">No ports match filter.</div>';
+  el.querySelectorAll('.ug-port-row').forEach((row) => {
+    const key = row.dataset.key;
+    row.addEventListener('mouseenter', () => crossHover(key));
+    row.addEventListener('mouseleave', () => crossHover(null));
+    row.addEventListener('click', (ev) => {
+      if (ev.ctrlKey || ev.metaKey) {
+        ev.preventDefault();
+        if (portKeyFilter.has(key)) portKeyFilter.delete(key);
+        else portKeyFilter.add(key);
+        applyGranularFilters();
+        return;
+      }
+      const cb = row.querySelector('.ug-port-check');
+      if (ev.target === cb) {
+        if (portKeyFilter.has(key)) portKeyFilter.delete(key);
+        else portKeyFilter.add(key);
+        applyGranularFilters();
+        return;
+      }
+      setSideTab('info');
+      crossHover(key);
+    });
+  });
+}
+
+function renderDeviceBar(graph) {
+  const bar = document.getElementById('ug-device-bar');
+  const devs = graph.devices || [];
+  const allOn = !focusDeviceIds.size;
+  const pills = devs.length > 1
+    ? `<button type="button" class="ug-pill${allOn ? ' on' : ''}" data-device="all">All (${devs.length})</button>`
+    : '';
+  bar.innerHTML = `<span class="ug-pill-label">Chassis</span>${pills}<span class="ug-pill-hint">multi</span>${
+    devs.map((d) => {
+      const on = focusDeviceIds.size ? focusDeviceIds.has(d.id) : (devs.length === 1);
+      const catIp = lastTimeline?.catalog?.[d.id]?.mgmt_ip || '';
+      const ip = (d.ip || catIp || '').trim();
+      const ipSuffix = ip ? ` · ${ip}` : '';
+      const title = ip ? `${d.id} — ${ip}` : d.id;
+      return `<button type="button" class="ug-pill${on ? ' on' : ''}" data-device="${d.id}" title="${title}">${d.label || d.id}${ipSuffix}</button>`;
+    }).join('')
+  }`;
+  bar.querySelectorAll('.ug-pill[data-device]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.device === 'all') {
+        focusDeviceIds.clear();
+        focusSlots.clear();
+      } else {
+        const id = btn.dataset.device;
+        if (focusDeviceIds.has(id)) focusDeviceIds.delete(id);
+        else focusDeviceIds.add(id);
+      }
+      applyGranularFilters();
+    });
+  });
+  renderSlotBar(graph);
+}
+
+function renderSlotBar(graph) {
+  const bar = document.getElementById('ug-slot-bar');
+  const slots = listSlotsForDevices(graph, focusDeviceIds);
+  if (slots.length <= 1) {
+    bar.classList.remove('visible');
+    return;
+  }
+  bar.classList.add('visible');
+  const allOn = !focusSlots.size;
+  bar.innerHTML = `<span class="ug-pill-label">Fanout</span>
+    <button type="button" class="ug-pill${allOn ? ' on' : ''}" data-slot="all">All slots</button>
+    <span class="ug-pill-hint">multi</span>
+    ${slots.map((s) => `<button type="button" class="ug-pill${focusSlots.has(s) ? ' on' : ''}" data-slot="${s}">${s}</button>`).join('')}`;
+  bar.querySelectorAll('.ug-pill[data-slot]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.slot === 'all') {
+        focusSlots.clear();
+      } else {
+        const s = btn.dataset.slot;
+        if (focusSlots.has(s)) focusSlots.delete(s);
+        else focusSlots.add(s);
+      }
+      applyGranularFilters();
+    });
+  });
+}
+
+function setSideTab(tab) {
+  sideTab = tab;
+  document.querySelectorAll('.ug-rail-tab[data-tab]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.tab === tab);
+  });
+  document.getElementById('ug-panel-info').hidden = tab !== 'info';
+  document.getElementById('ug-panel-ports').hidden = tab !== 'ports';
+  document.getElementById('ug-panel-filter').hidden = tab !== 'filter';
+}
+
+function showDetail(node, device) {
+  setSideTab('info');
+  if (node.kind === 'port' && device) {
+    const rkey = node.id.replace(/^port:/, '');
+    crossHover(rkey);
+  } else {
+    crossHover(node.id);
+  }
+}
+
+function showLoadError(msg) {
+  const loading = document.getElementById('ug-loading');
+  loading.style.display = 'flex';
+  loading.textContent = msg;
+}
+window.showLoadError = showLoadError;
+
+function usageWindowPreset() {
+  const h = Number(document.getElementById('ug-range')?.value) || 4;
+  if (h >= 168) return '7d';
+  if (h >= 24) return '24h';
+  return '4h';
+}
+
+function paintTimeline(data, { forceRebuild = false } = {}) {
+  lastTimelineRaw = data;
+  const transformed = applyDataModeToTimeline(data, usageDataMode, usageWindowPreset());
+  lastTimeline = transformed;
+  const scrollEl = document.getElementById('ug-timeline-scroll');
+  const scrollTop = scrollEl?.scrollTop || 0;
+  if (forceRebuild && timelineInstance) {
+    timelineInstance.destroy();
+    timelineInstance = null;
+  }
+  const laneFilterKeys = intersectLaneKeys(
+    computeLaneFilterKeys(transformed),
+    computeSwitchDiscardLaneKeys(transformed),
+  );
+  applyDefaultOcsCollapse(transformed.catalog);
+  timelineInstance = renderTimelinePanel('#ug-timeline-host', transformed, {
+    enabledMetrics,
+    focusDeviceId: effectiveFocusDevice(),
+    focusDeviceIds: timelineFocusDeviceIds(),
+    includePortLanes,
+    collapsedDeviceKeys,
+    groupOrder: deviceGroupOrder,
+    onDeviceCollapseToggle: (deviceKey) => {
+      if (collapsedDeviceKeys.has(deviceKey)) collapsedDeviceKeys.delete(deviceKey);
+      else collapsedDeviceKeys.add(deviceKey);
+      paintTimeline(data);
+    },
+    laneFilterKeys,
+    showOverloadMarkers,
+    showDiscardMarkers: enabledMetrics.has('input_discards'),
+    showOwnershipVisuals,
+    showLinkVisuals,
+    overloadThreshold: highUsageThreshold,
+    onOwnerLegend: renderOwnerLegend,
+    onHover: crossHover,
+    onBrushFilter: (from, to, active) => {
+      brushActiveKeys = active;
+      syncTopologyFromFilters(data);
+      setBrushHint(from, to, combinedTopologyKeys(data)?.size || active?.size || 0);
+    },
+    onBrushChange: (from, to) => {
+      if (!from || !to) {
+        brushFrom = null;
+        brushTo = null;
+        brushActiveKeys = null;
+        applyGraphFilter(null, null, null);
+        if (!sliceFrom) loadTimeline().catch(() => {});
+        return;
+      }
+      brushFrom = from;
+      brushTo = to;
+      if (sliceFrom) {
+        paintTimeline(data);
+        syncTopologyFromFilters(data);
+      } else {
+        loadTimeline().catch(() => {});
+      }
+    },
+  });
+  renderTimelineSummaryStrip(data);
+  if (scrollEl) scrollEl.scrollTop = scrollTop;
+  if (hoverKey) crossHover(hoverKey);
+  syncTopologyFromFilters(data);
+  if (brushFrom && brushTo) {
+    setBrushHint(brushFrom, brushTo, combinedTopologyKeys(data)?.size || 0);
+  }
+}
+
+async function loadTimeline() {
+  const tlLoading = document.getElementById('ug-timeline-loading');
+  const seq = ++timelineLoadSeq;
+  if (timelineFetchController) timelineFetchController.abort();
+  timelineFetchController = new AbortController();
+  const { signal } = timelineFetchController;
+  tlLoading.style.display = 'flex';
+  tlLoading.textContent = 'Loading timeline…';
+  try {
+    const data = await fetchJson(`${TIMELINE_URL}?${timelineQuery()}`, { signal });
+    if (seq !== timelineLoadSeq) return;
+    document.getElementById('ug-window-label').textContent =
+      `${data.window?.from?.slice(0, 16) || ''} → ${data.window?.to?.slice(0, 16) || ''}`;
+    if (data.ok === false && data.error) {
+      tlLoading.textContent = data.error;
+      tlLoading.style.display = 'flex';
+      return;
+    }
+    scheduleTimelinePaint(data);
+    updateTimelineScaleHint();
+    tlLoading.style.display = 'none';
+  } catch (e) {
+    if (seq !== timelineLoadSeq) return;
+    tlLoading.textContent = 'Timeline unavailable: ' + e.message;
+    tlLoading.style.display = 'flex';
+  }
+}
+
+function repaintGraph() {
+  if (!lastGraph) return;
+  if (graphInstance) graphInstance.destroy();
+  const keys = lastTimeline ? combinedTopologyKeys(lastTimeline) : brushActiveKeys;
+  graphInstance = renderUsageGraph('#ug-svg-host', lastGraph, {
+    onSelect: (node, device) => showDetail(node, device),
+    onHover: crossHover,
+    activeKeys: keys,
+    focusDeviceIds: focusDeviceIds.size ? focusDeviceIds : null,
+    focusDeviceId: effectiveFocusDevice(),
+    focusSlots: focusSlots.size ? focusSlots : null,
+  });
+  renderPortList(lastGraph);
+  if (hoverKey) crossHover(hoverKey);
+}
+
+async function applyGraphPayload(graph) {
+  lastGraph = graph;
+  lastGraphLayoutKey = graphLayoutKey();
+  const stats = graph.meta?.stats || {};
+  document.getElementById('ug-stat-ports').textContent = stats.usage_ports_tracked ?? '0';
+  document.getElementById('ug-stat-inuse').textContent = stats.usage_ports_in_use ?? '0';
+  document.getElementById('ug-stat-episodes').textContent = stats.usage_episodes_31d ?? '0';
+  renderDeviceBar(graph);
+  renderFilterPanel();
+  updateFilterActiveLabel();
+  repaintGraph();
+}
+
+async function loadGraph() {
+  const loading = document.getElementById('ug-loading');
+  const seq = ++graphLoadSeq;
+  if (graphFetchController) graphFetchController.abort();
+  graphFetchController = new AbortController();
+  const { signal } = graphFetchController;
+  loading.style.display = 'flex';
+  loading.textContent = 'Loading topology…';
+  try {
+    const graph = await fetchJson(`${FABRIC_URL}?${FABRIC_QUICK_QS}`, { signal, timeoutMs: 60000 });
+    if (seq !== graphLoadSeq) return;
+    await applyGraphPayload(graph);
+    loading.style.display = 'none';
+
+    fetchJson(`${FABRIC_URL}?${FABRIC_LIVE_QS}`, { timeoutMs: 120000 })
+      .then((liveGraph) => {
+        if (seq !== graphLoadSeq || !liveGraph) return;
+        applyGraphPayload(liveGraph);
+      })
+      .catch(() => {});
+  } catch (e) {
+    if (seq !== graphLoadSeq) return;
+    loading.textContent = 'Failed to load: ' + e.message;
+    loading.style.display = 'flex';
+  }
+}
+
+function resetView() {
+  brushFrom = null;
+  brushTo = null;
+  brushActiveKeys = null;
+  sliceFrom = null;
+  sliceTo = null;
+  focusDeviceIds.clear();
+  focusSlots.clear();
+  portKeyFilter.clear();
+  ownerFilterSet.clear();
+  highUsageOnly = false;
+  document.getElementById('ug-high-usage-only').checked = false;
+  updateSliceLabel();
+  updateFilterActiveLabel();
+  renderFilterPanel();
+  applyGraphFilter(null, null, null);
+  if (graphInstance?.resetView) graphInstance.resetView();
+  loadTimeline().catch(() => {});
+}
+
+function applyTimelineSlice() {
+  if (brushFrom && brushTo) {
+    sliceFrom = new Date(brushFrom);
+    sliceTo = new Date(brushTo);
+  } else if (lastTimeline?.window) {
+    sliceFrom = new Date(lastTimeline.window.from);
+    sliceTo = new Date(lastTimeline.window.to);
+  } else {
+    return;
+  }
+  brushFrom = null;
+  brushTo = null;
+  brushActiveKeys = null;
+  updateSliceLabel();
+  loadTimeline().catch(() => {});
+}
+
+function clearTimelineSlice() {
+  sliceFrom = null;
+  sliceTo = null;
+  updateSliceLabel();
+  loadTimeline().catch(() => {});
+}
+
+function applyDockHeight(px) {
+  const dock = document.getElementById('ug-timeline-dock');
+  const h = Math.min(window.innerHeight * 0.7, Math.max(120, Math.round(px)));
+  dock.style.setProperty('--ug-tl-h', `${h}px`);
+  dock.style.height = `${h}px`;
+  try { localStorage.setItem(TL_HEIGHT_KEY, String(h)); } catch (_) { /* ignore */ }
+}
+
+function setTimelineFullscreen(on) {
+  timelineFullscreen = !!on;
+  const wrap = document.getElementById('ug-wrap');
+  const dock = document.getElementById('ug-timeline-dock');
+  if (timelineFullscreen) {
+    dockHeightBeforeFullscreen = dock.getBoundingClientRect().height;
+    dock.classList.remove('collapsed');
+    document.getElementById('ug-timeline-toggle').textContent = 'Hide';
+    dock.style.height = '';
+  } else if (dockHeightBeforeFullscreen != null) {
+    applyDockHeight(dockHeightBeforeFullscreen);
+    dockHeightBeforeFullscreen = null;
+  }
+  wrap.classList.toggle('tl-fullscreen', timelineFullscreen);
+  document.getElementById('ug-timeline-fullscreen').textContent = timelineFullscreen ? 'Exit' : 'Full';
+  if (timelineInstance && lastTimelineRaw) scheduleTimelinePaint(lastTimelineRaw);
+  else if (graphInstance?.resetView) setTimeout(() => graphInstance.resetView(), 150);
+}
+
+async function refreshAll() {
+  // Topology first (fast cached path), then timeline — avoids both blocking on slow SSH/catalog.
+  await loadGraph();
+  await loadTimeline();
+}
+
+function setupAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = null;
+  if (document.getElementById('ug-auto-refresh').checked) {
+    refreshTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshAll().catch(() => {});
+    }, 60000);
+  }
+}
+
+function setupRail() {
+  const rail = document.getElementById('ug-rail');
+  const toggle = document.getElementById('ug-rail-toggle');
+  toggle.addEventListener('click', () => {
+    const collapsed = rail.classList.toggle('collapsed');
+    rail.classList.toggle('expanded', !collapsed);
+    toggle.textContent = collapsed ? '‹' : '›';
+    if (graphInstance?.resetView) setTimeout(() => graphInstance.resetView(), 180);
+  });
+  document.querySelectorAll('.ug-rail-tab[data-tab]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (rail.classList.contains('collapsed')) {
+        rail.classList.remove('collapsed');
+        rail.classList.add('expanded');
+        toggle.textContent = '›';
+      }
+      setSideTab(btn.dataset.tab);
+    });
+  });
+}
+
+function setupTimelineDock() {
+  const dock = document.getElementById('ug-timeline-dock');
+  const toggle = document.getElementById('ug-timeline-toggle');
+  const handle = document.getElementById('ug-timeline-resize');
+  try {
+    const saved = parseInt(localStorage.getItem(TL_HEIGHT_KEY) || '', 10);
+    if (saved >= 120) applyDockHeight(saved);
+  } catch (_) { /* ignore */ }
+  toggle.addEventListener('click', () => {
+    if (timelineFullscreen) return;
+    const collapsed = dock.classList.toggle('collapsed');
+    toggle.textContent = collapsed ? 'Show' : 'Hide';
+    if (!collapsed && graphInstance?.resetView) setTimeout(() => graphInstance.resetView(), 150);
+  });
+  document.getElementById('ug-port-lanes').addEventListener('change', (e) => {
+    includePortLanes = e.target.checked;
+    if (!includePortLanes) collapsedDeviceKeys.clear();
+    lastGraphLayoutKey = graphLayoutKey();
+    if (lastTimelineRaw) scheduleTimelineRefresh();
+  });
+  document.getElementById('ug-high-usage-only').addEventListener('change', (e) => {
+    highUsageOnly = e.target.checked;
+    applyGranularFilters();
+  });
+  document.getElementById('ug-high-usage-threshold').addEventListener('change', (e) => {
+    highUsageThreshold = parseInt(e.target.value, 10) || PCT_WARN;
+    if (highUsageOnly) applyGranularFilters();
+    else if (lastTimelineRaw) scheduleTimelineRefresh();
+  });
+  document.getElementById('ug-ownership-visuals').addEventListener('change', (e) => {
+    showOwnershipVisuals = e.target.checked;
+    if (lastTimelineRaw) scheduleTimelineRefresh();
+  });
+  document.getElementById('ug-link-visuals').addEventListener('change', (e) => {
+    showLinkVisuals = e.target.checked;
+    if (lastTimelineRaw) scheduleTimelineRefresh();
+  });
+  document.getElementById('ug-overload-markers').addEventListener('change', (e) => {
+    showOverloadMarkers = e.target.checked;
+    if (lastTimelineRaw) scheduleTimelineRefresh();
+  });
+  const discardMappedEl = document.getElementById('ug-discard-mapped-only');
+  if (discardMappedEl) {
+    discardMappedEl.checked = switchDiscardMappedOnly;
+    discardMappedEl.addEventListener('change', (e) => {
+      switchDiscardMappedOnly = !!e.target.checked;
+      sessionStorage.setItem(SWITCH_DISCARD_SCOPE_KEY, switchDiscardMappedOnly ? 'mapped' : 'all');
+      if (lastTimelineRaw) scheduleTimelineRefresh();
+    });
+  }
+  document.getElementById('ug-slice-apply').addEventListener('click', () => applyTimelineSlice());
+  document.getElementById('ug-slice-clear').addEventListener('click', () => clearTimelineSlice());
+  document.getElementById('ug-timeline-fullscreen').addEventListener('click', () => {
+    setTimelineFullscreen(!timelineFullscreen);
+  });
+  document.getElementById('ug-exit-fullscreen').addEventListener('click', () => {
+    setTimelineFullscreen(false);
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && timelineFullscreen) setTimelineFullscreen(false);
+  });
+  let dragging = false;
+  let startY = 0;
+  let startH = 0;
+  handle.addEventListener('mousedown', (e) => {
+    if (timelineFullscreen) return;
+    dragging = true;
+    startY = e.clientY;
+    startH = dock.getBoundingClientRect().height;
+    dock.classList.remove('collapsed');
+    document.getElementById('ug-timeline-toggle').textContent = 'Hide';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const delta = startY - e.clientY;
+    applyDockHeight(startH + delta);
+  });
+  window.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    if (graphInstance?.resetView) setTimeout(() => graphInstance.resetView(), 80);
+    if (timelineInstance && lastTimelineRaw) paintTimeline(lastTimelineRaw);
+  });
+}
+
+initMetricChips();
+renderGroupOrderBar();
+setupRail();
+setupTimelineDock();
+document.getElementById('ug-owner-toggle')?.addEventListener('click', () => {
+  ownersLegendExpanded = !ownersLegendExpanded;
+  renderOwnerLegend(lastOwnerLegendEntries);
+});
+document.getElementById('ug-clear-filters').addEventListener('click', () => {
+  focusDeviceIds.clear();
+  focusSlots.clear();
+  portKeyFilter.clear();
+  ownerFilterSet.clear();
+  highUsageOnly = false;
+  document.getElementById('ug-high-usage-only').checked = false;
+  applyGranularFilters();
+});
+document.getElementById('ug-port-filter').addEventListener('input', (e) => {
+  portFilterText = e.target.value.trim().toLowerCase();
+  if (lastGraph) renderPortList(lastGraph);
+});
+document.getElementById('ug-range').addEventListener('change', () => {
+  sliceFrom = null;
+  sliceTo = null;
+  updateSliceLabel();
+  updateTimelineScaleHint();
+  resetView();
+});
+document.getElementById('ug-reset-btn').addEventListener('click', resetView);
+document.getElementById('ug-refresh-btn').addEventListener('click', () => refreshAll().catch(() => {}));
+document.getElementById('ug-auto-refresh').addEventListener('change', setupAutoRefresh);
+mountDataModeToggle(document.getElementById('ug-data-mode'), {
+  initial: usageDataMode,
+  onChange: (m) => {
+    usageDataMode = m;
+    if (lastTimelineRaw) scheduleTimelinePaint(lastTimelineRaw);
+  },
+});
+function onThemeRefresh() {
+  if (lastTimelineRaw) scheduleTimelinePaint(lastTimelineRaw, { forceRebuild: true });
+  if (graphInstance?.resetView) setTimeout(() => graphInstance.resetView(), 80);
+}
+window.addEventListener('topo-theme-change', onThemeRefresh);
+window.addEventListener('usage-theme-change', onThemeRefresh);
+
+refreshAll().catch((e) => showLoadError('Failed to load: ' + e.message));
+setupAutoRefresh();
+</script>
+<script>
+window.addEventListener('error', (e) => {
+  if (String(e.filename || '').includes('usage-force-graph') || String(e.filename || '').includes('timeline-graph')) {
+    showLoadError('Graph script failed to load. Try a hard refresh (Ctrl+Shift+R).');
+  }
+}, true);
+</script>
+{% endblock %}

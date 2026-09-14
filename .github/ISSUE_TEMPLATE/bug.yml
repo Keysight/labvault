@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a defect in the public LabVault customer SKU
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include secrets, customer inventory, or internal hostnames.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Sanitized steps only (RFC 5737 addresses, no live lab IPs).
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version / tag

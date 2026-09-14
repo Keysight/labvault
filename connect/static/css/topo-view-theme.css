@@ -1,0 +1,187 @@
+/* Shared topology view themes (Classic / Grey / Light) — Fabric, Usage, Lab Pulse */
+
+body.pf-theme-grey.lv-topology-page {
+  background: #1e2533;
+}
+
+body.pf-theme-light.lv-topology-page {
+  background: #faf9f5;
+}
+
+/* ── Fabric Map ─────────────────────────────────────────────────────────── */
+body.pf-theme-grey.lv-topology-page--fabric #fm-canvas-col {
+  background: #1a2030;
+}
+body.pf-theme-light.lv-topology-page--fabric #fm-canvas-col {
+  background: #faf9f5;
+}
+body.pf-theme-light.lv-topology-page--fabric .fm-panel {
+  background: #ffffff;
+  border-color: #e5e4df;
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--fabric .fm-panel h6 {
+  color: #c96442;
+}
+body.pf-theme-grey.lv-topology-page--fabric .fm-panel {
+  background: #252d3e;
+  border-color: #3a4560;
+}
+
+/* ── Usage timeline ─────────────────────────────────────────────────────── */
+body.pf-theme-grey.lv-topology-page--usage #ug-center {
+  background: #1a2030;
+}
+body.pf-theme-light.lv-topology-page--usage #ug-center {
+  background: #faf9f5;
+}
+body.pf-theme-light.lv-topology-page--usage #ug-toolbar {
+  background: #f5f4f0;
+  border-bottom-color: #e5e4df;
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--usage #ug-toolbar select,
+body.pf-theme-light.lv-topology-page--usage #ug-toolbar button {
+  background: #ffffff;
+  color: #1f1e1d;
+  border-color: #d4d3ce;
+}
+body.pf-theme-light.lv-topology-page--usage .ug-metric-chip {
+  background: #ffffff;
+  border-color: #d4d3ce;
+  color: #6b6966;
+}
+body.pf-theme-light.lv-topology-page--usage .ug-metric-chip.on {
+  background: #fff0eb;
+  border-color: #c96442;
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--usage .ug-pill {
+  background: #ffffff;
+  border-color: #d4d3ce;
+  color: #6b6966;
+}
+body.pf-theme-light.lv-topology-page--usage .ug-pill.on {
+  background: #fff0eb;
+  border-color: #c96442;
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--usage #ug-side {
+  background: #ffffff;
+  border-color: #e5e4df;
+  color: #1f1e1d;
+}
+body.pf-theme-grey.lv-topology-page--usage #ug-toolbar {
+  background: #252d3e;
+  border-bottom-color: #3a4560;
+}
+
+body.lv-topology-page--usage {
+  --tl-lane-bg-even: rgba(10, 22, 40, 0.4);
+  --tl-lane-bg-odd: rgba(13, 27, 42, 0.27);
+  --tl-label: #e2e8f0;
+  --tl-label-muted: #94a3b8;
+  --tl-axis: #94a3b8;
+  --tl-sep: #1e3a5f;
+}
+body.pf-theme-grey.lv-topology-page--usage {
+  --tl-lane-bg-even: rgba(30, 37, 51, 0.85);
+  --tl-lane-bg-odd: rgba(37, 45, 62, 0.75);
+}
+body.pf-theme-light.lv-topology-page--usage {
+  --tl-lane-bg-even: rgba(241, 245, 249, 0.95);
+  --tl-lane-bg-odd: rgba(226, 232, 240, 0.85);
+  --tl-label: #1e293b;
+  --tl-label-muted: #64748b;
+  --tl-axis: #475569;
+  --tl-sep: #cbd5e1;
+}
+body.pf-theme-light.lv-topology-page--usage #ug-timeline-dock,
+body.pf-theme-light.lv-topology-page--usage #ug-timeline-head {
+  background: #ffffff;
+  border-color: #e5e4df;
+  color: #1f1e1d;
+}
+body.pf-theme-grey.lv-topology-page--usage #ug-timeline-dock,
+body.pf-theme-grey.lv-topology-page--usage #ug-timeline-head {
+  background: #252d3e;
+  border-color: #3a4560;
+}
+
+/* ── Lab Pulse (usage insights) ─────────────────────────────────────────── */
+body.pf-theme-grey.lv-topology-page--insights .lv-topo-workspace.ui-insights {
+  background: #1a2030;
+}
+body.pf-theme-light.lv-topology-page--insights .lv-topo-workspace.ui-insights {
+  background: #faf9f5;
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-toolbar {
+  background: #f5f4f0;
+  border-bottom-color: #e5e4df;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-title {
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-subtitle {
+  color: #6b6966;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-toolbar-mid select,
+body.pf-theme-light.lv-topology-page--insights .ui-btn {
+  background: #ffffff;
+  color: #1f1e1d;
+  border-color: #d4d3ce;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-view-tab {
+  border-color: #d4d3ce;
+  color: #6b6966;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-view-tab.on {
+  background: #fff0eb;
+  border-color: #c96442;
+  color: #9a3412;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-card,
+body.pf-theme-light.lv-topology-page--insights .ui-kpi {
+  background: #ffffff;
+  border-color: #e5e4df;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-card h2 {
+  color: #c96442;
+}
+body.pf-theme-light.lv-topology-page--insights .ui-kpi-val {
+  color: #1f1e1d;
+}
+
+body.pf-theme-light.lv-topology-page--graph .ugv-workspace {
+  background: #f5f4ef;
+  color: #1f1e1d;
+}
+body.pf-theme-light.lv-topology-page--graph .ugv-toolbar,
+body.pf-theme-light.lv-topology-page--graph .ugv-card,
+body.pf-theme-light.lv-topology-page--graph .ugv-detail {
+  background: #ffffff;
+  border-color: #e5e4df;
+}
+body.pf-theme-light.lv-topology-page--graph .ugv-title { color: #1f1e1d; }
+body.pf-theme-light.lv-topology-page--graph .lv-insights-tab.on {
+  background: #fce7f3;
+  border-color: #be185d;
+  color: #9d174d;
+}
+
+/* Primary-row theme control */
+.lv-tb-themes--primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+.lv-tb-label--theme {
+  color: var(--lv-topbar-muted, #64748b);
+  margin-right: 0;
+}
+.lv-tb-label--theme i {
+  font-size: 0.85rem;
+}

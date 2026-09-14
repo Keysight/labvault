@@ -1,0 +1,33 @@
+{% extends 'connect/base.html' %}
+{% block title %}Security Policies - {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block page_title %}Policies: {{ device.hostname|default:device.ip_address }}{% endblock %}
+{% block content %}
+<div class="mb-3"><a href="{% url 'device_detail' device.id %}" class="btn btn-sm btn-outline-secondary"><i class="fas fa-arrow-left me-1"></i> Back</a></div>
+{% if not is_firewall %}
+<div class="alert alert-info"><i class="fas fa-info-circle me-2"></i> Security policies are only available for firewall devices (FortiGate, Palo Alto).</div>
+{% endif %}
+<div class="card-custom">
+    <div class="card-header"><i class="fas fa-shield-alt me-2"></i> Security Policies ({{ policies|length }})</div>
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-sm table-hover mb-0">
+                <thead><tr><th>ID</th><th>Name</th><th>Src Zone</th><th>Dst Zone</th><th>Src Addr</th><th>Dst Addr</th><th>Service</th><th>Action</th><th>Status</th></tr></thead>
+                <tbody>
+                    {% for p in policies %}
+                    <tr>
+                        <td>{{ p.id }}</td><td class="fw-bold">{{ p.name }}</td>
+                        <td>{{ p.srcintf }}</td><td>{{ p.dstintf }}</td>
+                        <td style="font-size:0.8rem;">{{ p.srcaddr }}</td><td style="font-size:0.8rem;">{{ p.dstaddr }}</td>
+                        <td style="font-size:0.8rem;">{{ p.service }}</td>
+                        <td><span class="badge {% if p.action == 'accept' or p.action == 'allow' %}bg-success{% else %}bg-danger{% endif %}">{{ p.action }}</span></td>
+                        <td><span class="badge {% if p.status == 'enabled' %}bg-success{% else %}bg-secondary{% endif %}">{{ p.status }}</span></td>
+                    </tr>
+                    {% empty %}
+                    <tr><td colspan="9" class="text-center text-muted py-3">No policies found</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

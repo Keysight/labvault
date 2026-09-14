@@ -1,0 +1,74 @@
+{% extends 'connect/base.html' %}
+{% block title %}Import - LabVault{% endblock %}
+{% block page_title %}LabVault Import{% endblock %}
+
+{% block content %}
+<div class="row g-4">
+    <div class="col-lg-6">
+        <div class="card-custom mb-4">
+            <div class="card-header"><i class="fas fa-box-archive me-2"></i> Import multibundle (.tar.gz)</div>
+            <div class="card-body">
+                <p style="font-size:.85rem;color:#555;">
+                    Upload a bundle from
+                    <a href="{% url 'export_labvault_dataset' %}">DATA → Export</a>
+                    (multibundle section). Restores inventory, OCS site config, lab topologies, and LLDP cache.
+                </p>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <label class="form-label" style="font-size:.8rem;">LabVault multibundle</label>
+                    <input type="file" name="bundle_file" accept=".tar.gz,.tgz,application/gzip" class="form-control form-control-sm" required>
+                    <div class="form-check" style="font-size:.8rem;">
+                        <input class="form-check-input" type="checkbox" name="import_databases" id="import_databases" value="1">
+                        <label class="form-check-label" for="import_databases">Overwrite SQLite databases (restart required)</label>
+                    </div>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-nc"><i class="fas fa-upload me-1"></i> Import multibundle</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-database me-2"></i> Import full LabVault dataset</div>
+            <div class="card-body">
+                <p style="font-size:.85rem;color:#555;">
+                    Upload a JSON file produced from
+                    <a href="{% url 'export_labvault_dataset' %}">DATA → Export</a>.
+                    This replaces or updates devices, Keysight data, audit logs, and change-log events.
+                    according to the import logic (staff only).
+                </p>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    <label class="form-label" style="font-size:.8rem;">LabVault export JSON</label>
+                    <input type="file" name="labvault_file" accept=".json,application/json" class="form-control form-control-sm" required>
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-nc"><i class="fas fa-upload me-1"></i> Import full dataset</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-file-import me-2"></i> Import devices from CSV</div>
+            <div class="card-body">
+                <div class="alert alert-info" style="font-size:.8rem;">
+                    <strong>CSV headers:</strong>
+                    <code>IP Address, Username, Password, Vendor, Tags, Notes, Site, Group, API Port, API Key</code>
+                </div>
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    {{ form.csv_file }}
+                    <div class="mt-3">
+                        <button type="submit" class="btn btn-outline-secondary btn-sm">
+                            <i class="fas fa-upload me-1"></i> Import CSV only
+                        </button>
+                    </div>
+                </form>
+                <p class="text-muted mt-3 mb-0" style="font-size:.75rem;">
+                    For a CSV export of devices only, use <a href="{% url 'export_labvault_dataset' %}">DATA → Export</a>.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,104 @@
+{% extends 'connect/base.html' %}
+{% block title %}Add Device - LabVault{% endblock %}
+{% block page_title %}Add Device{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="card-custom">
+            <div class="card-header"><i class="fas fa-plus-circle me-2"></i> Add New Device</div>
+            <div class="card-body p-4">
+                <form method="post">
+                    {% csrf_token %}
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">IPv4 (DHCP)</label>
+                            {{ form.ip_address }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Hostname (FQDN)</label>
+                            {{ form.hostname }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">IPv6 (observed)</label>
+                            {{ form.mgmt_ipv6 }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">{{ form.mgmt_ipv6_source.label }}</label>
+                            {{ form.mgmt_ipv6_source }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">{{ form.preferred_ip_version.label }}</label>
+                            {{ form.preferred_ip_version }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Vendor Type</label>
+                            {{ form.vendor_type }}
+                            <div class="form-text">Select the device OS/vendor</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Username</label>
+                            {{ form.username }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Password</label>
+                            {{ form.password }}
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">Transport</label>
+                            {{ form.transport }}
+                            <div class="form-text">Auto tries HTTPS then HTTP</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">API Port</label>
+                            {{ form.api_port }}
+                            <div class="form-text">Leave blank for default</div>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label fw-bold">API Key</label>
+                            {{ form.api_key }}
+                            <div class="form-text">For FortiGate/Palo Alto</div>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Enable Password</label>
+                            {{ form.enable_password }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">SNMP Community</label>
+                            {{ form.snmp_community }}
+                            <div class="form-text">For Keysight (default: public)</div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Site</label>
+                            {{ form.site }}
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label fw-bold">Group</label>
+                            {{ form.group_name }}
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label fw-bold">Tags</label>
+                            {{ form.tags }}
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label fw-bold">Notes</label>
+                            {{ form.notes }}
+                        </div>
+                    </div>
+                    {% if form.errors %}
+                    <div class="alert alert-danger mt-3">
+                        {% for field, errors in form.errors.items %}
+                            {% for error in errors %}<div>{{ error }}</div>{% endfor %}
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="mt-4 d-flex gap-2">
+                        <button type="submit" class="btn btn-nc"><i class="fas fa-plus me-1"></i> Add Device</button>
+                        <a href="{% url 'dashboard' %}" class="btn btn-outline-secondary">Cancel</a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
