@@ -1,0 +1,30 @@
+{
+  "format": "labvault-full-export",
+  "version": 1,
+  "exported_at": "2026-09-14T00:00:00+00:00",
+  "media_root_note": "",
+  "counts": {
+    "devices": 0,
+    "keysight_chassis": 0,
+    "reservations": 0,
+    "reservation_items": 0,
+    "audit_logs": 0,
+    "changelog_events": 0,
+    "lab_topologies": 0
+  },
+  "devices": [],
+  "keysight_chassis": [],
+  "keysight_reservations": [],
+  "keysight_reservation_items": [],
+  "keysight_bmc_endpoints": [],
+  "keysight_subnet_scans": [],
+  "keysight_deployment_jobs": [],
+  "audit_logs": [],
+  "request_logs": [],
+  "config_backups": [],
+  "changelog_events": [],
+  "device_state_baselines": [],
+  "lab_topologies": [],
+  "topology_links": [],
+  "capex": {}
+}

@@ -7,7 +7,9 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 
 from connect.diagnostics import build_diagnostics_bundle_files, build_diagnostics_payload
 from connect.diagnostics_log_store import read_host_logs
@@ -45,3 +47,15 @@ class DiagnosticsPayloadTests(TestCase):
         files = build_diagnostics_bundle_files(log_limit=50)
         self.assertIn('full_report.json', files)
         self.assertIn('sections/workers.json', files)
+
+    def test_diagnostics_center_url_resolves(self):
+        self.assertEqual(reverse('diagnostics_center'), '/diagnostics/')
+
+    def test_diagnostics_center_requires_staff(self):
+        r = self.client.get('/diagnostics/')
+        self.assertIn(r.status_code, (302, 403))
+        User = get_user_model()
+        staff = User.objects.create_user('diagstaff', password='x' * 12, is_staff=True)
+        self.client.force_login(staff)
+        r = self.client.get('/diagnostics/')
+        self.assertEqual(r.status_code, 200)

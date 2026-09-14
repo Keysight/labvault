@@ -18,4 +18,4 @@
 | Fleet `missed_heartbeat` on (almost) every chassis | Heartbeat lock `/tmp/labvault_fleet_heartbeat.lock` recreated as `root:root` by `docker compose exec` (no `-u labvault`); worker then loops `Permission denied` and never refreshes the store | `rm` the root-owned lock (or restart so entrypoint removes it); lock now prefers `/app/var/django_cache/fleet_heartbeat.lock`; always `docker compose exec -u labvault …` |
 | Lab Pulse / topology insights empty | Collector not running; `collect_all_topologies` import missing; or `NP_TIMESERIES_DATABASE_URL` ignored because `dj_database_url.config()` preferred `DATABASE_URL` | Ensure `collector` is up (`docs/admin/SERVICES.md`); settings use `dj_database_url.parse(url)`; migrate `--database np_timeseries` |
 
-CLI: `diag cheap`. UI: diagnostics export.
+CLI: `diag cheap`. UI: staff Diagnostics Center at `/diagnostics/` (export + bundle from that page).

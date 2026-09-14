@@ -7,7 +7,7 @@ Every customer-facing surface, with primary URL and doc.
 | Module | Primary URLs | Doc |
 |--------|--------------|-----|
 | Dashboard | `/` `/dashboard/` | [user/INVENTORY.md](user/INVENTORY.md) |
-| Devices | device CRUD, health, terminal, backups | [user/DEVICES.md](user/DEVICES.md) |
+| Devices | device CRUD, health, backups | [user/DEVICES.md](user/DEVICES.md) |
 | Keysight / Ixia chassis | `/keysight/*` | [user/KEYSIGHT_CHASSIS.md](user/KEYSIGHT_CHASSIS.md) |
 | BMC / node inventory | BMC associations, board, node inventory | [user/KEYSIGHT_CHASSIS.md](user/KEYSIGHT_CHASSIS.md) |
 | Reservations | `/keysight/reservations/*` | [user/RESERVATIONS.md](user/RESERVATIONS.md) |
@@ -18,7 +18,7 @@ Every customer-facing surface, with primary URL and doc.
 | Reports | fleet / inventory / SLA / change log | [user/REPORTS.md](user/REPORTS.md) |
 | Alerts / compliance | monitoring + compliance nav | [user/ALERTS.md](user/ALERTS.md) |
 | Audit | `/audit_log/` | [user/AUDIT.md](user/AUDIT.md) |
-| Diagnostics | diagnostics export / live / ingest | [admin/TROUBLESHOOTING.md](admin/TROUBLESHOOTING.md) |
+| Diagnostics | `/diagnostics/` plus export / live / ingest | [admin/TROUBLESHOOTING.md](admin/TROUBLESHOOTING.md) |
 | OCS patch snapshots | `/api/ocs/<id>/snapshots/` | [user/FABRIC.md](user/FABRIC.md) |
 | Import / export | dataset + bundle commands/UI | [admin/BACKUP_RESTORE.md](admin/BACKUP_RESTORE.md) |
 | Settings / tokens / webhooks | `/settings/` | [admin/RUNTIME_SETTINGS.md](admin/RUNTIME_SETTINGS.md) · rotate tokens: [getting-started/FIRST_LOGIN.md](getting-started/FIRST_LOGIN.md) |

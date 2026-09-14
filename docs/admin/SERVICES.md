@@ -24,8 +24,8 @@ Without the **shared Django cache volume/dir**, web cannot see heartbeat writes.
 |--------------|---------|---------|-------|
 | **cli-ssh** | `cli-ssh` (:2222) | `labvault-cli-ssh` | Appliance CLI over SSH (staff auth, no OS shell) |
 | **opsd** | host unit `labvault-opsd` | `labvault-opsd` | Unix socket lifecycle broker; same unit name on every mode |
-| **refresh** | — | `labvault-refresh` | Device refresh loop (bare metal) |
-| **jobs** | — | `labvault-cli-worker` | Async CLI jobs (bare metal) |
+| **refresh** | `refresh` | `labvault-refresh` | Device refresh loop |
+| **jobs** | `jobs` | `labvault-cli-worker` | Async CLI jobs |
 | **nginx** | `nginx` | `nginx` | TLS **:9443** → gunicorn `:8000`; optional `:80` redirect |
 
 Aliases accepted by CLI/opsd (always resolved to the logical name): `metrics_db` → `metrics-db`, `cli_ssh` → `cli-ssh`, `cli-worker` → `jobs`.

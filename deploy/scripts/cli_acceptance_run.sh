@@ -42,6 +42,6 @@ if [[ -f "$STATE/bootstrap-credentials" ]]; then
   # shellcheck disable=SC1090
   source <(sed -n 's/^username=/LABVAULT_CLI_USER=/p;s/^password=/LABVAULT_CLI_PASSWORD=/p' "$STATE/bootstrap-credentials")
   LABVAULT_CLI_SSH_HOST=127.0.0.1 LABVAULT_CLI_SSH_PORT="${LABVAULT_CLI_SSH_PORT:-2222}" \
-    python3 "$ROOT/deploy/scripts/cli_ssh_smoke.py" || true
+    python3 "$ROOT/deploy/scripts/cli_ssh_smoke.py"
 fi
 echo "ACCEPTANCE_LOG=$LOG"

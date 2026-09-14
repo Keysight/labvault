@@ -1,6 +1,6 @@
 # Devices
 
-Devices are generic managed nodes: create/edit/delete, health, protocol/environment views where supported, terminal access, and configuration backups.
+Devices are generic managed nodes: create/edit/delete, health, protocol/environment views where supported, and configuration backups. Free-form device shells are not shipped.
 
 | Action | Where |
 |--------|--------|

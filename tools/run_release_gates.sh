@@ -19,7 +19,10 @@ fi
 "$PY" manage.py test connect.tests.test_hard_dump connect.tests.test_bootstrap_defaults \
   connect.tests.test_csrf_exempt_inventory connect.tests.test_labvault_cli_catalog \
   connect.tests.test_redact_payload connect.tests.test_validate_external_config \
-  connect.tests.test_device_detail_render --verbosity=1
+  connect.tests.test_device_detail_render connect.tests.test_tls_settings \
+  connect.tests.test_diagnostics connect.tests.test_cli_ssh_auth \
+  connect.tests.test_labvault_cli_commands connect.tests.test_health_endpoints \
+  --verbosity=1
 if [[ -f .env ]]; then
   docker compose -f deploy/compose/docker-compose.yml config >/dev/null
 elif command -v docker >/dev/null; then

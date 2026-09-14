@@ -7,11 +7,11 @@
 
 Send `Authorization: Bearer <token>` on `/api/fleet/*`. Missing/invalid token → 401.
 
-## Lab/demo default (rotate on first login)
+## Install token (rotate on first login)
 
-Oneshot seeds token name `demo-api`, value `labvault-default-api-token`.
+Oneshot seeds token **name** `demo-api`. The **value** is random and written to `/var/lib/labvault/fleet-token` unless `LABVAULT_DEMO_DEFAULTS=1`, which uses the published demo value `labvault-default-api-token`.
 
-That string is public. Replace it before sharing the host. Steps: [getting-started/FIRST_LOGIN.md](../getting-started/FIRST_LOGIN.md) §2.
+Rotate before sharing the host. Steps: [getting-started/FIRST_LOGIN.md](../getting-started/FIRST_LOGIN.md) §2.
 
 Short version:
 

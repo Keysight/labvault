@@ -3,6 +3,7 @@
 ## Unreleased (customer SKU)
 
 - Default customer URL is HTTPS **:9443** (nginx TLS). Gunicorn stays on loopback `:8000`.
+- Diagnostics Center is at `/diagnostics/` (staff). Appliance SSH smoke is fail-closed after oneshot.
 
 - Oneshot installers: compose, systemd, airgap + wheelhouse builder
 - `LABVAULT_RESTORE_DATASET` restores a live lab and turns Lab Pulse on in one shot

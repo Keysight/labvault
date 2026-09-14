@@ -65,7 +65,7 @@ if [[ "$ADAPTER" == "compose" ]]; then
     if [[ -S /run/labvault/ops.sock ]]; then
       pass "opsd socket present"
     else
-      fail "opsd socket missing at /run/labvault/ops.sock — enable labvault-opsd-compose"
+      fail "opsd socket missing at /run/labvault/ops.sock — enable labvault-opsd"
     fi
     # CLI SSH port
     if python3 - <<'PY'

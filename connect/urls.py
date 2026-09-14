@@ -219,6 +219,7 @@ urlpatterns = [
     path('api/ocs/snapshots/<int:snapshot_id>/restore/', views.api_ocs_snapshot_restore, name='api_ocs_snapshot_restore'),
     path('api/ocs/<str:device_ip>/crossconnects/', views_ocs_xconnect.api_ocs_crossconnects_list, name='api_ocs_crossconnects_list'),
     path('api/ocs/<str:device_ip>/crossconnect/', views_ocs_xconnect.api_ocs_crossconnect_mutate, name='api_ocs_crossconnect_mutate'),
+    path('diagnostics/', diagnostics_views.diagnostics_center, name='diagnostics_center'),
     path('diagnostics/export/', diagnostics_views.diagnostics_export_page, name='diagnostics_export'),
     path('diagnostics/bundle/', diagnostics_views.diagnostics_bundle_export, name='diagnostics_bundle_export'),
     path('diagnostics/live.json', diagnostics_views.diagnostics_json_live, name='diagnostics_json_live'),

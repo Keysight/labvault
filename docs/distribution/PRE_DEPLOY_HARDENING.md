@@ -17,7 +17,7 @@
 ## Operator checklist before production
 
 1. Strong `DJANGO_SECRET_KEY` (≥32, not placeholder).
-2. Rotate bootstrap admin password and fleet API token ([FIRST_LOGIN[../getting-started/FIRST_LOGIN.md)).
+2. Rotate bootstrap admin password and fleet API token ([FIRST_LOGIN](../getting-started/FIRST_LOGIN.md)).
 3. Prefer Postgres URLs (Compose oneshot already uses in-stack Postgres).
 4. TLS is default on **:9443**; do not publish gunicorn `:8000` or `:2222` to untrusted networks without controls.
 5. Run `./deploy/scripts/post_deploy_verify.sh` after install.

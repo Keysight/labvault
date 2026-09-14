@@ -22,6 +22,6 @@ jobs:
           python manage.py makemigrations --check --dry-run
           python tools/check_public_source.py --target .
           python tools/check_docs.py
-          python manage.py test connect.tests.test_hard_dump connect.tests.test_bootstrap_defaults connect.tests.test_csrf_exempt_inventory connect.tests.test_labvault_cli_catalog connect.tests.test_redact_payload connect.tests.test_device_detail_render connect.tests.test_validate_external_config --verbosity=1
+          python manage.py test connect.tests.test_hard_dump connect.tests.test_bootstrap_defaults connect.tests.test_csrf_exempt_inventory connect.tests.test_labvault_cli_catalog connect.tests.test_redact_payload connect.tests.test_device_detail_render connect.tests.test_validate_external_config connect.tests.test_tls_settings connect.tests.test_diagnostics connect.tests.test_cli_ssh_auth connect.tests.test_labvault_cli_commands connect.tests.test_health_endpoints --verbosity=1
           cp -n .env.example .env
           docker compose -f deploy/compose/docker-compose.yml config
