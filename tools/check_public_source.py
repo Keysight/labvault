@@ -16,6 +16,8 @@ FORBIDDEN_PATH_RE = re.compile(
     r"views_hw_resolve|views_hw_release|"
     r"DEVELOPMENT_CONTEXT|google-demo|DRIVER_SDK\.md|"
     r"docs/install/DEPLOY\.md|"
+    r"NP_TIMESERIES_DEPLOY|docs/usage-graph-views\.md|"
+    r"PA7080_|GGN EngProd|1593619662_|"
     r"reference-labvaultvm-nginx)",
     re.I,
 )

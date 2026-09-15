@@ -7,4 +7,4 @@
 | Disk | Postgres + media grow with retention — monitor volumes |
 | Gunicorn workers | Default 3; raise carefully |
 
-Separate metrics DB (`np_timeseries`) so inventory OLTP is not blocked by telemetry writes.
+Separate metrics DB (`np_timeseries`) so inventory OLTP is not blocked by telemetry writes. Migrate and retention: [MONITORING.md](MONITORING.md).

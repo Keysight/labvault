@@ -66,6 +66,11 @@ REQUIRED = [
 
 FORBIDDEN = [
     "docs/install/DEPLOY.md",
+    "docs/NP_TIMESERIES_DEPLOY.md",
+    "docs/usage-graph-views.md",
+    "docs/PA7080_Eagle_nnIpv4_VR_testpath_SSL_SR_proxy.csv",
+    "docs/1593619662_9b1ce8335a274f7fb2c67c6171f8e2c8-300326-0049-60.pdf",
+    "docs/[External] GGN EngProd & Keysight Requirements_ Top Priorities (Q3 2026).docx",
 ]
 
 
