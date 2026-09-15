@@ -24,7 +24,7 @@ Without the **shared Django cache volume/dir**, web cannot see heartbeat writes.
 |--------------|---------|---------|-------|
 | **cli-ssh** | `cli-ssh` (:2222) | `labvault-cli-ssh` | Appliance CLI over SSH (staff auth, no OS shell) |
 | **opsd** | host unit `labvault-opsd` | `labvault-opsd` | Unix socket lifecycle broker; same unit name on every mode |
-| **refresh** | `refresh` | `labvault-refresh` | Device refresh loop |
+| **refresh** | `refresh` | `labvault-refresh` | Keysight card/port cache (gunicorn does not poll in-process) |
 | **jobs** | `jobs` | `labvault-cli-worker` | Async CLI jobs |
 | **nginx** | `nginx` | `nginx` | TLS **:9443** → gunicorn `:8000`; optional `:80` redirect |
 

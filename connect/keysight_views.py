@@ -29,6 +29,7 @@ from django.views.decorators.http import require_POST
 
 from .ip_addressing import enrich_lldp_neighbors_for_display
 from .keysight_drivers import get_driver, KCOS_TYPES
+from .keysight_port_cache import hydrate_cards_from_port_cache
 from .keysight_discovery import scan_subnet_async, get_scan_status, auto_add_discovered
 from .cache_utils import cache_delete, cache_get, cache_set
 from .models import (
@@ -57,6 +58,26 @@ def _get_cached(chassis_id: int) -> dict | None:
     if entry and (time.time() - entry.get('_cached_at', 0)) < _KS_CACHE_TTL:
         return entry
     return None
+
+
+def _schedule_full_chassis_fetch(chassis) -> None:
+    """One in-flight full IxOS fetch per chassis (does not block the UI)."""
+    key = f'keysight:full_fetch_inflight:{chassis.id}'
+    if cache_get(key):
+        return
+    cache_set(key, 1, 120)
+
+    def _run():
+        try:
+            close_old_connections()
+            fetch_chassis_data(chassis)
+        except Exception:
+            logger.debug('background fetch_chassis_data failed for %s', chassis.ip_address, exc_info=True)
+        finally:
+            cache_delete(key)
+            close_old_connections()
+
+    threading.Thread(target=_run, daemon=True, name=f'ks-fetch-{chassis.id}').start()
 
 
 def _clear_cached(chassis_id: int):
@@ -890,26 +911,33 @@ def _try_acquire_ks_refresh_leader():
         return None
 
 
+def ks_refresh_once() -> int:
+    """Probe + fetch card/port maps for every chassis (used by labvault-refresh)."""
+    close_old_connections()
+    chassis_list = list(KeysightChassis.objects.all())
+    if not chassis_list:
+        return 0
+
+    def _refresh_one(ch):
+        close_old_connections()
+        try:
+            result = probe_chassis(ch)
+            if result == 'ok':
+                fetch_chassis_data(ch)
+        except Exception as e:
+            logger.debug(f'KS refresh error for {ch.ip_address}: {e}')
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=min(8, len(chassis_list))) as pool:
+        pool.map(_refresh_one, chassis_list)
+    return len(chassis_list)
+
+
 def _ks_refresh_all():
     while True:
         try:
-            close_old_connections()
-            chassis_list = list(KeysightChassis.objects.all())
-            if chassis_list:
-
-                def _refresh_one(ch):
-                    close_old_connections()
-                    try:
-                        result = probe_chassis(ch)
-                        if result == 'ok':
-                            fetch_chassis_data(ch)
-                    except Exception as e:
-                        logger.debug(f'KS refresh error for {ch.ip_address}: {e}')
-                    finally:
-                        close_old_connections()
-
-                with ThreadPoolExecutor(max_workers=min(8, len(chassis_list))) as pool:
-                    pool.map(_refresh_one, chassis_list)
+            ks_refresh_once()
         except Exception as e:
             close_old_connections()
             logger.debug(f'KS background refresh error: {e}')
@@ -1029,7 +1057,7 @@ def keysight_dashboard(request):
 
     enriched = []
     for ch in chassis_after_tag:
-        cached = _get_cached(ch.id)
+        cached = hydrate_cards_from_port_cache(_get_cached(ch.id))
         has_res, res_list = reservation_map.get(ch.id, (False, []))
         fqdn = (ch.hostname or ch.ip_address or '').strip()
         assoc = node_by_id.get(ch.id) if _is_kcos(ch) else None
@@ -1224,7 +1252,12 @@ def keysight_update_team_tags(request, chassis_id):
 def keysight_chassis_detail(request, chassis_id):
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     cached = _get_cached(ch.id)
-    if not cached and ch.status in ('online', 'unknown'):
+    if cached:
+        cached = hydrate_cards_from_port_cache(cached)
+        # Fleet heartbeat already has ports — do not block the page on IxOS SSH.
+        if cached.get('_cards_from_ports') and ch.status in ('online', 'unknown'):
+            _schedule_full_chassis_fetch(ch)
+    elif ch.status in ('online', 'unknown'):
         cached = fetch_chassis_data(ch)
     # Refresh ch from DB in case fetch_chassis_data corrected the type
     ch.refresh_from_db()
@@ -1301,7 +1334,11 @@ def keysight_chassis_detail(request, chassis_id):
 def keysight_chassis_data_json(request, chassis_id):
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     cached = _get_cached(ch.id)
-    if not cached:
+    if cached:
+        cached = hydrate_cards_from_port_cache(cached)
+        if cached.get('_cards_from_ports') and ch.status in ('online', 'unknown'):
+            _schedule_full_chassis_fetch(ch)
+    else:
         cached = fetch_chassis_data(ch) or {}
     return JsonResponse({
         'status': ch.status,

@@ -940,7 +940,7 @@
             {% empty %}
             <div class="text-center py-4 text-muted">
                 <i class="fas fa-inbox" style="font-size:2rem;"></i>
-                <div class="mt-2">No nodes detected. Chassis may still be initializing.</div>
+                <div class="mt-2">No nodes in cache yet. Fleet online is ICMP/API only — node maps come from a KCOS fetch (labvault-refresh) or wait for the next heartbeat port poll.</div>
             </div>
             {% endfor %}
 
@@ -1054,7 +1054,7 @@
             {% empty %}
             <div class="text-center py-4 text-muted">
                 <i class="fas fa-inbox" style="font-size:2rem;"></i>
-                <div class="mt-2">No cards detected. Chassis may still be initializing.</div>
+                <div class="mt-2">No card map in cache yet. Fleet can show the chassis as online (ICMP/API) before IxOS <code>/ports</code> lands. Wait for heartbeat or labvault-refresh — this is not “still initializing” unless the box itself is booting.</div>
             </div>
             {% endfor %}
             </div>

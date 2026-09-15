@@ -20,3 +20,20 @@ Minimum sizing: 4 vCPU, 8 GiB RAM, 40 GiB free disk. Open **9443/tcp** for the d
 Give the guest a **static IPv4** (`ipconfig0=ip=<addr>/<prefix>,gw=<gateway>`) plus nameservers if DHCP or the QEMU guest agent is unreliable. Cloud-init `package_upgrade` can stall first boot — leave it off for oneshot guests.
 
 Generic cloud-init notes live under `deploy/proxmox/`.
+
+## Find VM name, IP, and login without an AI agent
+
+The guest address is **not** stored in this git tree. Read it from Proxmox or the guest.
+
+| Where | What you get |
+|-------|----------------|
+| Proxmox UI → node → VM → **Summary** | Name, status, memory. IP only if QEMU guest agent is running. |
+| Same VM → **Cloud-Init** | `ipconfig0` (static `ip=` / `gw=`), nameserver, ciuser |
+| Same VM → **Hardware** | vCPU, RAM, disk |
+| Hypervisor shell | `qm list` · `qm config <vmid>` · `qm guest cmd <vmid> network-get-interfaces` |
+| Inside the guest | `ip -4 addr` · `hostname -I` |
+| After oneshot | READY banner; `sudo cat /var/lib/labvault/bootstrap-credentials` |
+
+Customer UI is `https://<guest-ipv4>:9443/login/`. Gunicorn stays on loopback `:8000`.
+
+Prefer a **static** `ipconfig0` when DHCP or the guest agent is missing — otherwise the VM can be running with no reachable address.

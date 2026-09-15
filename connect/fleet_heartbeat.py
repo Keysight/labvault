@@ -181,6 +181,10 @@ def _refresh_ports_cache(chassis, driver) -> None:
         cached['hostname'] = chassis.hostname or cached.get('hostname') or ''
         cached['chassis_type'] = chassis.chassis_type
         cached['status'] = 'online'
+        from connect.keysight_port_cache import cache_has_live_ixos_cards, cards_from_cached_ports
+        if not cache_has_live_ixos_cards(cached):
+            cached['cards'] = cards_from_cached_ports(ports)
+            cached['_cards_from_ports'] = True
         cached['_cached_at'] = time.time()
         cache_set(key, cached, 600)
     except Exception as exc:
