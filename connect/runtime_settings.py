@@ -14,20 +14,30 @@ SCHEMA: dict[str, dict[str, Any]] = {
 
 
 def get_setting(key: str) -> Any:
-    env_mode = (getattr(settings, "WORKER_MODE_ENV", None) or "").strip().lower()
-    if key in ("collector_mode", "heartbeat_mode") and env_mode in ("idle", "live"):
-        return env_mode
+    """Prefer a stored RuntimeSetting so a dataset import can turn Pulse live
+
+    even when compose still has ``LABVAULT_WORKER_MODE=idle``. Env is the
+    fallback when no row exists (empty oneshot stays idle).
+    """
     default = SCHEMA.get(key, {}).get("default")
     try:
         row = RuntimeSetting.objects.filter(key=key).first()
     except Exception:  # noqa: BLE001
-        return getattr(settings, "LABVAULT_WORKER_DEFAULT_MODE", default)
-    if not row:
-        return getattr(settings, "LABVAULT_WORKER_DEFAULT_MODE", default) or default
-    val = row.value_json
-    if isinstance(val, dict) and "value" in val:
-        return val["value"]
-    return val
+        row = None
+    if row:
+        val = row.value_json
+        if isinstance(val, dict) and "value" in val:
+            val = val["value"]
+        if key in ("collector_mode", "heartbeat_mode"):
+            mode = str(val or "").strip().lower()
+            if mode in ("idle", "live"):
+                return mode
+        else:
+            return val
+    env_mode = (getattr(settings, "WORKER_MODE_ENV", None) or "").strip().lower()
+    if key in ("collector_mode", "heartbeat_mode") and env_mode in ("idle", "live"):
+        return env_mode
+    return getattr(settings, "LABVAULT_WORKER_DEFAULT_MODE", default) or default
 
 
 def set_setting(key: str, value: Any, *, user=None) -> RuntimeSetting:

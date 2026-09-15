@@ -19,6 +19,13 @@ python tools/check_public_source.py
 # .github/workflows/ci.yml — run matching jobs locally when possible
 ```
 
-Remote is the Keysight GitHub org repository your release packet names. Do not force-push `main`.
+Shipped remotes (keep the product file trees equivalent; do not force-push):
+
+| Remote | URL | Branch |
+|--------|-----|--------|
+| Keysight GitHub | `https://github.com/Keysight/labvault` | `main` |
+| Bitbucket | `ssh://git@bitbucket.it.keysight.com:7999/bpsst/labvault_public.git` | `master` |
+
+Do not push `.context/`, `.env`, sqlite, or `*pickup-export-lab.json`.
 
 Corporate approvals, SBOM upload, and signed release tags are tracked separately (submission packet).

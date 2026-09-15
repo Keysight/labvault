@@ -423,8 +423,22 @@ def import_from_payload(payload: dict, *, import_capex: bool = True, skip_logs: 
         _import_capex(payload['capex'], stats)
 
     stats.update(_import_lab_topologies(payload))
+    _enable_pulse_if_lab_imported(stats)
 
     return stats
+
+
+def _enable_pulse_if_lab_imported(stats: dict) -> None:
+    """Uploading chassis/topology is the customer 'go live' signal — turn Pulse on."""
+    chassis = int(stats.get("chassis_created") or 0) + int(stats.get("chassis_updated") or 0)
+    topos = int(stats.get("topologies_imported") or 0)
+    if not chassis and not topos:
+        return
+    from connect.runtime_settings import set_setting
+
+    set_setting("collector_mode", "live")
+    set_setting("heartbeat_mode", "live")
+    stats["pulse"] = "live"
 
 
 def _import_lab_topologies(payload: dict) -> dict:
@@ -448,6 +462,8 @@ def _import_lab_topologies(payload: dict) -> dict:
                 tags=meta.get('tags') or block.get('tags') or '',
             )
         import_topology(topo, block)
+        topo.metrics_collection_enabled = True
+        topo.save(update_fields=['metrics_collection_enabled', 'updated_at'])
         out['topologies_imported'] += 1
         out['topology_names'].append(name)
     return out

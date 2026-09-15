@@ -21,7 +21,7 @@ Customer SKU documentation for install, day-2 ops, product modules, CLI, fleet A
 
 ## Getting started
 
-[QUICKSTART](getting-started/QUICKSTART.md) · [FIRST_LOGIN](getting-started/FIRST_LOGIN.md) · [CONCEPTS](getting-started/CONCEPTS.md) · [FIRST_LAB](getting-started/FIRST_LAB.md)
+[QUICKSTART](getting-started/QUICKSTART.md) · [FIRST_LOGIN](getting-started/FIRST_LOGIN.md) · [CONCEPTS](getting-started/CONCEPTS.md) · [FIRST_LAB](getting-started/FIRST_LAB.md) · [DC example backup](getting-started/DC8_PICKUP.md)
 
 ## Modules
 

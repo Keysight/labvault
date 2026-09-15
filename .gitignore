@@ -77,6 +77,10 @@ graphify-out/
 .context/
 .cache/
 
+# Live-lab pickup (operator validation only — never ship)
+**/dc8-pickup-export-lab.json
+**/*pickup-export-lab.json
+
 # Logs
 *.log
 npm-debug.log*

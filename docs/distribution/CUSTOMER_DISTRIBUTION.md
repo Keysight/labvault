@@ -23,7 +23,7 @@ Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, personal design credit, UH
 
 ## Restore dataset
 
-Use a `labvault-full-export` v1 JSON (not a Postgres volume tarball):
+Use a `labvault-full-export` v1 JSON (not a Postgres volume tarball). The shareable DC example is [resources/examples/dc8-pickup-export.json](../../resources/examples/dc8-pickup-export.json) (AresONE + OCS + Arista + one topology only). Edit IPs and credentials before import — the field checklist is [DC8_PICKUP](../getting-started/DC8_PICKUP.md). Also [FIRST_LAB](../getting-started/FIRST_LAB.md) and [BACKUP_RESTORE](../admin/BACKUP_RESTORE.md).
 
 ```bash
 sudo LABVAULT_RESTORE_DATASET=/path/labvault_export.json \

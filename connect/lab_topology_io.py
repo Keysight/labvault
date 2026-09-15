@@ -424,15 +424,11 @@ def import_topology(
         if not stable_id:
             stable_id = f'node_{len(id_map)}'
         dev_ip = (nd.get('device_ip') or nd.get('mgmt_ipv4') or '').strip()
-        device = None
-        chassis = None
-        if dev_ip:
-            device = Device.objects.filter(ip_address=dev_ip).first()
+        device = Device.objects.filter(ip_address=dev_ip).first() if dev_ip else None
+        chassis = KeysightChassis.objects.filter(ip_address=dev_ip).first() if dev_ip else None
         node_type = nd.get('node_type') or 'switch'
         if device and not nd.get('node_type'):
             node_type = _NODE_TYPE_MAP.get(device.vendor_type, 'switch')
-        if not device and node_type == 'chassis' and dev_ip:
-            chassis = KeysightChassis.objects.filter(ip_address=dev_ip).first()
 
         extra = dict(nd.get('extra') or {})
         site_info = site_ip_map.get(dev_ip, {})
@@ -440,9 +436,19 @@ def import_topology(
         for field in ('mgmt_ipv6', 'mgmt_ipv6_source', 'preferred_ip_version', 'hostname'):
             if nd.get(field) and field not in extra:
                 extra[field] = nd[field]
+        if dev_ip:
+            extra['device_ip'] = extra.get('device_ip') or dev_ip
+            extra['mgmt_ipv4'] = extra.get('mgmt_ipv4') or nd.get('mgmt_ipv4') or dev_ip
+        # Always bind by management IP. Pickup JSON lists AresONE as both Device
+        # and KeysightChassis; a Device hit used to skip the chassis lookup, so
+        # Pulse never collected after import. Stale export PKs are overwritten.
+        if chassis is None and extra.get('chassis_id'):
+            chassis = KeysightChassis.objects.filter(pk=extra.get('chassis_id')).first()
         if chassis:
             extra['chassis_id'] = chassis.pk
-            extra['chassis_type'] = chassis.chassis_type or ''
+            extra['chassis_type'] = chassis.chassis_type or extra.get('chassis_type') or ''
+        elif node_type == 'chassis':
+            extra.pop('chassis_id', None)
         ports = nd.get('ports')
         if ports:
             extra['ports'] = ports
@@ -492,8 +498,16 @@ def import_topology(
         remapped = _remap_view_layouts(topo, exported_layouts, id_map, legacy_pk_map=legacy_pk_map)
         extra_topo['view_layouts'] = remapped
 
+    if 'metrics_collection_enabled' in topo_meta:
+        topo.metrics_collection_enabled = bool(topo_meta['metrics_collection_enabled'])
+    else:
+        topo.metrics_collection_enabled = True
+
     topo.extra = extra_topo
-    topo.save(update_fields=['name', 'description', 'tags', 'source', 'extra', 'updated_at'])
+    topo.save(update_fields=[
+        'name', 'description', 'tags', 'source', 'extra',
+        'metrics_collection_enabled', 'updated_at',
+    ])
 
     return f'Imported {len(nodes_raw)} nodes, {link_count} links (views preserved: {bool(exported_layouts)}).'
 

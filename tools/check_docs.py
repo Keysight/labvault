@@ -18,6 +18,7 @@ REQUIRED = [
     "docs/getting-started/FIRST_LOGIN.md",
     "docs/getting-started/CONCEPTS.md",
     "docs/getting-started/FIRST_LAB.md",
+    "docs/getting-started/DC8_PICKUP.md",
     "docs/install/REQUIREMENTS.md",
     "docs/install/BARE_METAL.md",
     "docs/install/DOCKER.md",
@@ -75,6 +76,7 @@ FORBIDDEN = [
     "tools/release_packet/OPERATOR_FINISH.md",
     "tools/release_packet/CORPORATE_SUBMISSION.md",
     "tools/release_packet/SOAK_RESTORE_TEMPLATE.md",
+    "resources/examples/dc8-pickup-export-lab.json",
 ]
 
 

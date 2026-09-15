@@ -1,5 +1,7 @@
 # First lab walkthrough
 
+To fill Keysight, topology, fabric, and Lab Pulse from a **small shareable file** (8 AresONE + OCS + Arista only), use [resources/examples/dc8-pickup-export.json](../../resources/examples/dc8-pickup-export.json). **Edit every placeholder IP and password before import** — the checklist is [DC8_PICKUP.md](DC8_PICKUP.md). Then **DATA → Import → Import full LabVault dataset**. That import binds chassis nodes by management IP, turns collector and heartbeat **live**, and leaves topology metrics enabled so Pulse and fleet stats come online without a second setting. Do not upload a full appliance `labvaultctl` backup or a full live-lab export — those include logs and every vendor. Changing an IP later in the UI does not rewrite topology `device_ip`; edit the JSON first.
+
 1. **Inventory** — Add devices and/or discover Keysight chassis under `/keysight/`.
 2. **Topology** — Create a lab topology at `/lab-topology/`; place nodes; save.
 3. **Fabric** (optional) — Define port fabric; take an OCS snapshot if an optical switch is attached.

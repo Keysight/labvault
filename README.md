@@ -24,8 +24,8 @@ Community support is best-effort. There is no product SLA unless Keysight publis
 ./labvaultctl host-deps          # show OS packages
 ./labvaultctl --help             # lifecycle controller
 
-# Restore a working lab export and turn Lab Pulse on in one shot:
-sudo LABVAULT_RESTORE_DATASET=/path/to/labvault_export.json \
+# Restore the DC example (edit IPs/passwords first — docs/getting-started/DC8_PICKUP.md):
+sudo LABVAULT_RESTORE_DATASET=/path/to/dc8-pickup-export.json \
   ./deploy/install/oneshot-compose.sh
 ```
 

@@ -310,7 +310,14 @@ def import_bundle(
                     topo.nodes.all().delete()
                     topo.links.all().delete()
                 msg = import_topology(topo, payload, site_data=site_data)
+                topo.metrics_collection_enabled = True
+                topo.save(update_fields=['metrics_collection_enabled', 'updated_at'])
                 stats['topologies'].append({'name': topo.name, 'id': topo.pk, 'detail': msg})
+        if stats.get('topologies'):
+            from .labvault_dataset import _enable_pulse_if_lab_imported
+            _enable_pulse_if_lab_imported({
+                'topologies_imported': len(stats['topologies']),
+            })
 
         if import_lldp_cache:
             cache_src = root / 'data' / 'lldp_persistent_cache.json'

@@ -90,6 +90,57 @@ def collector_node_types() -> Optional[Set[str]]:
     return types or None
 
 
+def topology_node_mgmt_ip(node: LabTopologyNode) -> str:
+    """Management IP from node extra, then the linked Device row."""
+    extra = node.extra or {}
+    for key in ('device_ip', 'mgmt_ipv4', 'mgmt_display'):
+        val = str(extra.get(key) or '').strip()
+        if val:
+            return val
+    device = getattr(node, 'device', None)
+    if device is not None:
+        return (device.ip_address or '').strip()
+    return ''
+
+
+def resolve_topology_chassis(node: LabTopologyNode) -> Optional[KeysightChassis]:
+    """Resolve a topology node to a KeysightChassis after dataset import.
+
+    Export extras often keep a source-DB ``chassis_id`` that does not exist
+    here, or omit it entirely when the same IP is also a Device row.
+    """
+    extra = node.extra or {}
+    chassis_id = extra.get('chassis_id')
+    if chassis_id:
+        chassis = KeysightChassis.objects.filter(pk=chassis_id).first()
+        if chassis:
+            return chassis
+    ip = topology_node_mgmt_ip(node)
+    if ip:
+        return KeysightChassis.objects.filter(ip_address=ip).first()
+    return None
+
+
+def bind_topology_chassis(node: LabTopologyNode, chassis: KeysightChassis) -> None:
+    """Persist the live chassis PK so later ticks and Insights stay bound."""
+    extra = dict(node.extra or {})
+    changed = False
+    if extra.get('chassis_id') != chassis.pk:
+        extra['chassis_id'] = chassis.pk
+        changed = True
+    if chassis.chassis_type and extra.get('chassis_type') != chassis.chassis_type:
+        extra['chassis_type'] = chassis.chassis_type
+        changed = True
+    ip = (chassis.ip_address or '').strip()
+    if ip and extra.get('device_ip') != ip:
+        extra['device_ip'] = ip
+        changed = True
+    if not changed:
+        return
+    node.extra = extra
+    node.save(update_fields=['extra'])
+
+
 def node_is_collectable(node: LabTopologyNode) -> bool:
     """True when a node resolves to a real chassis/device the collector can poll.
 
@@ -97,11 +148,8 @@ def node_is_collectable(node: LabTopologyNode) -> bool:
     is linked to something concrete (so empty imported LLDP nodes are skipped).
     """
     extra = node.extra or {}
-    chassis_id = extra.get('chassis_id')
-    if node.node_type == 'chassis' or chassis_id:
-        if not chassis_id:
-            return False
-        return KeysightChassis.objects.filter(pk=chassis_id).exists()
+    if node.node_type == 'chassis' or extra.get('chassis_id'):
+        return resolve_topology_chassis(node) is not None
     if node.node_type == 'ocs':
         return node.device_id is not None
     if node.node_type == 'switch':
@@ -1199,10 +1247,9 @@ def collect_topology_node(
     total = 0
 
     if node.node_type == 'chassis' or chassis_id:
-        chassis = None
-        if chassis_id:
-            chassis = KeysightChassis.objects.filter(pk=chassis_id).first()
+        chassis = resolve_topology_chassis(node)
         if chassis:
+            bind_topology_chassis(node, chassis)
             total += collect_chassis(topo_id, node, chassis, state, sampled_at=sampled_at)
         return total
 

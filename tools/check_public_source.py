@@ -19,6 +19,7 @@ FORBIDDEN_PATH_RE = re.compile(
     r"NP_TIMESERIES_DEPLOY|docs/usage-graph-views\.md|"
     r"PA7080_|GGN EngProd|1593619662_|"
     r"tools/release_packet|"
+    r"pickup-export-lab|"
     r"reference-labvaultvm-nginx)",
     re.I,
 )
@@ -119,6 +120,9 @@ def main() -> int:
         if "/__pycache__/" in rel or rel.startswith(".venv/") or rel.startswith("staticfiles/") or rel.startswith("data/"):
             continue
         if rel.startswith("tools/release_packet/") or rel == "tools/release_packet":
+            errors.append(f"forbidden path: {rel}")
+            continue
+        if "pickup-export-lab" in rel and not rel.startswith(".context/"):
             errors.append(f"forbidden path: {rel}")
             continue
         if _allowed(rel):

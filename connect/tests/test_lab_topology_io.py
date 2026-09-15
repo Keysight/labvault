@@ -5,7 +5,8 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 
 from connect.lab_topology_io import export_topology, import_topology, resource_paths_for_profile
-from connect.models import LabTopology, LabTopologyLink, LabTopologyNode
+from connect.metric_collectors import node_is_collectable
+from connect.models import Device, KeysightChassis, LabTopology, LabTopologyLink, LabTopologyNode
 
 
 class LabTopologyIoTests(TestCase):
@@ -81,3 +82,62 @@ class LabTopologyIoTests(TestCase):
         layout, site = resource_paths_for_profile('v6')
         self.assertEqual(layout, 'lab_topology_schema_v6.json')
         self.assertEqual(site, 'ocs_photonic_site.json')
+
+    def test_import_binds_chassis_when_device_shares_ip(self):
+        """Pickup JSON lists AresONE as Device + KeysightChassis at the same IP."""
+        Device.objects.create(
+            hostname='AresONE-01',
+            ip_address='192.0.2.31',
+            username='admin',
+            password='admin',
+            vendor_type='keysight',
+        )
+        chassis = KeysightChassis.objects.create(
+            hostname='AresONE-01',
+            ip_address='192.0.2.31',
+            username='admin',
+            password='admin',
+            chassis_type='aresone',
+        )
+        self.topo.metrics_collection_enabled = False
+        self.topo.save(update_fields=['metrics_collection_enabled'])
+        payload = {
+            'format': 'labvault.lab_topology',
+            'version': 3,
+            'topology': {'name': self.topo.name},
+            'nodes': [{
+                'id': 'aresone01',
+                'node_key': 'aresone01',
+                'label': 'AresONE-01',
+                'node_type': 'chassis',
+                'device_ip': '192.0.2.31',
+                'extra': {'chassis_id': 99999},
+            }],
+            'links': [],
+        }
+        import_topology(self.topo, payload)
+        self.topo.refresh_from_db()
+        node = self.topo.nodes.get(node_key='aresone01')
+        self.assertEqual(node.extra.get('chassis_id'), chassis.pk)
+        self.assertEqual(node.extra.get('device_ip'), '192.0.2.31')
+        self.assertTrue(self.topo.metrics_collection_enabled)
+        self.assertTrue(node_is_collectable(node))
+
+    def test_collectable_falls_back_to_ip_when_chassis_pk_is_stale(self):
+        chassis = KeysightChassis.objects.create(
+            hostname='AresONE-02',
+            ip_address='192.0.2.32',
+            username='admin',
+            password='admin',
+            chassis_type='aresone',
+        )
+        node = LabTopologyNode.objects.create(
+            topology=self.topo,
+            node_key='stale-chassis',
+            node_type='chassis',
+            label='AresONE-02',
+            extra={'chassis_id': 99999, 'device_ip': '192.0.2.32'},
+        )
+        self.assertTrue(node_is_collectable(node))
+        from connect.metric_collectors import resolve_topology_chassis
+        self.assertEqual(resolve_topology_chassis(node).pk, chassis.pk)
