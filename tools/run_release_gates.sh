@@ -30,4 +30,3 @@ elif command -v docker >/dev/null; then
   docker compose -f deploy/compose/docker-compose.yml config >/dev/null
 fi
 echo "release_gates local subset: OK"
-echo "remaining operator gates: tools/release_packet/STAGING_BLOCKERS.md"

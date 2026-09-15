@@ -71,6 +71,10 @@ FORBIDDEN = [
     "docs/PA7080_Eagle_nnIpv4_VR_testpath_SSL_SR_proxy.csv",
     "docs/1593619662_9b1ce8335a274f7fb2c67c6171f8e2c8-300326-0049-60.pdf",
     "docs/[External] GGN EngProd & Keysight Requirements_ Top Priorities (Q3 2026).docx",
+    "tools/release_packet/STAGING_BLOCKERS.md",
+    "tools/release_packet/OPERATOR_FINISH.md",
+    "tools/release_packet/CORPORATE_SUBMISSION.md",
+    "tools/release_packet/SOAK_RESTORE_TEMPLATE.md",
 ]
 
 

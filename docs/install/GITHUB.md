@@ -4,7 +4,7 @@
 
 1. Confirm this tree is the **customer SKU** (`LABVAULT_CUSTOMER_SKU = True`).
 2. `python tools/check_public_source.py` and `python tools/check_docs.py` must print `OK`.
-   `bash tools/run_release_gates.sh` is the local fail-closed subset. Org create / public push remain operator-owned (`tools/release_packet/STAGING_BLOCKERS.md`).
+   `bash tools/run_release_gates.sh` is the local fail-closed subset. Org create and public visibility remain operator-owned (not documented in this tree).
 3. Do **not** commit `.env`, sqlite DBs, `*.tgz` backups, `labvault_export.json`, or credential/token files.
 4. `.gitignore` already excludes secrets, DBs, venv, backups, IDE files, and export dumps.
 5. `.gitattributes` forces LF for `.sh` / `.py` so oneshots do not fail with `pipefail\r`.
