@@ -179,10 +179,20 @@ if [[ -n "${LABVAULT_RESTORE_DATASET:-}" ]]; then
   [[ -f "$LABVAULT_RESTORE_DATASET" ]] || die "LABVAULT_RESTORE_DATASET not a file: $LABVAULT_RESTORE_DATASET"
   log "Copying restore dataset into web container"
   docker compose -f deploy/compose/docker-compose.yml cp "$LABVAULT_RESTORE_DATASET" web:/tmp/labvault_export.json
+  # compose cp keeps host mode (often 0600 root). Bootstrap runs as labvault.
+  docker compose -f deploy/compose/docker-compose.yml exec -T -u root web \
+    chmod 644 /tmp/labvault_export.json
   BOOTSTRAP+=(--restore /tmp/labvault_export.json)
 fi
 log "bootstrap_labvault ${BOOTSTRAP[*]}"
 docker compose -f deploy/compose/docker-compose.yml exec -T -u labvault web "${BOOTSTRAP[@]}"
+if [[ "${LABVAULT_WORKER_MODE}" == "live" ]]; then
+  log "Priming first live heartbeat + collector tick"
+  docker compose -f deploy/compose/docker-compose.yml exec -T -u labvault web \
+    python manage.py run_fleet_heartbeat --once
+  docker compose -f deploy/compose/docker-compose.yml exec -T -u labvault web \
+    python manage.py run_metric_collector --once
+fi
 docker compose -f deploy/compose/docker-compose.yml cp web:/tmp/labvault-fleet-token \
   "$STATE/fleet-token"
 docker compose -f deploy/compose/docker-compose.yml cp web:/tmp/bootstrap-credentials \

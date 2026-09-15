@@ -33,6 +33,8 @@ Defaults:
 | `LABVAULT_TLS_PORT` | `9443` |
 | `LABVAULT_PUBLIC_ORIGIN` | `https://127.0.0.1:9443` |
 
+On Rocky/RHEL with SELinux Enforcing, host nginx needs **9443/tcp** labeled `http_port_t` and `httpd_can_network_connect` so it can bind TLS and proxy to loopback `:8000`. `install-labvault-nginx.sh` does both.
+
 Set `LABVAULT_USE_TLS=false` only for local HTTP debugging. Replace the generated cert on shared hosts. `curl` against the lab cert needs `-k`:
 
 ```bash

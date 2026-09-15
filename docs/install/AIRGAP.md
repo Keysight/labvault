@@ -12,7 +12,7 @@ tar czf labvault-public-src.tgz --exclude .venv --exclude .git --exclude dist .
 
 ## Target (air-gapped)
 
-1. Install OS packages from local mirror: python3, gcc, openldap-devel (or Debian equivalents), postgresql as needed.
+1. Install OS packages from local mirror: **python3.11** (Rocky 9 stock `python3` is 3.9), gcc, openldap-devel (or Debian equivalents), **PostgreSQL 15** (`dnf module enable postgresql:15`; Django 5.2 rejects 13).
 2. Extract source.
 3. Run:
 

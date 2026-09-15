@@ -25,10 +25,14 @@ FAIL=0
 pass() { printf 'PASS %s\n' "$*"; }
 fail() { printf 'FAIL %s\n' "$*"; FAIL=$((FAIL + 1)); }
 
+VERIFY_BODY="$(mktemp -t lv_verify_body.XXXXXX)"
+trap 'rm -f "$VERIFY_BODY"' EXIT
+
 need_http() {
   local name="$1" expect="$2" url="$3"
   local code
-  code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/lv_verify_body -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "$url" || echo 000)
+  code=$(curl -sS "${CURL_OPTS[@]}" -o "$VERIFY_BODY" -w '%{http_code}' -H "Authorization: Bearer ${TOKEN}" "$url" || true)
+  [[ -n "$code" ]] || code=000
   if [[ "$code" == "$expect" ]]; then
     pass "$name ($code)"
   else
@@ -96,24 +100,38 @@ elif [[ "$ADAPTER" == "systemd" ]]; then
 fi
 
 python3 - <<'PY' || FAIL=$((FAIL + 1))
-import json, os, ssl, urllib.request
+import json, os, ssl, time, urllib.request
 base = os.environ["BASE_URL"]
 token = os.environ["TOKEN"]
 ctx = ssl._create_unverified_context() if base.startswith("https://") else None
-req = urllib.request.Request(
-    f"{base}/api/fleet/heartbeat.json",
-    headers={"Authorization": f"Bearer {token}"},
-)
-with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
-    data = json.load(r)
-mode = data.get("mode")
-counts = data.get("counts") or {}
-print(f"INFO heartbeat mode={mode} counts={counts}")
-# Idle install is OK (workers up, no probes). Live should have a non-empty store.
 worker = (os.environ.get("LABVAULT_WORKER_MODE") or "").strip().lower()
-if worker == "live" or mode == "live":
-    if int(counts.get("total") or 0) < 1:
-        raise SystemExit("live mode but heartbeat store empty — check heartbeat service + LABVAULT_CACHE_DIR share")
+deadline = time.time() + int(os.environ.get("LABVAULT_VERIFY_HEARTBEAT_WAIT", "180"))
+data = {}
+while True:
+    req = urllib.request.Request(
+        f"{base}/api/fleet/heartbeat.json",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    with urllib.request.urlopen(req, timeout=60, context=ctx) as r:
+        data = json.load(r)
+    mode = data.get("mode")
+    counts = data.get("counts") or {}
+    print(f"INFO heartbeat mode={mode} counts={counts}")
+    if worker != "live" and mode != "live":
+        break
+    if int(counts.get("total") or 0) >= 1:
+        break
+    # Empty appliance (no chassis yet) can report live from a default store.
+    if int(counts.get("total") or 0) == 0 and worker != "live":
+        print("INFO empty inventory — not waiting for live probes")
+        break
+    if time.time() >= deadline:
+        raise SystemExit(
+            "live mode but heartbeat store empty — run "
+            "`python manage.py run_fleet_heartbeat --once` or check "
+            "heartbeat + LABVAULT_CACHE_DIR share"
+        )
+    time.sleep(5)
 print("PASS heartbeat plumbing")
 PY
 

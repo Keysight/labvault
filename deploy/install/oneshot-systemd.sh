@@ -18,10 +18,16 @@ source "$ROOT_SRC/deploy/install/lib-ready.sh"
 install_host_deps() {
   if command -v dnf >/dev/null; then
     log "Installing Rocky/RHEL build deps"
-    dnf install -y python3 python3-pip python3-devel gcc git nginx openssl \
+    # Django 5.2 needs PostgreSQL 14+. Rocky 9's default module is 13.
+    dnf module reset -y postgresql >/dev/null 2>&1 || true
+    dnf module enable -y postgresql:15 >/dev/null 2>&1 || \
+      dnf module enable -y postgresql:16 >/dev/null 2>&1 || true
+    dnf install -y python3.11 python3.11-devel python3.11-pip \
+      python3 python3-pip python3-devel gcc git nginx openssl \
       openldap-devel openssl-devel cyrus-sasl-devel libpq-devel \
       postgresql-server postgresql-contrib || \
-      dnf install -y python3 python3-pip python3-devel gcc git nginx openssl \
+      dnf install -y python3.11 python3.11-devel python3.11-pip \
+        python3 python3-pip python3-devel gcc git nginx openssl \
         openldap-devel openssl-devel cyrus-sasl-devel
   elif command -v apt-get >/dev/null; then
     log "Installing Debian/Ubuntu build deps"
@@ -57,7 +63,15 @@ cd "$INSTALL_ROOT"
 
 if [[ ! -d .venv ]]; then
   log "Creating venv"
-  python3 -m venv .venv
+  PY=python3
+  if command -v python3.11 >/dev/null; then
+    PY=python3.11
+  elif command -v python3.12 >/dev/null; then
+    PY=python3.12
+  fi
+  "$PY" -c 'import sys; assert sys.version_info >= (3, 10), sys.version'
+  log "venv interpreter $($PY --version)"
+  "$PY" -m venv .venv
 fi
 # shellcheck disable=SC1091
 source .venv/bin/activate
@@ -104,6 +118,7 @@ chown -R labvault:labvault /var/lib/labvault/django_cache
 # Restoring a live lab dataset turns Lab Pulse on with no extra UI steps.
 if [[ -n "${LABVAULT_RESTORE_DATASET:-}" ]]; then
   [[ -f "$LABVAULT_RESTORE_DATASET" ]] || die "LABVAULT_RESTORE_DATASET not a file: $LABVAULT_RESTORE_DATASET"
+  chmod a+r "$LABVAULT_RESTORE_DATASET" || true
   export LABVAULT_WORKER_MODE=live
   log "Restore dataset: $LABVAULT_RESTORE_DATASET"
 fi
@@ -114,13 +129,37 @@ else
   echo "LABVAULT_WORKER_MODE=${LABVAULT_WORKER_MODE}" >> "$ENV_FILE"
 fi
 
-# Ensure Postgres DBs exist when local postgresql is available
-if command -v postgresql-setup >/dev/null 2>&1; then
-  if [[ ! -d /var/lib/pgsql/data && ! -d /var/lib/pgsql/15/data && ! -d /var/lib/pgsql/14/data ]]; then
-    postgresql-setup --initdb
-  fi
+# Ensure Postgres DBs exist when local postgresql is available.
+# An empty /var/lib/pgsql/data directory is not a cluster (EL9 check-db-dir).
+pg_cluster_ready() {
+  local d
+  for d in /var/lib/pgsql/data /var/lib/pgsql/15/data /var/lib/pgsql/14/data /var/lib/pgsql/13/data; do
+    [[ -f "$d/PG_VERSION" ]] && return 0
+  done
+  return 1
+}
+if [[ -f /var/lib/pgsql/data/PG_VERSION ]] && [[ "$(tr -d '[:space:]' < /var/lib/pgsql/data/PG_VERSION)" -lt 14 ]]; then
+  log "Replacing PostgreSQL $(tr -d '[:space:]' < /var/lib/pgsql/data/PG_VERSION) cluster (Django 5.2 needs 14+)"
+  systemctl stop postgresql 2>/dev/null || true
+  rm -rf /var/lib/pgsql/data
 fi
-systemctl enable --now postgresql 2>/dev/null || systemctl enable --now postgresql-14
+if command -v postgresql-setup >/dev/null 2>&1 && ! pg_cluster_ready; then
+  log "Initializing PostgreSQL cluster"
+  postgresql-setup --initdb
+fi
+PG_UNIT=""
+for u in postgresql postgresql-15 postgresql-14 postgresql-13; do
+  if [[ -f "/usr/lib/systemd/system/${u}.service" || -f "/lib/systemd/system/${u}.service" ]]; then
+    PG_UNIT="$u"
+    break
+  fi
+done
+if [[ -n "$PG_UNIT" ]]; then
+  log "Starting $PG_UNIT"
+  systemctl enable --now "$PG_UNIT" || die "failed to start $PG_UNIT — see journalctl -u $PG_UNIT"
+else
+  log "no postgresql unit found; oneshot env still points at 127.0.0.1:5432"
+fi
 if command -v sudo >/dev/null && id postgres >/dev/null 2>&1; then
   # Rocky/RHEL defaults to Ident for 127.0.0.1 — Django needs password auth.
   HBA="$(sudo -u postgres psql -Atc 'SHOW hba_file')"
@@ -131,7 +170,7 @@ if command -v sudo >/dev/null && id postgres >/dev/null 2>&1; then
     sed -i -E 's|^(host[[:space:]]+all[[:space:]]+all[[:space:]]+::1/128[[:space:]]+)\S+|\1md5|' "$HBA"
     grep -qE '^host[[:space:]]+all[[:space:]]+all[[:space:]]+127\.0\.0\.1/32' "$HBA" || \
       echo 'host all all 127.0.0.1/32 md5' >> "$HBA"
-    systemctl reload postgresql 2>/dev/null || systemctl restart postgresql
+    systemctl reload "${PG_UNIT:-postgresql}" 2>/dev/null || systemctl restart "${PG_UNIT:-postgresql}"
   fi
   sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='labvault'" | grep -q 1 || \
     sudo -u postgres psql -c "CREATE USER labvault WITH PASSWORD 'labvault';"
@@ -142,9 +181,14 @@ if command -v sudo >/dev/null && id postgres >/dev/null 2>&1; then
     sudo -u postgres psql -c "CREATE DATABASE labvault_metrics OWNER labvault;"
 fi
 
-# Install units (rewrite WorkingDirectory if needed)
+# Install units (rewrite WorkingDirectory if needed).
+# opsd-compose is a compose-only stub and conflicts with Alias= on labvault-opsd.
 for unit in deploy/systemd/*.service; do
   base="$(basename "$unit")"
+  if [[ "$base" == "labvault-opsd-compose.service" ]]; then
+    rm -f "/etc/systemd/system/${base}"
+    continue
+  fi
   sed "s|/opt/labvault/current|${INSTALL_ROOT}|g" "$unit" > "/etc/systemd/system/${base}"
   log "installed /etc/systemd/system/${base}"
 done
@@ -171,17 +215,25 @@ fi
 if [[ -n "${LABVAULT_RESTORE_DATASET:-}" ]]; then
   export LABVAULT_RESTORE_DATASET
 fi
-log "labvaultctl install --adapter systemd"
-./labvaultctl --adapter systemd --state-dir "$STATE" install
-
 export LABVAULT_TLS_PORT="${LABVAULT_TLS_PORT:-$(default_tls_port)}"
 bash "$ROOT_SRC/deploy/scripts/ensure-labvault-tls.sh"
 maybe_install_tls "$ROOT_SRC" "$INSTALL_ROOT"
+log "labvaultctl install --adapter systemd"
+./labvaultctl --adapter systemd --state-dir "$STATE" install
 
 systemctl enable --now labvault-opsd labvault-cli-ssh labvault-web labvault-refresh \
   labvault-heartbeat labvault-collector labvault-cli-worker
 if [[ "${LABVAULT_WORKER_MODE}" == "live" ]]; then
   systemctl restart labvault-heartbeat labvault-collector
+  log "Priming first live heartbeat + collector tick"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+    "$INSTALL_ROOT/.venv/bin/python" "$INSTALL_ROOT/manage.py" run_fleet_heartbeat --once
+  sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+    "$INSTALL_ROOT/.venv/bin/python" "$INSTALL_ROOT/manage.py" run_metric_collector --once
 fi
 
 if [[ ! "${LABVAULT_SKIP_VERIFY:-}" =~ ^(1|true|yes)$ ]]; then

@@ -4,6 +4,20 @@ Create a Linux host with Docker Engine 24+ and Compose v2.20+, then run the ones
 
 On Proxmox, create a guest first: [PROXMOX.md](PROXMOX.md).
 
+### Install Docker Engine (Rocky 9 / RHEL 9)
+
+```bash
+sudo dnf -y install dnf-plugins-core
+sudo dnf config-manager --add-repo https://download.docker.com/linux/rhel/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl enable --now docker
+docker compose version
+```
+
+Ubuntu 22.04 / 24.04: use Docker’s apt repository (`docker-ce` + `docker-compose-plugin`), not the `docker.io` metapackage alone.
+
+Open **9443/tcp** (and **2222/tcp** for the appliance SSH CLI) on the guest firewall.
+
 ## One-shot
 
 ```bash

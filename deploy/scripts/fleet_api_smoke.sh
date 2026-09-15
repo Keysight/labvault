@@ -17,11 +17,15 @@ fi
 AUTH=(-H "Authorization: Bearer ${TOKEN}")
 FAIL=0
 
+SMOKE_BODY="$(mktemp -t lv_smoke_body.XXXXXX)"
+trap 'rm -f "$SMOKE_BODY" /tmp/lv_smoke_cookies.txt' EXIT
+
 check() {
   local name="$1" expect="$2" url="$3"
   local code body
-  code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/lv_smoke_body -w '%{http_code}' "${AUTH[@]}" "$url" || echo 000)
-  body=$(head -c 200 /tmp/lv_smoke_body | tr '\n' ' ')
+  code=$(curl -sS "${CURL_OPTS[@]}" -o "$SMOKE_BODY" -w '%{http_code}' "${AUTH[@]}" "$url" || true)
+  [[ -n "$code" ]] || code=000
+  body=$(head -c 200 "$SMOKE_BODY" | tr '\n' ' ')
   if [[ "$code" == "$expect" ]]; then
     printf 'PASS %-42s %s\n' "$name" "$code"
   else
@@ -33,8 +37,9 @@ check() {
 check_noauth() {
   local name="$1" expect="$2" url="$3"
   local code body
-  code=$(curl -sS "${CURL_OPTS[@]}" -o /tmp/lv_smoke_body -w '%{http_code}' "$url" || echo 000)
-  body=$(head -c 120 /tmp/lv_smoke_body | tr '\n' ' ')
+  code=$(curl -sS "${CURL_OPTS[@]}" -o "$SMOKE_BODY" -w '%{http_code}' "$url" || true)
+  [[ -n "$code" ]] || code=000
+  body=$(head -c 120 "$SMOKE_BODY" | tr '\n' ' ')
   if [[ "$code" == "$expect" ]]; then
     printf 'PASS %-42s %s\n' "$name" "$code"
   else
@@ -63,7 +68,15 @@ check 'fleet reservations' 200 "$BASE_URL/api/fleet/reservations.json"
 check 'fleet ownership' 200 "$BASE_URL/api/fleet/ownership.json"
 check 'fleet conflicts' 200 "$BASE_URL/api/fleet/conflicts.json"
 check 'fleet ports telemetry' 200 "$BASE_URL/api/fleet/ports/telemetry.json"
-check 'fleet ports preflight' 409 "$BASE_URL/api/fleet/ports/preflight.json"
+# Empty inventory is 200/pass; blockers (offline chassis, etc.) are 409.
+preflight_code=$(curl -sS "${CURL_OPTS[@]}" -o "$SMOKE_BODY" -w '%{http_code}' "${AUTH[@]}" \
+  "$BASE_URL/api/fleet/ports/preflight.json" || true)
+if [[ "$preflight_code" == "409" || "$preflight_code" == "200" ]]; then
+  printf 'PASS %-42s %s\n' 'fleet ports preflight' "$preflight_code"
+else
+  printf 'FAIL %-42s got=%s want=200|409\n' 'fleet ports preflight' "$preflight_code"
+  FAIL=$((FAIL + 1))
+fi
 
 if [[ -n "${LABVAULT_SMOKE_CHASSIS_ID:-}" ]]; then
   check 'chassis health' 200 "$BASE_URL/api/fleet/chassis/${LABVAULT_SMOKE_CHASSIS_ID}/health.json"
@@ -80,17 +93,25 @@ if [[ -z "$SMOKE_USER" && -f "$CRED" ]]; then
   SMOKE_USER="$(awk -F= '/^username=/{print $2}' "$CRED" | tr -d '[:space:]')"
   SMOKE_PASS="$(awk -F= '/^password=/{print $2}' "$CRED" | tr -d '[:space:]')"
 fi
+# Re-run of bootstrap_labvault writes password_unchanged=1 (does not reset).
+# Session smoke then needs LABVAULT_SMOKE_PASSWORD (see FIRST_LOGIN.md).
+if [[ -z "$SMOKE_PASS" ]]; then
+  SMOKE_PASS="${LABVAULT_SMOKE_PASSWORD:-}"
+fi
 if [[ -n "$SMOKE_USER" && -n "$SMOKE_PASS" ]]; then
   JAR=/tmp/lv_smoke_cookies.txt
   rm -f "$JAR"
   csrf=$(curl -sS "${CURL_OPTS[@]}" -c "$JAR" "$BASE_URL/login/" | sed -n 's/.*name="csrfmiddlewaretoken" value="\([^"]*\)".*/\1/p' | head -1)
   curl -sS "${CURL_OPTS[@]}" -b "$JAR" -c "$JAR" -X POST "$BASE_URL/login/" \
     -H 'Content-Type: application/x-www-form-urlencoded' \
+    -H "Origin: ${BASE_URL}" \
+    -H "Referer: ${BASE_URL}/login/" \
     --data-urlencode "csrfmiddlewaretoken=${csrf}" \
     --data-urlencode "username=${SMOKE_USER}" \
     --data-urlencode "password=${SMOKE_PASS}" \
     -o /dev/null
-  code=$(curl -sS "${CURL_OPTS[@]}" -b "$JAR" -o /tmp/lv_smoke_body -w '%{http_code}' "$BASE_URL/api/live-status/" || echo 000)
+  code=$(curl -sS "${CURL_OPTS[@]}" -b "$JAR" -o "$SMOKE_BODY" -w '%{http_code}' "$BASE_URL/api/live-status/" || true)
+  [[ -n "$code" ]] || code=000
   if [[ "$code" == "200" ]]; then
     printf 'PASS %-42s %s\n' 'live-status (session)' "$code"
   else

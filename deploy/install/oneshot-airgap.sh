@@ -19,9 +19,16 @@ source "$ROOT_SRC/deploy/install/lib-ready.sh"
 [[ "$(id -u)" -eq 0 ]] || die "run as root"
 [[ -n "$WHEELHOUSE" && -d "$WHEELHOUSE" ]] || die "usage: $0 /path/to/wheelhouse [install_root]"
 
-# Offline OS packages must already be present (python3, openldap-devel, gcc, postgresql…).
-command -v python3 >/dev/null || die "python3 missing — install from local RPM/DEB mirror first"
-python3 -c "import ensurepip,venv" 2>/dev/null || die "python3 venv support required"
+# Offline OS packages must already be present (python3.11+, openldap-devel, gcc, postgresql…).
+PY=python3
+if command -v python3.11 >/dev/null; then
+  PY=python3.11
+elif command -v python3.12 >/dev/null; then
+  PY=python3.12
+fi
+command -v "$PY" >/dev/null || die "python3.11+ missing — install from local RPM/DEB mirror first"
+"$PY" -c "import sys; assert sys.version_info >= (3, 10), sys.version"
+"$PY" -c "import ensurepip,venv" 2>/dev/null || die "$PY venv support required"
 
 id labvault >/dev/null 2>&1 || useradd --system --home /var/lib/labvault --shell /sbin/nologin labvault
 getent group labvault-ops >/dev/null || groupadd --system labvault-ops
@@ -38,7 +45,7 @@ fi
 rm -f "$INSTALL_ROOT/.env"
 cd "$INSTALL_ROOT"
 
-python3 -m venv .venv
+"$PY" -m venv .venv
 # shellcheck disable=SC1091
 source .venv/bin/activate
 # Prefer the prebuilt linux wheel over the python-ldap sdist when both exist.
@@ -51,11 +58,14 @@ pip install --no-index --find-links="$WHEELHOUSE" -r requirements.txt gunicorn
 use_pg=0
 if id postgres >/dev/null 2>&1 && command -v psql >/dev/null; then
   if command -v postgresql-setup >/dev/null 2>&1; then
-    if [[ ! -d /var/lib/pgsql/data && ! -d /var/lib/pgsql/15/data && ! -d /var/lib/pgsql/14/data ]]; then
+    if [[ ! -f /var/lib/pgsql/data/PG_VERSION && ! -f /var/lib/pgsql/15/data/PG_VERSION && ! -f /var/lib/pgsql/14/data/PG_VERSION && ! -f /var/lib/pgsql/13/data/PG_VERSION ]]; then
       postgresql-setup --initdb
     fi
   fi
-  systemctl enable --now postgresql 2>/dev/null || systemctl enable --now postgresql-14
+  systemctl enable --now postgresql 2>/dev/null || \
+    systemctl enable --now postgresql-15 2>/dev/null || \
+    systemctl enable --now postgresql-13 || \
+    die "failed to start postgresql — run postgresql-setup --initdb"
   HBA="$(sudo -u postgres psql -Atc 'SHOW hba_file')"
   if [[ -n "$HBA" && -f "$HBA" ]]; then
     log "Configuring Postgres password auth for localhost ($HBA)"
@@ -118,6 +128,7 @@ systemctl daemon-reload
 # Restoring a live lab dataset turns Lab Pulse on with no extra UI steps.
 if [[ -n "${LABVAULT_RESTORE_DATASET:-}" ]]; then
   [[ -f "$LABVAULT_RESTORE_DATASET" ]] || die "LABVAULT_RESTORE_DATASET not a file: $LABVAULT_RESTORE_DATASET"
+  chmod a+r "$LABVAULT_RESTORE_DATASET" || true
   export LABVAULT_WORKER_MODE=live
   log "Restore dataset: $LABVAULT_RESTORE_DATASET"
 fi
@@ -147,17 +158,26 @@ if grep -q '^LABVAULT_DEMO_DEFAULTS=' "$ENV_FILE"; then
 else
   echo "LABVAULT_DEMO_DEFAULTS=${LABVAULT_DEMO_DEFAULTS}" >> "$ENV_FILE"
 fi
+export LABVAULT_TLS_PORT="${LABVAULT_TLS_PORT:-$(default_tls_port)}"
+bash "$ROOT_SRC/deploy/scripts/ensure-labvault-tls.sh"
+maybe_install_tls "$ROOT_SRC" "$INSTALL_ROOT"
 ./labvaultctl --adapter systemd --state-dir "$STATE" install
 getent group labvault-ops >/dev/null || groupadd --system labvault-ops
 usermod -aG labvault-ops labvault
 mkdir -p /var/lib/labvault/cli-ssh && chown labvault:labvault /var/lib/labvault/cli-ssh && chmod 700 /var/lib/labvault/cli-ssh
-export LABVAULT_TLS_PORT="${LABVAULT_TLS_PORT:-$(default_tls_port)}"
-bash "$ROOT_SRC/deploy/scripts/ensure-labvault-tls.sh"
-maybe_install_tls "$ROOT_SRC" "$INSTALL_ROOT"
 systemctl enable --now labvault-opsd labvault-cli-ssh labvault-web labvault-refresh \
   labvault-heartbeat labvault-collector labvault-cli-worker
 if [[ "${LABVAULT_WORKER_MODE}" == "live" ]]; then
   systemctl restart labvault-heartbeat labvault-collector
+  log "Priming first live heartbeat + collector tick"
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+    "$INSTALL_ROOT/.venv/bin/python" "$INSTALL_ROOT/manage.py" run_fleet_heartbeat --once
+  sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+    "$INSTALL_ROOT/.venv/bin/python" "$INSTALL_ROOT/manage.py" run_metric_collector --once
 fi
 
 if [[ ! "${LABVAULT_SKIP_VERIFY:-}" =~ ^(1|true|yes)$ ]]; then

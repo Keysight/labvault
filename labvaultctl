@@ -161,6 +161,16 @@ def _install_systemd_units() -> None:
     if not unit_dir.is_dir():
         return
     for unit in sorted(unit_dir.glob("*.service")):
+        if unit.name == "labvault-opsd-compose.service":
+            # Conflicts with Alias= on labvault-opsd.service
+            compat = Path("/etc/systemd/system") / unit.name
+            if compat.exists() or compat.is_symlink():
+                try:
+                    compat.unlink()
+                    print(f"+ removed compose opsd stub {compat}", flush=True)
+                except OSError:
+                    pass
+            continue
         text = unit.read_text(encoding="utf-8")
         text = text.replace("/opt/labvault/current", str(ROOT))
         dest = Path("/etc/systemd/system") / unit.name

@@ -11,7 +11,7 @@ sudo LABVAULT_RESTORE_DATASET=/path/labvault_export.json \
   ./deploy/install/oneshot-systemd.sh
 ```
 
-Installs OS packages (including OpenLDAP devel), creates `labvault` user, syncs tree, builds venv, writes `/etc/labvault/labvault.env`, creates Postgres DBs when local Postgres exists, installs units from `deploy/systemd/` with rewritten `WorkingDirectory`, runs `labvaultctl install`, enables workers + opsd. When `LABVAULT_RESTORE_DATASET` is set, workers start in `live` mode after bootstrap restore.
+Installs OS packages (including **python3.11** and **PostgreSQL 15** on Rocky/RHEL 9, plus OpenLDAP devel), creates `labvault` user, syncs tree, builds venv, writes `/etc/labvault/labvault.env`, runs `postgresql-setup --initdb` when the data directory has no `PG_VERSION`, creates Postgres DBs, installs units from `deploy/systemd/` with rewritten `WorkingDirectory`, runs `labvaultctl install`, enables workers + opsd. When `LABVAULT_RESTORE_DATASET` is set, workers start in `live` mode and oneshot runs one heartbeat + collector tick so fleet/Pulse are populated before verify.
 ## Unit map
 
 | Unit | Exec |
@@ -42,6 +42,8 @@ sudo ./labvaultctl host-deps --install
 ```
 
 There is **no** `backup create --out`. Backup prints the directory path.
+
+On Rocky/RHEL with SELinux Enforcing, oneshot labels **9443/tcp** as `http_port_t` so host nginx can bind the customer TLS port.
 
 ## TLS
 

@@ -2,9 +2,11 @@
 
 Fabric views hang off a lab topology:
 
-- Fabric map
-- Port fabric
+- Fabric map (`/lab-topology/<id>/fabric.json`, `fabric-graph.json`)
+- Port fabric (`/lab-topology/<id>/port-fabric.json` and the HTML page)
 - Fabric snapshots
+
+`/lab-topology/<id>/port-fabric/summary.json` is a LaaS leftover and returns **404** in this SKU. Use `port-fabric.json` instead.
 
 ## OCS patch snapshots
 

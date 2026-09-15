@@ -28,8 +28,15 @@ install_host_deps() {
 install_host_deps
 
 # Prefer a throwaway venv so PEP 668 / externally-managed hosts still work.
+# Match EL9 oneshot (python3.11) when the builder has it.
+PY=python3
+if command -v python3.11 >/dev/null; then
+  PY=python3.11
+elif command -v python3.12 >/dev/null; then
+  PY=python3.12
+fi
 BUILD_VENV="$(mktemp -d)/wheelhouse-venv"
-python3 -m venv "$BUILD_VENV"
+"$PY" -m venv "$BUILD_VENV"
 # shellcheck disable=SC1091
 source "$BUILD_VENV/bin/activate"
 python -m pip install -U pip wheel setuptools

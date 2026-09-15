@@ -55,6 +55,16 @@ class HeartbeatClassifyTests(SimpleTestCase):
         self.assertTrue(row['halt_suspect'])
         self.assertEqual(row['halt_reason'], 'probe_auth_failed')
 
+    def test_empty_store_follows_heartbeat_mode(self):
+        from connect.fleet_heartbeat import _empty_store, heartbeat_mode
+
+        import os
+
+        os.environ.pop("LABVAULT_HEARTBEAT_MODE", None)
+        store = _empty_store()
+        self.assertEqual(store["mode"], heartbeat_mode())
+        self.assertEqual(store["chassis"], {})
+
     def test_heartbeat_mode_is_callable(self):
         from connect.fleet_heartbeat import heartbeat_mode
         self.assertTrue(callable(heartbeat_mode))

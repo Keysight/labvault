@@ -12,7 +12,17 @@ if [ "$(id -u)" = "0" ]; then
 fi
 python manage.py migrate --noinput
 python manage.py migrate --database np_timeseries --noinput
-python manage.py collectstatic --noinput
+# Workers do not serve static files. collectstatic on every container delays
+# the first live heartbeat/collector tick by minutes.
+need_static=0
+for arg in "$@"; do
+  case "$arg" in
+    gunicorn|*collectstatic*) need_static=1 ;;
+  esac
+done
+if [ "$need_static" = "1" ]; then
+  python manage.py collectstatic --noinput
+fi
 if [ "$(id -u)" = "0" ]; then
   chown -R labvault:labvault /var/lib/labvault /app/var 2>/dev/null || true
 fi

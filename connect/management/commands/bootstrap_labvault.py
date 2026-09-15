@@ -18,6 +18,18 @@ from connect.labvault_bootstrap_defaults import (
 class Command(BaseCommand):
     help = "Enable live pulse, seed fleet Bearer token, optionally import a LabVault dataset."
 
+    def _write_secret(self, path: Path, text: str, ok_msg: str) -> None:
+        """Best-effort 0600 write. Re-running after oneshot often hits a root-owned /tmp file."""
+        try:
+            path.write_text(text, encoding="utf-8")
+            try:
+                os.chmod(path, 0o600)
+            except OSError:
+                pass
+            self.stdout.write(ok_msg)
+        except OSError as exc:
+            self.stdout.write(f"warning skip_write {path}: {exc}")
+
     def add_arguments(self, parser):
         parser.add_argument("--restore", default="", help="Path to labvault-full-export JSON")
         parser.add_argument(
@@ -107,34 +119,33 @@ class Command(BaseCommand):
             self.stdout.write(f"fleet_token_unchanged name={name}")
 
         token_file = Path(options["token_file"] or "/tmp/labvault-fleet-token")
-        token_file.write_text(f"name={name}\ntoken={token_val}\n", encoding="utf-8")
-        try:
-            os.chmod(token_file, 0o600)
-        except OSError:
-            pass
-        self.stdout.write(f"fleet_token_file={token_file}")
+        self._write_secret(
+            token_file,
+            f"name={name}\ntoken={token_val}\n",
+            f"fleet_token_file={token_file}",
+        )
 
         cred = Path("/tmp/bootstrap-credentials")
         if created_admin:
-            cred.write_text(
-                f"username={admin.get_username()}\npassword={password}\nchange_on_first_login=recommended\n",
-                encoding="utf-8",
+            cred_text = (
+                f"username={admin.get_username()}\npassword={password}\nchange_on_first_login=recommended\n"
             )
         else:
-            cred.write_text(
+            cred_text = (
                 f"username={admin.get_username()}\npassword_unchanged=1\n"
-                "note=Existing account; password was not reset\n",
-                encoding="utf-8",
+                "note=Existing account; password was not reset\n"
             )
-        try:
-            os.chmod(cred, 0o600)
-        except OSError:
-            pass
+        self._write_secret(cred, cred_text, f"bootstrap_credentials={cred}")
 
         if restore:
             path = Path(restore)
             if not path.is_file():
                 raise CommandError(f"restore file not found: {path}")
+            if not os.access(path, os.R_OK):
+                raise CommandError(
+                    f"restore file not readable by this user: {path} "
+                    "(chmod 644 or chown labvault — do not leave it 0600 root)"
+                )
             from connect.labvault_dataset import import_from_file
 
             stats = import_from_file(

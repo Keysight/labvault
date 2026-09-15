@@ -17,4 +17,6 @@ sudo LABVAULT_RESTORE_DATASET=/path/to/labvault_export.json \
 
 Minimum sizing: 4 vCPU, 8 GiB RAM, 40 GiB free disk. Open **9443/tcp** for the default TLS UI.
 
+Give the guest a **static IPv4** (`ipconfig0=ip=<addr>/<prefix>,gw=<gateway>`) plus nameservers if DHCP or the QEMU guest agent is unreliable. Cloud-init `package_upgrade` can stall first boot — leave it off for oneshot guests.
+
 Generic cloud-init notes live under `deploy/proxmox/`.

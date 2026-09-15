@@ -90,10 +90,30 @@ Search-and-replace each placeholder IP with the real one (13 replacements). That
 
 ### Already installed
 
-1. Copy the edited JSON onto the LabVault host (not into git).
+1. Copy the edited JSON onto the LabVault host (not into git). The `labvault` service user must be able to **read** it (`chmod 644` or `chown labvault`). A `0600` root-owned copy will fail the CLI restore.
 2. Sign in as staff — credentials are in [FIRST_LOGIN](FIRST_LOGIN.md).
 3. **DATA → Import → Import full LabVault dataset** and choose the file.
 4. Wait for the success banner (`pulse=live`).
+
+CLI equivalent (after a systemd/airgap oneshot). Load `/etc/labvault/labvault.env` as **root**, then run the commands as `labvault` so Django sees Postgres/cache settings:
+
+```bash
+set -a
+source /etc/labvault/labvault.env
+set +a
+sudo chmod 644 /path/to/dc8-pickup-export.json
+sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+  /opt/labvault/current/.venv/bin/python /opt/labvault/current/manage.py \
+  bootstrap_labvault --live --restore /path/to/dc8-pickup-export.json
+sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+  /opt/labvault/current/.venv/bin/python /opt/labvault/current/manage.py \
+  run_fleet_heartbeat --once
+sudo -E -u labvault env DJANGO_SETTINGS_MODULE=connect.settings \
+  /opt/labvault/current/.venv/bin/python /opt/labvault/current/manage.py \
+  run_metric_collector --once
+```
+
+A leftover root-owned `/tmp/labvault-fleet-token` from oneshot is skipped (`warning skip_write`); restore still runs. The live token stays in `/var/lib/labvault/fleet-token`.
 
 ### First install (oneshot)
 

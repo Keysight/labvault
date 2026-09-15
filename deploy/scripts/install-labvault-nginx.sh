@@ -90,5 +90,22 @@ chmod 644 "$OUT_PATH"
 echo "Wrote $OUT_PATH (server_name=$HOSTNAME, tls_port=$TLS_PORT, upstream=127.0.0.1:8000)"
 
 nginx -t
-systemctl reload "$NGINX_SERVICE"
+# Rocky/RHEL SELinux only allows nginx on labeled HTTP ports (80/443). 9443 needs http_port_t.
+if command -v getenforce >/dev/null 2>&1 && [[ "$(getenforce 2>/dev/null)" == "Enforcing" ]]; then
+  if ! command -v semanage >/dev/null 2>&1; then
+    if command -v dnf >/dev/null; then
+      dnf install -y policycoreutils-python-utils || true
+    elif command -v apt-get >/dev/null; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y policycoreutils-python-utils || true
+    fi
+  fi
+  if command -v semanage >/dev/null 2>&1; then
+    semanage port -a -t http_port_t -p tcp "$TLS_PORT" 2>/dev/null || \
+      semanage port -m -t http_port_t -p tcp "$TLS_PORT" 2>/dev/null || true
+  fi
+  # nginx → 127.0.0.1:8000 (gunicorn)
+  setsebool -P httpd_can_network_connect 1 2>/dev/null || true
+fi
+systemctl enable --now "$NGINX_SERVICE"
+systemctl reload "$NGINX_SERVICE" || systemctl restart "$NGINX_SERVICE"
 echo "Reloaded $NGINX_SERVICE"

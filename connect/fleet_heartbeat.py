@@ -64,7 +64,7 @@ def _empty_store() -> dict[str, Any]:
     return {
         'updated_at': timezone.now().isoformat(),
         'interval_seconds': heartbeat_interval_seconds(),
-        'mode': 'seeded' if seeded_mode() else 'live',
+        'mode': 'seeded' if seeded_mode() else heartbeat_mode(),
         'chassis': {},
     }
 
@@ -79,7 +79,7 @@ def load_store() -> dict[str, Any]:
 def save_store(store: dict[str, Any]) -> None:
     store['updated_at'] = timezone.now().isoformat()
     store['interval_seconds'] = heartbeat_interval_seconds()
-    store['mode'] = 'seeded' if seeded_mode() else 'live'
+    store['mode'] = 'seeded' if seeded_mode() else heartbeat_mode()
     cache_set(HEARTBEAT_CACHE_KEY, store, HEARTBEAT_CACHE_TTL)
 
 
@@ -130,7 +130,7 @@ def fleet_heartbeat_payload() -> dict[str, Any]:
     return {
         'ok': True,
         'source': 'labvault_fleet_heartbeat',
-        'mode': store.get('mode', 'seeded'),
+        'mode': 'seeded' if seeded_mode() else heartbeat_mode(),
         'interval_seconds': interval,
         'updated_at': store.get('updated_at'),
         'generated_at': now.isoformat(),

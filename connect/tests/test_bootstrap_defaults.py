@@ -75,6 +75,34 @@ class BootstrapLabvaultCommandTests(TestCase):
         self.assertEqual(tok.token, "labvault-default-api-token")
         self.assertTrue(tok.enabled)
 
+    def test_unwritable_token_file_does_not_block_restore(self):
+        from pathlib import Path
+
+        out = StringIO()
+        orig = Path.write_text
+
+        def boom(self, *args, **kwargs):
+            if str(self).endswith("blocked-token"):
+                raise PermissionError("denied")
+            return orig(self, *args, **kwargs)
+
+        empty = Path(__file__).resolve().parents[2] / "resources" / "examples" / "empty-labvault-export.json"
+        with patch.object(Path, "write_text", boom):
+            with patch.dict(os.environ, {"LABVAULT_DEMO_DEFAULTS": "1", "LABVAULT_BOOTSTRAP_RANDOM": ""}):
+                call_command(
+                    "bootstrap_labvault",
+                    "--live",
+                    "--restore",
+                    str(empty),
+                    "--token-file",
+                    "/tmp/blocked-token",
+                    stdout=out,
+                )
+        text = out.getvalue()
+        self.assertIn("warning skip_write", text)
+        self.assertIn("restore_ok", text)
+        self.assertTrue(get_user_model().objects.filter(username="admin").exists())
+
     def test_second_run_does_not_reset_existing_password_or_token(self):
         User = get_user_model()
         admin = User.objects.create_superuser("admin", "admin@localhost", "old-random")

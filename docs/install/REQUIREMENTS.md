@@ -4,7 +4,7 @@
 
 | OS | Package manager | Notes |
 |----|-----------------|-------|
-| Rocky Linux 9 / RHEL 9 | `dnf` | Preferred for bare metal |
+| Rocky Linux 9 / RHEL 9 | `dnf` | Preferred for bare metal. Stock `python3` is 3.9 — oneshot installs **python3.11** (Django 5.2 needs 3.10+) |
 | Ubuntu 22.04 / 24.04 | `apt` | Fully supported |
 | Other EL9 | `dnf` | Untested but usually fine |
 
@@ -22,7 +22,7 @@
 |-----------|--------------|--------------|
 | Docker Engine 24+ + Compose v2 plugin | **Required** | Optional |
 | Python 3.10+ (3.11 preferred; Django 5.2 LTS) | In container image | Host + `.venv` |
-| PostgreSQL 14/15 | Bundled (`db`, `metrics-db`) | Required for production (SQLite OK for labs) |
+| PostgreSQL 14/15 | Bundled (`db`, `metrics-db`) | Required for production (SQLite OK for labs). Rocky 9 default `postgresql-server` is **13** — oneshot enables `postgresql:15` |
 | nginx | Optional front | Optional TLS front |
 | OpenLDAP client libs (build) | In image (`libldap2-dev`) | **Required on host before pip** |
 
@@ -32,7 +32,8 @@
 
 ```bash
 # Rocky / RHEL 9
-sudo dnf install -y python3-devel gcc openldap-devel openssl-devel cyrus-sasl-devel libpq-devel
+sudo dnf install -y python3.11 python3.11-devel python3.11-pip \
+  gcc openldap-devel openssl-devel cyrus-sasl-devel libpq-devel
 
 # Ubuntu / Debian
 sudo apt-get install -y python3-dev build-essential libldap2-dev libsasl2-dev libpq-dev
