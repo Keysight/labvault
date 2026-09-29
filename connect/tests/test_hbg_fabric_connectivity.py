@@ -12,60 +12,60 @@ from connect.hbg_fabric_connectivity import (
 
 # Fixture IPs only — not shipped as runtime defaults.
 _FIXTURE = {
-    "10.36.84.31": {
+    "192.0.2.31": {
         "chassis_id": "M01",
         "path": "dac_direct",
         "ocs_connected": False,
         "peer_label": "Arista_3",
     },
-    "10.36.84.32": {
+    "192.0.2.32": {
         "chassis_id": "M02",
         "path": "dac_direct",
         "ocs_connected": False,
         "peer_label": "Arista_4",
     },
-    "10.36.84.33": {
+    "192.0.2.33": {
         "chassis_id": "M03",
         "path": "dac_direct",
         "ocs_connected": False,
         "peer_label": "Arista_3",
     },
-    "10.36.84.34": {
+    "192.0.2.34": {
         "chassis_id": "M04",
         "path": "dac_direct",
         "ocs_connected": False,
         "peer_label": "Arista_4",
     },
-    "10.36.84.35": {
+    "192.0.2.35": {
         "chassis_id": "M05",
         "path": "ocs",
         "ocs_connected": True,
-        "ocs_ip": "10.36.84.39",
+        "ocs_ip": "192.0.2.39",
         "ocs_label": "OCS-S320",
     },
-    "10.36.84.36": {
+    "192.0.2.36": {
         "chassis_id": "M06",
         "path": "ocs",
         "ocs_connected": True,
-        "ocs_ip": "10.36.84.39",
+        "ocs_ip": "192.0.2.39",
     },
-    "10.36.84.37": {
+    "192.0.2.37": {
         "chassis_id": "M07",
         "path": "ocs",
         "ocs_connected": True,
-        "ocs_ip": "10.36.84.39",
+        "ocs_ip": "192.0.2.39",
     },
-    "10.36.84.38": {
+    "192.0.2.38": {
         "chassis_id": "M08",
         "path": "ocs",
         "ocs_connected": True,
-        "ocs_ip": "10.36.84.39",
+        "ocs_ip": "192.0.2.39",
     },
 }
 
 
 def setup_module():
-    set_fabric_map(_FIXTURE, ocs_ip="10.36.84.39", ocs_label="OCS-S320")
+    set_fabric_map(_FIXTURE, ocs_ip="192.0.2.39", ocs_label="OCS-S320")
 
 
 def teardown_module():
@@ -74,13 +74,13 @@ def teardown_module():
 
 def test_empty_map_is_the_shipped_default():
     set_fabric_map({})
-    assert lookup_aresone_fabric("10.36.84.35") is None
+    assert lookup_aresone_fabric("192.0.2.35") is None
     assert build_site_fabric_summary()["ocs_chassis_count"] == 0
-    set_fabric_map(_FIXTURE, ocs_ip="10.36.84.39", ocs_label="OCS-S320")
+    set_fabric_map(_FIXTURE, ocs_ip="192.0.2.39", ocs_label="OCS-S320")
 
 
 def test_ares_m05_m08_are_ocs_only():
-    for ip in ("10.36.84.35", "10.36.84.36", "10.36.84.37", "10.36.84.38"):
+    for ip in ("192.0.2.35", "192.0.2.36", "192.0.2.37", "192.0.2.38"):
         meta = lookup_aresone_fabric(ip)
         assert meta is not None
         assert meta["path"] == "ocs"
@@ -90,10 +90,10 @@ def test_ares_m05_m08_are_ocs_only():
 
 def test_ares_m01_m04_are_dac_direct():
     peers = {
-        "10.36.84.31": "Arista_3",
-        "10.36.84.32": "Arista_4",
-        "10.36.84.33": "Arista_3",
-        "10.36.84.34": "Arista_4",
+        "192.0.2.31": "Arista_3",
+        "192.0.2.32": "Arista_4",
+        "192.0.2.33": "Arista_3",
+        "192.0.2.34": "Arista_4",
     }
     for ip, peer in peers.items():
         meta = lookup_aresone_fabric(ip)
@@ -119,7 +119,7 @@ def test_build_site_fabric_summary_counts():
 
 def test_topology_fabric_summary_scopes_to_present_chassis():
     pilot = build_topology_fabric_summary(
-        chassis_mgmt_ips=["10.36.84.35"],
+        chassis_mgmt_ips=["192.0.2.35"],
         has_ocs_node=True,
     )
     assert pilot["scope"] == "topology"
@@ -129,7 +129,7 @@ def test_topology_fabric_summary_scopes_to_present_chassis():
     assert "M05" in pilot["description"]
 
     dac_only = build_topology_fabric_summary(
-        chassis_mgmt_ips=["10.36.84.31", "10.36.84.32"],
+        chassis_mgmt_ips=["192.0.2.31", "192.0.2.32"],
         has_ocs_node=False,
     )
     assert len(dac_only["dac_direct_chassis"]) == 2

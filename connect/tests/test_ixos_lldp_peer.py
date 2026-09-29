@@ -11,19 +11,19 @@ Card 1 Port 1
         System MAC: 00:1A:C5:01:18:7C
         Port ID: 1/2
         System name: xgs12-bpsst
-        System IP: 10.36.67.160
+        System IP: 198.18.2.160
         Port description: 100000 Mbps
 Card 1 Port 2
         System MAC: 00:1A:C5:01:18:7C
         Port ID: 1/1
         System name: xgs12-bpsst
-        System IP: 10.36.67.160
+        System IP: 198.18.2.160
         Port description: 100000 Mbps
 Card 3 Port 1
         System MAC: 00:1A:C5:01:18:7C
         Port ID: 3/2
         System name: xgs12-bpsst
-        System IP: 10.36.67.160
+        System IP: 198.18.2.160
         Port description: 100000 Mbps
 """
 
@@ -36,14 +36,14 @@ class IxOSLldpPeerParseTests(SimpleTestCase):
         self.assertIn('1/1', by_local)
         self.assertEqual(by_local['1/1']['remote_port'], '1/2')
         self.assertEqual(by_local['1/1']['remote_device'], 'xgs12-bpsst')
-        self.assertEqual(by_local['1/1']['mgmt_ip'], '10.36.67.160')
+        self.assertEqual(by_local['1/1']['mgmt_ip'], '198.18.2.160')
         self.assertEqual(by_local['3/1']['remote_port'], '3/2')
 
     def test_port_dot_format_still_works(self):
         raw = """
 Port 1.1
         System name: sonic
-        System IP: 10.36.65.95
+        System IP: 198.18.3.95
         Port ID: Eth57/1
 """
         rows = IxOSDriver._parse_lldp_peer_info(raw)

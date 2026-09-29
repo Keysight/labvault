@@ -23,7 +23,7 @@ class FabricLldpMergeTests(SimpleTestCase):
             'local_port': '1/1',
             'remote_device': 'xgs12-bpsst',
             'remote_port': '1/2',
-            'mgmt_ip': '10.36.67.160',
+            'mgmt_ip': '198.18.2.160',
         }]
         n = merge_lldp_into_fabric_port_groups(port_groups, neighbors)
         self.assertEqual(n, 1)

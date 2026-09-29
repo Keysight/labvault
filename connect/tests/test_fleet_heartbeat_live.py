@@ -10,10 +10,10 @@ class ReachabilityHelpersTests(SimpleTestCase):
     def test_expand_probe_hosts_with_suffix(self):
         with override_settings():
             import os
-            os.environ['LABVAULT_DNS_SUFFIXES'] = 'lbj.is.keysight.com'
+            os.environ['LABVAULT_DNS_SUFFIXES'] = 'example.com'
             hosts = expand_probe_hosts('ares1', '10.1.2.3')
             self.assertIn('ares1', hosts)
-            self.assertIn('ares1.lbj.is.keysight.com', hosts)
+            self.assertIn('ares1.example.com', hosts)
             self.assertIn('10.1.2.3', hosts)
             # IP should not get a suffix
             self.assertFalse(any(h.startswith('10.1.2.3.') for h in hosts))

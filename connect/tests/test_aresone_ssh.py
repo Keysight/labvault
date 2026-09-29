@@ -28,7 +28,7 @@ Swap:             0           0           0
         self.assertLessEqual(pct, 100.0)
 
     def test_normalize_mgmt_ips(self):
-        ips = _normalize_mgmt_ips(['10.0.1.1', '10.0.1.1', '10.36.84.35', '', '10.0.2.3'])
+        ips = _normalize_mgmt_ips(['10.0.1.1', '10.0.1.1', '192.0.2.35', '', '10.0.2.3'])
         self.assertEqual(ips, ['10.0.1.1', '10.0.2.3'])
 
     def test_parse_pcpu_blob_with_markers(self):

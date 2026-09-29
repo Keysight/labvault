@@ -160,7 +160,7 @@ class UsageInsightsTests(TestCase):
                 'metrics': ['cpu_pct', 'mem_pct'],
                 'node_id': self.node.pk,
                 'node_type': 'chassis',
-                'mgmt_ip': '10.36.84.35',
+                'mgmt_ip': '192.0.2.35',
             },
             f'node_{self.node.pk}__1.1': {
                 'profile': 'keysight_port',
@@ -168,7 +168,7 @@ class UsageInsightsTests(TestCase):
                 'parent': f'node_{self.node.pk}',
                 'metrics': ['cpu_pct', 'mem_pct', 'port_ownership', 'bps_in', 'bps_out'],
                 'node_id': self.node.pk,
-                'chassis_ip': '10.36.84.35',
+                'chassis_ip': '192.0.2.35',
             },
             f'node_{self.node.pk}__1.2': {
                 'profile': 'keysight_port',
@@ -176,7 +176,7 @@ class UsageInsightsTests(TestCase):
                 'parent': f'node_{self.node.pk}',
                 'metrics': ['cpu_pct', 'mem_pct', 'port_ownership', 'bps_in', 'bps_out'],
                 'node_id': self.node.pk,
-                'chassis_ip': '10.36.84.35',
+                'chassis_ip': '192.0.2.35',
             },
         }
         now = timezone.now()
@@ -199,25 +199,25 @@ class UsageInsightsTests(TestCase):
                 'metrics': ['cpu_pct', 'mem_pct'],
                 'node_id': self.node.pk,
                 'node_type': 'chassis',
-                'mgmt_ip': '10.36.84.37',
+                'mgmt_ip': '192.0.2.37',
                 'chassis_type': 'aresone',
             },
             f'{parent}__1.1': {
                 'profile': 'keysight_port', 'label': '1.1', 'parent': parent,
                 'metrics': ['cpu_pct', 'mem_pct', 'port_ownership', 'bps_in', 'bps_out'],
-                'node_id': self.node.pk, 'chassis_ip': '10.36.84.37',
+                'node_id': self.node.pk, 'chassis_ip': '192.0.2.37',
                 'pcpu_ip': '10.0.1.1',
             },
             f'{parent}__1.3': {
                 'profile': 'keysight_port', 'label': '1.3', 'parent': parent,
                 'metrics': ['cpu_pct', 'mem_pct', 'port_ownership', 'bps_in', 'bps_out'],
-                'node_id': self.node.pk, 'chassis_ip': '10.36.84.37',
+                'node_id': self.node.pk, 'chassis_ip': '192.0.2.37',
                 'pcpu_ip': '10.0.1.3',
             },
             f'{parent}__3.1': {
                 'profile': 'keysight_port', 'label': '3.1', 'parent': parent,
                 'metrics': ['cpu_pct', 'mem_pct', 'port_ownership', 'bps_in', 'bps_out'],
-                'node_id': self.node.pk, 'chassis_ip': '10.36.84.37',
+                'node_id': self.node.pk, 'chassis_ip': '192.0.2.37',
                 'pcpu_ip': '10.0.1.3',
             },
         }
@@ -252,7 +252,7 @@ class UsageInsightsTests(TestCase):
                 'metrics': ['cpu_pct', 'mem_pct'],
                 'node_id': self.node.pk,
                 'chassis_type': 'aresone',
-                'mgmt_ip': '10.36.84.37',
+                'mgmt_ip': '192.0.2.37',
             },
             f'{parent}__1.1': {
                 'profile': 'keysight_port', 'label': '1.1', 'parent': parent,
@@ -403,7 +403,7 @@ class UsageInsightsTests(TestCase):
                 'metrics': ['cpu_pct', 'mem_pct'],
                 'node_id': self.node.pk,
                 'node_type': 'chassis',
-                'mgmt_ip': '10.36.84.35',
+                'mgmt_ip': '192.0.2.35',
             },
             f'node_{self.node.pk}__1.1': {
                 'profile': 'keysight_port',
@@ -412,7 +412,7 @@ class UsageInsightsTests(TestCase):
                 'metrics': ['cpu_pct', 'mem_pct', 'port_ownership', 'bps_in', 'bps_out'],
                 'node_id': self.node.pk,
                 'pcpu_ip': '10.0.0.1',
-                'chassis_ip': '10.36.84.35',
+                'chassis_ip': '192.0.2.35',
             },
         }
         now = timezone.now()

@@ -64,32 +64,32 @@ class IpAddressingTests(SimpleTestCase):
     def test_derive_dhcpv6_ocs_lab(self):
         self.assertEqual(
             derive_dhcpv6_ocs_lab(
-                '10.36.84.21',
-                prefix='2620:17b:3:c000::5',
-                ipv4_subnet=('10', '36', '84'),
+                '192.0.2.21',
+                prefix='2001:db8:5',
+                ipv4_subnet=('192', '0', '2'),
             ),
-            '2620:17b:3:c000::5:8421',
+            '2001:db8:5:221',
         )
         self.assertEqual(derive_dhcpv6_ocs_lab('10.0.0.1'), '')
-        self.assertEqual(derive_dhcpv6_ocs_lab('10.36.84.21'), '')
+        self.assertEqual(derive_dhcpv6_ocs_lab('192.0.2.21'), '')
 
     def test_fqdn_hostname_first(self):
-        self.assertTrue(is_fqdn_hostname('chassis1.lbj.is.keysight.com'))
+        self.assertTrue(is_fqdn_hostname('chassis1.example.com'))
         self.assertFalse(is_fqdn_hostname('Aresone_1'))
         self.assertEqual(
             resolve_connect_targets(
-                ipv4='10.36.84.31',
+                ipv4='192.0.2.31',
                 ipv6='',
-                hostname='ares1.lbj.is.keysight.com',
+                hostname='ares1.example.com',
                 preferred='ipv4',
             ),
-            ['ares1.lbj.is.keysight.com', '10.36.84.31'],
+            ['ares1.example.com', '192.0.2.31'],
         )
 
     def test_derived_dhcpv6_not_used_for_connect(self):
         self.assertEqual(
             resolve_mgmt_ipv6_for_connect(
-                ipv4='10.36.84.31',
+                ipv4='192.0.2.31',
                 mgmt_ipv6='',
                 ipv6_source='dhcpv6',
             ),
@@ -97,34 +97,34 @@ class IpAddressingTests(SimpleTestCase):
         )
         self.assertEqual(
             resolve_connect_address(
-                ipv4='10.36.84.31',
+                ipv4='192.0.2.31',
                 ipv6=resolve_mgmt_ipv6_for_connect(
-                    ipv4='10.36.84.31', mgmt_ipv6='', ipv6_source='dhcpv6',
+                    ipv4='192.0.2.31', mgmt_ipv6='', ipv6_source='dhcpv6',
                 ),
                 preferred='ipv6',
                 hostname='',
             ),
-            '10.36.84.31',
+            '192.0.2.31',
         )
 
     def test_dual_targets_ipv4_then_ipv6(self):
         self.assertEqual(
             resolve_connect_targets(
-                ipv4='10.36.84.39',
+                ipv4='192.0.2.39',
                 ipv6='2001:db8::39',
                 preferred='dual',
             ),
-            ['10.36.84.39', '2001:db8::39'],
+            ['192.0.2.39', '2001:db8::39'],
         )
 
     def test_dual_connect_address_stays_ipv4_primary(self):
         self.assertEqual(
             resolve_connect_address(
-                ipv4='10.36.84.39',
+                ipv4='192.0.2.39',
                 ipv6='2001:db8::39',
                 preferred='dual',
             ),
-            '10.36.84.39',
+            '192.0.2.39',
         )
 
     def test_dual_ipv4_only_single_target(self):
@@ -141,30 +141,30 @@ class ModelConnectAddressTests(SimpleTestCase):
     def test_dual_display_both(self):
         self.assertEqual(
             display_mgmt_address(
-                ipv4='10.36.84.21',
-                ipv6='2620:17b:3:c000::5:8421',
+                ipv4='192.0.2.21',
+                ipv6='2001:db8::5:8421',
                 preferred='dual',
             ),
-            '2620:17b:3:c000::5:8421 (10.36.84.21)',
+            '2001:db8::5:8421 (192.0.2.21)',
         )
 
     def test_mgmt_ip_bundle(self):
         b = mgmt_ip_bundle(
-            ipv4='10.36.84.39',
-            ipv6='2620:17b:3:c000::5:8439',
+            ipv4='192.0.2.39',
+            ipv6='2001:db8::5:8439',
             preferred='ipv6',
         )
-        self.assertEqual(b['mgmt_display'], '2620:17b:3:c000::5:8439')
-        self.assertEqual(b['device_ip'], '10.36.84.39')
+        self.assertEqual(b['mgmt_display'], '2001:db8::5:8439')
+        self.assertEqual(b['device_ip'], '192.0.2.39')
 
     def test_device_defaults_ipv4_only(self):
-        d = Device(ip_address='10.36.1.1', username='u', password='p')
-        self.assertEqual(d.connect_address, '10.36.1.1')
+        d = Device(ip_address='198.51.100.1', username='u', password='p')
+        self.assertEqual(d.connect_address, '198.51.100.1')
         self.assertEqual(d.preferred_ip_version, 'ipv4')
 
     def test_device_prefer_ipv6(self):
         d = Device(
-            ip_address='10.36.1.1',
+            ip_address='198.51.100.1',
             mgmt_ipv6='2001:db8::10',
             mgmt_ipv6_source='static',
             preferred_ip_version='ipv6',
@@ -175,17 +175,17 @@ class ModelConnectAddressTests(SimpleTestCase):
 
     def test_chassis_connect_address(self):
         ch = KeysightChassis(
-            ip_address='10.36.67.160',
+            ip_address='198.18.2.160',
             mgmt_ipv6='',
             username='admin',
             password='admin',
         )
-        self.assertEqual(ch.connect_address, '10.36.67.160')
+        self.assertEqual(ch.connect_address, '198.18.2.160')
 
     def test_display_mgmt_prefer_ipv6(self):
         self.assertEqual(
             display_mgmt_address(
-                ipv4='10.36.84.21',
+                ipv4='192.0.2.21',
                 ipv6='2001:db8::21',
                 preferred='ipv6',
             ),
@@ -194,24 +194,24 @@ class ModelConnectAddressTests(SimpleTestCase):
 
     def test_device_dual_stack_targets(self):
         d = Device(
-            ip_address='10.36.84.21',
+            ip_address='192.0.2.21',
             mgmt_ipv6='fe80::21',
             mgmt_ipv6_source='slaac',
             preferred_ip_version='dual',
             username='u',
             password='p',
         )
-        self.assertEqual(d.connect_targets, ['10.36.84.21', 'fe80::21'])
-        self.assertEqual(d.connect_address, '10.36.84.21')
+        self.assertEqual(d.connect_targets, ['192.0.2.21', 'fe80::21'])
+        self.assertEqual(d.connect_address, '192.0.2.21')
 
     def test_chassis_dhcpv6_display_only(self):
         ch = KeysightChassis(
-            ip_address='10.36.84.31',
+            ip_address='192.0.2.31',
             mgmt_ipv6='',
             mgmt_ipv6_source='dhcpv6',
             preferred_ip_version='ipv6',
             username='admin',
             password='admin',
         )
-        self.assertEqual(ch.connect_address, '10.36.84.31')
+        self.assertEqual(ch.connect_address, '192.0.2.31')
         self.assertEqual(ch.effective_mgmt_ipv6, '')

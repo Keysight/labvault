@@ -17,7 +17,7 @@ _DICT_FORM = """
         "chassis": {
           "sonic-leaf1": {
             "id": {"type": "mac", "value": "aa:bb:cc:dd:ee:01"},
-            "mgmt-ip": "10.36.65.95"
+            "mgmt-ip": "198.18.3.95"
           }
         },
         "port": {
@@ -38,7 +38,7 @@ _LIST_FORM = """
       "chassis": [{
         "name": [{"value": "arista2"}],
         "id": [{"type": "mac", "value": "aa:bb:cc:dd:ee:02"}],
-        "mgmt-ip": [{"value": "10.36.65.96"}]
+        "mgmt-ip": [{"value": "198.18.3.96"}]
       }],
       "port": [{
         "id": [{"type": "ifname", "value": "Ethernet12/1"}],
@@ -76,7 +76,7 @@ Interface:    eaglefp0fo0, via: LLDP, RID: 1, Time: 0:01:00
   Chassis:
     ChassisID:    mac aa:bb:cc:dd:ee:ff
     SysName:      leaf-switch
-    MgmtIP:       10.36.65.95
+    MgmtIP:       198.18.3.95
   Port:
     PortID:       ifname Ethernet16
     PortDescr:    uplink
@@ -91,7 +91,7 @@ class ParseLldpcliTextTests(SimpleTestCase):
         self.assertEqual(r['interface'], 'eaglefp0fo0')
         self.assertEqual(r['remote_device'], 'leaf-switch')
         self.assertEqual(r['remote_port'], 'Ethernet16')
-        self.assertEqual(r['mgmt_ip'], '10.36.65.95')
+        self.assertEqual(r['mgmt_ip'], '198.18.3.95')
 
     def test_non_text_returns_empty(self):
         self.assertEqual(parse_lldpcli_text(''), [])
@@ -107,7 +107,7 @@ class ParseLldpcliJsonTests(SimpleTestCase):
         self.assertEqual(r['remote_device'], 'sonic-leaf1')
         self.assertEqual(r['remote_port'], 'Ethernet448')
         self.assertEqual(r['chassis_id'], 'aa:bb:cc:dd:ee:01')
-        self.assertEqual(r['mgmt_ip'], '10.36.65.95')
+        self.assertEqual(r['mgmt_ip'], '198.18.3.95')
 
     def test_list_form(self):
         rows = parse_lldpcli_json(_LIST_FORM)
@@ -116,7 +116,7 @@ class ParseLldpcliJsonTests(SimpleTestCase):
         self.assertEqual(r['interface'], 'ens1f0')
         self.assertEqual(r['remote_device'], 'arista2')
         self.assertEqual(r['remote_port'], 'Ethernet12/1')
-        self.assertEqual(r['mgmt_ip'], '10.36.65.96')
+        self.assertEqual(r['mgmt_ip'], '198.18.3.96')
 
     def test_list_keyed_interface_form(self):
         rows = parse_lldpcli_json(_LIST_KEYED_IFACE)
@@ -162,7 +162,7 @@ class ResolveKcosSshKeyTests(SimpleTestCase):
 class KcosDriverLldpSshTests(TestCase):
     @override_settings(KCOS_ROOT_SSH_PASSWORD='pw', KCOS_ROOT_SSH_KEY='')
     def test_get_lldp_ssh_maps_interface_to_slot_port_label(self):
-        driver = KCOSDriver(ip='10.36.83.233', username='u', password='p')
+        driver = KCOSDriver(ip='198.18.1.233', username='u', password='p')
         nodes_payload = DriverResult(success=True, data=[
             {'name': 'merlin-node', 'role': 'merlin', 'internalIP': '172.16.0.1'},
             {'name': 'compute-1', 'role': 'worker', 'internalIP': '172.16.0.11'},
@@ -174,11 +174,11 @@ class KcosDriverLldpSshTests(TestCase):
         per_node = {
             'merlin-node': [
                 {'interface': 'eth0', 'remote_device': 'leaf-a',
-                 'remote_port': 'Ethernet1', 'chassis_id': 'aa:aa', 'mgmt_ip': '10.36.65.95'},
+                 'remote_port': 'Ethernet1', 'chassis_id': 'aa:aa', 'mgmt_ip': '198.18.3.95'},
             ],
             'compute-1': [
                 {'interface': 'eth2', 'remote_device': 'sonic-leaf1',
-                 'remote_port': 'Ethernet448', 'chassis_id': 'aa:bb', 'mgmt_ip': '10.36.65.95'},
+                 'remote_port': 'Ethernet448', 'chassis_id': 'aa:bb', 'mgmt_ip': '198.18.3.95'},
                 {'interface': 'ethX', 'remote_device': 'mystery',
                  'remote_port': 'p1', 'chassis_id': '', 'mgmt_ip': ''},
             ],
@@ -206,7 +206,7 @@ class KcosDriverLldpSshTests(TestCase):
 
     @override_settings(KCOS_ROOT_SSH_PASSWORD='pw', KCOS_ROOT_SSH_KEY='')
     def test_m8400_producer_pods_no_compute_hops(self):
-        driver = KCOSDriver(ip='10.36.82.37', username='u', password='p')
+        driver = KCOSDriver(ip='203.0.113.37', username='u', password='p')
         nodes_payload = DriverResult(success=True, data=[
             {'name': 'mgmt', 'role': 'merlin', 'internalIP': '172.16.0.1'},
             {'name': 'cn-1', 'role': 'worker', 'internalIP': '172.16.0.11'},
@@ -234,7 +234,7 @@ class KcosDriverLldpSshTests(TestCase):
         per_node = {
             'cn-1': [
                 {'interface': 'eaglefp2fo0', 'remote_device': 'leaf-a',
-                 'remote_port': 'Ethernet1', 'chassis_id': 'aa:aa', 'mgmt_ip': '10.36.65.95'},
+                 'remote_port': 'Ethernet1', 'chassis_id': 'aa:aa', 'mgmt_ip': '198.18.3.95'},
             ],
         }
         with patch.object(driver, '_get', return_value=nodes_payload), \
@@ -254,7 +254,7 @@ class KcosDriverLldpSshTests(TestCase):
 
     @override_settings(KCOS_ROOT_SSH_PASSWORD='pw', KCOS_ROOT_SSH_KEY='')
     def test_m8400_b2b_synthesis_when_ssh_lldp_empty(self):
-        driver = KCOSDriver(ip='10.36.82.37', username='u', password='p')
+        driver = KCOSDriver(ip='203.0.113.37', username='u', password='p')
         nodes_payload = DriverResult(success=True, data=[
             {'name': 'mgmt', 'role': 'merlin', 'internalIP': '172.16.0.1'},
         ])
@@ -333,7 +333,7 @@ class MergeKcosLldpTests(SimpleTestCase):
             },
         ]
         rows = synthesize_kcos_b2b_lldp_neighbors(
-            ports, hostname='merpro2c', mgmt_ip='10.36.82.37',
+            ports, hostname='merpro2c', mgmt_ip='203.0.113.37',
         )
         self.assertEqual(len(rows), 2)
         by_local = {r['local_port']: r for r in rows}
@@ -376,7 +376,7 @@ class MergeKcosLldpTests(SimpleTestCase):
             },
         ]
         rows = synthesize_kcos_b2b_lldp_neighbors(
-            ports, hostname='merpro3n', mgmt_ip='10.36.83.254',
+            ports, hostname='merpro3n', mgmt_ip='198.18.1.254',
         )
         self.assertEqual(len(rows), 4)
         pairs = {(r['local_port'], r['remote_port']) for r in rows}
@@ -417,7 +417,7 @@ class MergeKcosLldpTests(SimpleTestCase):
             'local_port': '3.1',
             'remote_device': 'sonic-leaf',
             'remote_port': 'Ethernet16',
-            'mgmt_ip': '10.36.81.30',
+            'mgmt_ip': '198.51.100.30',
         }]
         merge_lldp_into_cards(cards, neighbors)
         self.assertTrue(cards[0]['has_lldp'])
@@ -441,7 +441,7 @@ class MergeKcosLldpTests(SimpleTestCase):
             'local_port': '3.0',
             'remote_device': 'sonic-leaf',
             'remote_port': 'Ethernet16',
-            'mgmt_ip': '10.36.81.30',
+            'mgmt_ip': '198.51.100.30',
         }]
         merge_lldp_into_bps_topology(bps, neighbors)
         pp = bps['slots'][0]['physical_ports'][0]
@@ -455,7 +455,7 @@ class MergeKcosLldpTests(SimpleTestCase):
         ARESONE_ROOT_SSH_KEY='',
     )
     def test_get_lldp_ssh_without_credentials_errors_cleanly(self):
-        driver = KCOSDriver(ip='10.36.83.233', username='u', password='p')
+        driver = KCOSDriver(ip='198.18.1.233', username='u', password='p')
         res = driver.get_lldp_ssh()
         self.assertFalse(res.success)
         self.assertIn('not configured', res.error)

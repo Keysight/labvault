@@ -364,7 +364,7 @@ class EnhancedCollectorTests(TestCase):
     @patch('connect.metric_collectors.get_switch_driver')
     def test_collect_switch_input_discards_delta(self, mock_get_driver):
         arista = Device.objects.create(
-            hostname='sw-disc', ip_address='10.36.84.99', vendor_type='arista',
+            hostname='sw-disc', ip_address='192.0.2.99', vendor_type='arista',
         )
         switch_node = LabTopologyNode.objects.create(
             topology=self.topo, label='Arista discard', node_type='switch', device=arista,

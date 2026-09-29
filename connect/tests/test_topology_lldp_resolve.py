@@ -17,9 +17,9 @@ class LldpHostnameAliasTests(SimpleTestCase):
 
 class ResolveLldpNeighborTests(SimpleTestCase):
     def test_mgmt_ip_resolves(self):
-        ip_to_node = {'10.36.84.21': 'node_1'}
+        ip_to_node = {'192.0.2.21': 'node_1'}
         nid = resolve_lldp_neighbor_node_id(
-            {'mgmt_ip': '10.36.84.21', 'remote_device': 'other'},
+            {'mgmt_ip': '192.0.2.21', 'remote_device': 'other'},
             ip_to_node=ip_to_node,
             host_to_node={},
         )
@@ -28,7 +28,7 @@ class ResolveLldpNeighborTests(SimpleTestCase):
     def test_hostname_resolves(self):
         host_to_node = {'arista2': 'node_2'}
         nid = resolve_lldp_neighbor_node_id(
-            {'remote_device': 'arista2.lbj.is.keysight.com'},
+            {'remote_device': 'arista2.example.com'},
             ip_to_node={},
             host_to_node=host_to_node,
         )

@@ -34,7 +34,7 @@ class LabTopologyIoTests(TestCase):
             label='OCS',
             x=100,
             y=200,
-            extra={'device_ip': '10.36.84.39', 'preferred_ip_version': 'ipv6'},
+            extra={'device_ip': '192.0.2.39', 'preferred_ip_version': 'ipv6'},
         )
         self.n_sw = LabTopologyNode.objects.create(
             topology=self.topo,
@@ -43,7 +43,7 @@ class LabTopologyIoTests(TestCase):
             label='Arista1',
             x=50,
             y=50,
-            extra={'device_ip': '10.36.84.21'},
+            extra={'device_ip': '192.0.2.21'},
         )
         LabTopologyLink.objects.create(
             topology=self.topo,

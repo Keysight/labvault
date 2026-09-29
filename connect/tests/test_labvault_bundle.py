@@ -22,7 +22,7 @@ class LabvaultBundleTests(TestCase):
             manifest = write_bundle(
                 out,
                 lab='OCS Lab',
-                ip_prefix='10.36.84.',
+                ip_prefix='192.0.2.',
                 topology_ids=[topo.pk],
                 include_lldp_cache=False,
             )

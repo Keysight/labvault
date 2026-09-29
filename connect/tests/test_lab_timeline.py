@@ -209,7 +209,7 @@ class ResourceCatalogTests(TestCase):
     def test_switch_counter_aliases_fallback_port_placeholders(self):
         topo = LabTopology.objects.create(name='switch-port-n')
         arista = Device.objects.create(
-            hostname='ar1', ip_address='10.36.84.21', vendor_type='arista',
+            hostname='ar1', ip_address='192.0.2.21', vendor_type='arista',
         )
         node = LabTopologyNode.objects.create(
             topology=topo, label='Arista 1', node_type='switch', device=arista,
@@ -222,7 +222,7 @@ class ResourceCatalogTests(TestCase):
     def test_switch_counter_aliases_map_fabric_labels(self):
         topo = LabTopology.objects.create(name='switch-alias')
         arista = Device.objects.create(
-            hostname='ar3', ip_address='10.36.84.23', vendor_type='arista',
+            hostname='ar3', ip_address='192.0.2.23', vendor_type='arista',
         )
         node = LabTopologyNode.objects.create(
             topology=topo, label='Arista 3', node_type='switch', device=arista,

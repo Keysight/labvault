@@ -14,31 +14,31 @@ from connect.hardware_links import (
 
 class HardwareWebHostTests(SimpleTestCase):
     def test_ipv4_no_ptr(self):
-        self.assertEqual(hardware_web_host('10.36.84.19'), '10.36.84.19')
+        self.assertEqual(hardware_web_host('192.0.2.19'), '192.0.2.19')
 
-    @patch('connect.hardware_links.reverse_dns_hostname', return_value='chassis1.lbj.is.keysight.com')
+    @patch('connect.hardware_links.reverse_dns_hostname', return_value='chassis1.example.com')
     def test_ipv4_with_ptr(self, _mock_ptr):
         self.assertEqual(
-            hardware_web_host('10.36.84.19'),
-            'chassis1.lbj.is.keysight.com',
+            hardware_web_host('192.0.2.19'),
+            'chassis1.example.com',
         )
 
     def test_explicit_fqdn(self):
         self.assertEqual(
-            hardware_web_host('10.36.84.19', resolved_hostname='chassis1.lbj.is.keysight.com'),
-            'chassis1.lbj.is.keysight.com',
+            hardware_web_host('192.0.2.19', resolved_hostname='chassis1.example.com'),
+            'chassis1.example.com',
         )
 
     def test_ipv6_brackets_in_url(self):
         self.assertEqual(
-            hardware_login_url('2620:17b:3:c000::5:8419'),
-            'https://[2620:17b:3:c000::5:8419]/',
+            hardware_login_url('2001:db8::5:8419'),
+            'https://[2001:db8::5:8419]/',
         )
 
     def test_fqdn_https_url(self):
         self.assertEqual(
-            hardware_login_url('10.36.84.19', resolved_hostname='chassis1.lbj.is.keysight.com'),
-            'https://chassis1.lbj.is.keysight.com/',
+            hardware_login_url('192.0.2.19', resolved_hostname='chassis1.example.com'),
+            'https://chassis1.example.com/',
         )
 
     def test_empty(self):
@@ -61,13 +61,13 @@ class HardwareLoginForObjectTests(SimpleTestCase):
 
         d = Device(
             pk=2,
-            ip_address='10.36.84.19',
-            mgmt_ipv6='2620:17b:3:c000::5:8419',
+            ip_address='192.0.2.19',
+            mgmt_ipv6='2001:db8::5:8419',
             preferred_ip_version='dual',
         )
         self.assertEqual(
             hardware_login_url_for_object(d),
-            'https://10.36.84.19/',
+            'https://192.0.2.19/',
         )
 
 
@@ -83,4 +83,4 @@ class LabvaultDetailPathTests(SimpleTestCase):
 
         c = KeysightChassis(pk=7)
         self.assertEqual(labvault_detail_path(c), '/keysight/chassis/7/')
-
+

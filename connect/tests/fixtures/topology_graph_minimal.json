@@ -32,7 +32,7 @@
       "db_pk": 1,
       "kind": "switch",
       "label": "Arista1",
-      "mgmt_ipv4": "10.36.84.21",
+      "mgmt_ipv4": "192.0.2.21",
       "mgmt_ipv6": "",
       "device_id": 1,
       "chassis_id": null,
