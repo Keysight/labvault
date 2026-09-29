@@ -1,7 +1,5 @@
 # LabVault customer SKU — agent notes
 
-This repository is the customer source for LabVault. Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, and UHD hardware are not in this tree.
-
 ## Code map (read before changing a subsystem)
 
 [docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) — processes, databases, caches.
