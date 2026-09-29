@@ -151,7 +151,7 @@ Local setup and the release process: [docs/development/DEVELOPMENT.md](docs/deve
 
 ## What this repository does not contain
 
-Capex, Hyperview, LAAS reserve, AI Nexus, Snappi, Demo Stage, and UHD hardware (bfshell/ucli). There is no free-form device shell. Distribution notes: [docs/distribution/CUSTOMER_DISTRIBUTION.md](docs/distribution/CUSTOMER_DISTRIBUTION.md).
+There is no free-form device shell. Distribution notes: [docs/distribution/CUSTOMER_DISTRIBUTION.md](docs/distribution/CUSTOMER_DISTRIBUTION.md).
 
 ## Contributing
 

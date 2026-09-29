@@ -81,7 +81,7 @@ Search-and-replace each placeholder IP with the real one (13 replacements). That
 
 - `"format": "labvault-full-export"` and `"version": 1`
 - Empty arrays (`keysight_reservations`, `audit_logs`, …)
-- `"capex": {}`
+- the empty compatibility object in the example (leave that key as shipped)
 - Node `ports`, `extra.ports`, `extra.port_details`, fabric / OCS maps
 - Topology name unless you want a different label in the UI
 - Hostnames are labels only; changing them is optional

@@ -10,7 +10,7 @@
 
 ## Customer SKU limits
 
-UHD hardware, bfshell, and ucli are **not included**. Chassis inventory covers IxOS and KCOS appliances only.
+Chassis inventory covers IxOS and KCOS appliances.
 
 ## CLI / fleet
 

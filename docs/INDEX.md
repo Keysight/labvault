@@ -51,4 +51,4 @@ Full catalog: **[MODULES.md](MODULES.md)**
 
 ## Not in this SKU
 
-Capex, Hyperview, LAAS reserve, AI Nexus, Snappi, Demo Stage, docker log-agent / `docker.sock`.
+docker log-agent / `docker.sock`.

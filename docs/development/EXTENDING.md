@@ -1,8 +1,6 @@
 # Extending LabVault
 
-Where to change code, and which doc has the step-by-step. Do not add Capex,
-Hyperview, LAAS reserve, AI Nexus, Snappi, Demo Stage, or UHD surfaces to this
-tree. Do not add a free-form device shell.
+Where to change code, and which doc has the step-by-step. Do not add a free-form device shell.
 
 ## Add a page
 

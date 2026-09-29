@@ -17,7 +17,7 @@
 - `.gitignore` + `.gitattributes` (LF) for Keysight GitHub submission
 - Nginx upstream aligned to gunicorn `:8000`
 - Compose entrypoint runs migrate/collectstatic
-- Hard-dumped LAAS HW APIs, AI Nexus, agent-research handlers → 404 JSON
+- Internal-only API routes that are not part of this tree return 404 JSON
 - Removed internal plans / DEVELOPMENT_CONTEXT from tree
 - Documentation expanded under `docs/` (INDEX + MODULES + install/user/admin/cli/api/security)
 - `check_public_source.py` content gates strengthened

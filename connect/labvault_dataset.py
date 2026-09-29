@@ -147,7 +147,7 @@ def _model_dict(obj, *, exclude=None):
 
 
 def _export_capex_section():
-    """Capex is hard-dumped on the customer SKU — always empty."""
+    """Optional export section. Always empty in this tree."""
     return {
         'quarters': [],
         'requests': [],
@@ -283,10 +283,10 @@ def write_export_file(path: str) -> dict:
 
 
 def _import_capex(capex_payload: dict, stats: dict):
-    """Capex import is a no-op on the customer SKU."""
+    """Optional import section. Ignored in this tree."""
     if capex_payload:
         stats['capex_skipped'] = True
-        stats['capex_note'] = 'Capex is not available on this SKU'
+        stats['capex_note'] = 'section skipped'
 
 
 @transaction.atomic

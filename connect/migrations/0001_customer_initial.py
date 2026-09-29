@@ -711,7 +711,7 @@ class Migration(migrations.Migration):
             name='LabvaultGlobalPrefs',
             fields=[
                 ('singleton_key', models.CharField(default='default', editable=False, max_length=32, primary_key=True, serialize=False)),
-                ('ui_column_profiles', models.JSONField(blank=True, default=dict, help_text='Map of surface id → column profile store (shared by all Capex users)')),
+                ('ui_column_profiles', models.JSONField(blank=True, default=dict, help_text='Map of surface id → column profile store (shared org-wide)')),
                 ('updated_at', models.DateTimeField(auto_now=True)),
                 ('updated_by', models.ForeignKey(blank=True, null=True, on_delete=django.db.models.deletion.SET_NULL, related_name='labvault_global_pref_updates', to=settings.AUTH_USER_MODEL)),
             ],

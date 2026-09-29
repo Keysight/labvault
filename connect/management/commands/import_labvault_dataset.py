@@ -13,7 +13,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--skip-capex',
             action='store_true',
-            help='Ignored on customer SKU (Capex is hard-dumped).',
+            help='Ignored in this tree.',
         )
 
     def handle(self, *args, **options):

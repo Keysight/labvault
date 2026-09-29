@@ -1367,7 +1367,6 @@ def keysight_chassis_detail(request, chassis_id):
                         'panel_type': 'front',
                     })
 
-    # Hyperview SNMP integration hard-dumped on customer SKU.
     snmp_device = None
     snmp_sensors = []
 

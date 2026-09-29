@@ -6,11 +6,9 @@ This tree is the **LabVault customer SKU** for public distribution. It is a hard
 
 - Inventory, Keysight chassis, topology / Lab Pulse, reservations, fabric, fleet APIs, diagnostics (bounded), staff LabVault CLI (web + SSH), opsd allowlisted lifecycle, oneshot installers (Compose / systemd / airgap / Proxmox guest).
 
-## Explicitly not included
+## Not in this tree
 
-Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, personal design credit, UHD hardware (bfshell/ucli), docker.sock log-agent.
-
-`tools/check_public_source.py` fails closed if dumped surfaces reappear.
+docker.sock log-agent. `tools/check_public_source.py` fails closed if excluded surfaces reappear.
 
 ## Safe defaults
 

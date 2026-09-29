@@ -19,7 +19,7 @@ from typing import Any
 DEFAULT_CURSOR_PROJECT = "opt-labvault"
 DEFAULT_TRANSCRIPT = "bcd4a53b-643e-40be-8e74-f0fe31a43a40"
 
-# Every LabVault-related Cursor plan on this host, including historical UHD work.
+# Local maintainer plan globs. Output is gitignored.
 PLAN_GLOBS = (
     "customer_github_deploy*.plan.md",
     "github_distribution_strip*.plan.md",

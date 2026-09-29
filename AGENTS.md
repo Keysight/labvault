@@ -19,7 +19,6 @@ Documentation index: [docs/INDEX.md](docs/INDEX.md).
 
 - Product name is **LabVault** only.
 - Do not commit `.env`, SQLite databases, export dumps, credential files, or private keys.
-- Do not add Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, or UHD hardware.
 - Free-form device shells (`device_terminal`, `api_execute_command`) must stay absent.
 - Do not commit inventory, addresses, or credentials from any private lab.
 

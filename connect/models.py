@@ -1119,7 +1119,7 @@ class NPResourceSample(models.Model):
 class PortUsageSample(models.Model):
     """Port/resource usage episode for cyclic utilization (``np_timeseries`` DB).
 
-    LAAS posts run episodes; LabVault may also record reservation windows.
+    LabVault records reservation windows and other port-usage episodes.
     Retention: 31 days (see ``cleanup_np_timeseries``).
     """
 

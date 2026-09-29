@@ -126,11 +126,4 @@ class LabvaultPasswordChangeView(PasswordChangeView):
                 'Password changes are not available for this account.',
             )
             return redirect('dashboard')
-        if False:  # HARD_DUMP_REMOVED capex password gate
-            messages.warning(
-                request,
-                'Password self-service is not available for Capex requester accounts. '
-                'Contact an administrator to reset your password.',
-            )
-            return redirect('dashboard')
         return super().dispatch(request, *args, **kwargs)

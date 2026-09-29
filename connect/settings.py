@@ -273,7 +273,7 @@ LABVAULT_BREAKGLASS_RESETTABLE_USERNAMES = frozenset(
 )
 
 # Usernames allowed to use Django /admin/ (staff alone is not enough).
-# Default: godmode only. mgmt/finance keep is_staff for in-app features (e.g. Hyperview).
+# Default: godmode only. mgmt/finance keep is_staff for in-app features.
 _django_admin_raw = os.environ.get('LABVAULT_DJANGO_ADMIN_USERNAMES', 'godmode').strip()
 LABVAULT_DJANGO_ADMIN_USERNAMES = frozenset(
     x.strip().lower() for x in _django_admin_raw.replace(',', ' ').split() if x.strip()

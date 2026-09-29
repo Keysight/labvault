@@ -25,7 +25,7 @@ psycopg2-binary
 
 # Excel / document parsing
 
-# SNMP monitoring (Hyperview integration)
+# SNMP monitoring
 
 # Redfish BMC management
 redfish>=3.3.0

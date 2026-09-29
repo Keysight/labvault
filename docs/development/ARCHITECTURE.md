@@ -2,9 +2,7 @@
 
 LabVault is one Django project (`labvault`) and one application (`connect`).
 The same code runs as a web process, several long-running workers, an SSH CLI,
-and a small root-owned operations broker. Customer installs omit Capex,
-Hyperview, LAAS reserve, AI Nexus, Snappi, Demo Stage, and UHD hardware; those
-packages are not in this tree.
+and a small root-owned operations broker.
 
 This page is the map. Each subsystem has its own guide under
 [subsystems/](subsystems/) with data-flow diagrams, module tables, and

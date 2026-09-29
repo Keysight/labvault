@@ -283,7 +283,7 @@ Top-level keys: `format`, `version`, `exported_at`, `media_root_note`, `counts`,
 `keysight_bmc_endpoints`, `keysight_subnet_scans`, `keysight_deployment_jobs`, `audit_logs`
 (newest 50 000), `request_logs` (20 000), `config_backups` (5 000), `changelog_events`
 (50 000), `device_state_baselines`, `lab_topologies` (v3 `export_topology` blocks),
-`topology_links`, and an always-empty `capex` section kept for format compatibility.
+`topology_links`, and an always-empty compatibility section kept for the export format.
 
 Rows are model field dumps with primary keys removed; foreign keys are replaced by natural
 keys (`chassis_ip`, `device_ip`, `user_username`, `reservation_source_id`).

@@ -45,9 +45,5 @@ Every customer-facing surface, with primary URL and doc.
 
 | Surface | Behavior |
 |---------|----------|
-| Capex / Hyperview / LAAS | Not shipped |
-| AI Nexus `/api/nexus/*` | 404 JSON `not_available` |
-| Agent research `/api/research/*` | 404 JSON |
-| HW assignments resolve/release | 404 JSON |
-| UHD hardware / bfshell / ucli | Not shipped |
+| Routes outside this tree | 404 JSON |
 | docker.sock / log-agent | Not present |

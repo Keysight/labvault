@@ -1,4 +1,4 @@
-"""Report Capex/topology migration drift and optional repair hints for production ops."""
+"""Report topology migration drift and optional repair hints for production ops."""
 from django.core.management.base import BaseCommand
 from django.db import connection
 
@@ -54,7 +54,7 @@ class Command(BaseCommand):
                 if has_profile and dropped:
                     issues.append(
                         'connect_userprofile still exists after 0034_lab_topology '
-                        '(harmless drift; Capex defaults use LabvaultUserPrefs). '
+                        '(harmless drift; preferences live on LabvaultUserPrefs). '
                         'After backup, optional: DROP TABLE connect_userprofile; if unused.'
                     )
                 if not has_profile and not dropped:

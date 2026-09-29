@@ -11,7 +11,7 @@ from django.contrib.auth.models import User
 
 from . import models as m
 
-# Auto-register retained models (customer SKU — Capex/Hyperview/LAAS dumped).
+# Auto-register retained models.
 _SKIP = {"User"}  # auth.User handled below if customized
 
 for _name, _cls in vars(m).items():

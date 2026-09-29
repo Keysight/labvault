@@ -13,4 +13,3 @@
 | LabVault CLI | Staff console + `/api/cli/v1/*` |
 | Dual DB | `default` + `np_timeseries` |
 
-Customer SKU excludes Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage.

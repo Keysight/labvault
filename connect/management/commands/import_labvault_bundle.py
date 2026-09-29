@@ -14,7 +14,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             '--import-capex', action='store_true',
-            help='Ignored on customer SKU (Capex is hard-dumped).',
+            help='Ignored in this tree.',
         )
         parser.add_argument(
             '--no-replace-topologies', action='store_true',
