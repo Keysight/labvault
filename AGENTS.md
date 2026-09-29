@@ -1,16 +1,6 @@
 # LabVault customer SKU — agent notes
 
-## Context first (mandatory)
-
-1. `.context/INDEX.md`
-2. `.context/session/SESSION_BRIEF.md`
-3. `.context/memory/OPERATOR_FACTS.md`
-4. `.context/session/chats/INDEX.md` and `.context/plans/INDEX.md`
-5. `graphify-out/GRAPH_REPORT.md` or `graphify-out/wiki/index.md` (if present)
-
-Refresh: `python3 scripts/context_pack.py --target /root/Apps/labvault-public --graphify`
-
-This tree is the **customer SKU** (Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, and UHD hardware are omitted).
+This repository is the customer source for LabVault. Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, and UHD hardware are not in this tree.
 
 ## Code map (read before changing a subsystem)
 
@@ -19,27 +9,21 @@ This tree is the **customer SKU** (Capex, Hyperview, LAAS, AI Nexus, Snappi, Dem
 [docs/development/EXTENDING.md](docs/development/EXTENDING.md) — where to add a page, driver, fleet endpoint, CLI verb, or metric.
 Per-area guides: [docs/development/subsystems/](docs/development/subsystems/).
 App file list: [connect/README.md](connect/README.md).
+Documentation index: [docs/INDEX.md](docs/INDEX.md).
 
 ## Mandatory checks
 
-1. `docs/INDEX.md` — documentation map
-2. `docs/getting-started/FIRST_LOGIN.md` — first login is the credential file, not a published password
-3. `python tools/check_public_source.py` — fail closed on excluded surfaces and lab leakage
-4. `python tools/check_docs.py` — required docs present, no internal runbooks
-
-## Do not mix environments
-
-| Tree | Role |
-|------|------|
-| This repository | Public/customer source |
-| Internal production hosts | Private; never commit their inventory, IPs, or credentials here |
+1. `docs/getting-started/FIRST_LOGIN.md` — first login comes from the credential file written at install.
+2. `python tools/check_public_source.py` — fail closed on excluded surfaces and lab leakage.
+3. `python tools/check_docs.py` — required docs present, no internal runbooks.
 
 ## Safety
 
-- Product name is **LabVault** only
-- Do not commit `.env`, SQLite DBs, export dumps, or credential files
-- Do not add Capex / Hyperview / LAAS / AI Nexus / Snappi / Demo Stage surfaces
-- Free-form device shells (`device_terminal`, `api_execute_command`) must stay absent
+- Product name is **LabVault** only.
+- Do not commit `.env`, SQLite databases, export dumps, credential files, or private keys.
+- Do not add Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, or UHD hardware.
+- Free-form device shells (`device_terminal`, `api_execute_command`) must stay absent.
+- Do not commit inventory, addresses, or credentials from any private lab.
 
 ## Quick regress
 
