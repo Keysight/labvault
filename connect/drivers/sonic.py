@@ -3,6 +3,16 @@ SONiC driver - communicates via REST API (HTTPS) and RESTCONF.
 Uses interface aliases (from platform config) to show physical front-panel port names
 instead of internal lane-based names like Ethernet0, Ethernet4, etc.
 Enhanced: BGP, OSPF, environment, counters, port-channel members.
+
+Transports, in fallback order per call:
+
+1. RESTCONF ``GET /restconf/data/...`` (OpenConfig / sonic-* YANG models).
+2. CLI-over-HTTP ``POST /api/v1/cli`` with ``{"command": "..."}``.
+3. SSH (Paramiko, connect timeout 10 s) running the same CLI command.
+
+``_try_request`` tries https then http on ``api_port`` (default 443), two rounds,
+with TLS verification disabled. Only ``self.ip`` (the first connect target) is
+used; this driver does not iterate dual-stack targets.
 """
 import re
 import logging
@@ -28,11 +38,18 @@ def _get_session(ip):
 
 
 def clear_cache(ip):
+    """Drop the cached HTTP session and interface-alias map for *ip*."""
     _sessions.pop(ip, None)
     _alias_cache.pop(ip, None)
 
 
 class SonicDriver(BaseDriver):
+    """SONiC switch driver (RESTCONF → ``/api/v1/cli`` → SSH fallbacks).
+
+    Also used as a delegate by :class:`~connect.drivers.arista.AristaDriver` when a
+    dual-OS box is currently running SONiC.
+    """
+
     VENDOR_NAME = 'sonic'
 
     def _base_url(self, proto=None):
@@ -83,7 +100,8 @@ class SonicDriver(BaseDriver):
 
     def _ssh_run(self, command, timeout=15):
         """Run a command via SSH. Returns output or empty string.
-        Tries device.username/password; if password is 'admin' also tries 'password'.
+        Tries device.username/password; when the stored password equals a common vendor
+        default it also retries once with the other common SONiC default.
         """
         import paramiko
         cred_sets = [(self.username, self.password)]
@@ -165,6 +183,7 @@ class SonicDriver(BaseDriver):
         })
 
     def probe(self):
+        """RESTCONF system state, then ``show version`` via ``/api/v1/cli`` (no SSH probe)."""
         resp, _ = self._try_request('GET', '/restconf/data/openconfig-system:system/state', timeout=12)
         if resp is not None:
             if resp.status_code == 200:
@@ -249,6 +268,7 @@ class SonicDriver(BaseDriver):
             return DriverResult(error=str(e))
 
     def get_interfaces(self):
+        """OpenConfig interfaces → CLI ``show interfaces status`` → SSH, alias-labelled."""
         aliases = self._load_aliases()
         # RESTCONF interfaces returns large payload (~128KB); use longer timeout and retries
         try:
@@ -452,6 +472,7 @@ class SonicDriver(BaseDriver):
         return self.get_running_config()
 
     def execute_command(self, command):
+        """Run one ``show ...`` command through ``/api/v1/cli``; other prefixes rejected."""
         cmd = command.strip()
         if not cmd.lower().startswith('show'):
             return DriverResult(error="Only 'show' commands are allowed.")
@@ -640,6 +661,7 @@ class SonicDriver(BaseDriver):
         return neighbors
 
     def get_lldp_neighbors(self):
+        """LLDP via RESTCONF (4 paths) → CLI ``show lldp table [json]`` → SSH text parse."""
         # Try OpenConfig REST first (multiple possible paths for different SONiC versions)
         try:
             for lldp_path in [
@@ -980,7 +1002,11 @@ class SonicDriver(BaseDriver):
     # ---- Configuration Push ----
 
     def send_config(self, commands, commit=True):
-        """Push config commands via SONiC CLI API or SSH fallback."""
+        """Push config commands via SONiC CLI API or SSH fallback.
+
+        Each command is sent verbatim; *commit* appends ``sudo config save -y``.
+        ``data``: {outputs, errors, commands_sent}.
+        """
         outputs = []
         errors = []
         for cmd in commands:

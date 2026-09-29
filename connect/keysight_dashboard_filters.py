@@ -1,4 +1,11 @@
-"""Shared GET-filter parsing for Keysight dashboard and hardware inventory."""
+"""Shared GET-filter parsing for Keysight dashboard and hardware inventory.
+
+Recognised query parameters: ``chassis_type``, ``status``, ``team_tag``
+(comma-separated, OR semantics), ``geo`` (``geo_location``), ``lab``
+(``lab_name``), ``q`` (hostname / IP / serial substring), ``aps_gen``
+(``10`` / ``15``). ``aps_gen`` cannot be expressed in SQL; it is applied in
+memory against cached node associations after the DB filters.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +28,7 @@ def keysight_dashboard_query_without(request, *omit_keys: str) -> str:
 
 
 def parse_keysight_filter_params(request) -> dict:
+    """Normalise dashboard filter GET params into a dict (see module docstring)."""
     team_tag_f = request.GET.get('team_tag', '')
     team_tags_selected = [t.strip() for t in team_tag_f.split(',') if t.strip()]
     return {

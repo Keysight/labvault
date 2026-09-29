@@ -4,6 +4,12 @@ Dual-stack management addressing (IPv4 DHCP + IPv6 DHCPv6/SLAAC/static) for lab 
 Existing ``ip_address`` fields remain the primary IPv4 (or hostname) used everywhere
 today. Optional ``mgmt_ipv6`` and ``preferred_ip_version`` control which address
 drivers use for new connections without breaking legacy rows.
+
+Three separate concerns: *connect* targets (:func:`resolve_connect_targets`,
+stored addresses only), *display* (:func:`display_mgmt_address`,
+:func:`mgmt_ip_bundle`; may include a derived DHCPv6 address), and *identity*
+lookup keys for LLDP matching (:func:`identity_address_keys`). ``auto`` is a
+legacy alias for ``ipv4``.
 """
 from __future__ import annotations
 
@@ -72,10 +78,12 @@ def normalize_ip(value: str) -> str:
 
 
 def is_valid_ip(value: str) -> bool:
+    """True for any IPv4/IPv6 literal (brackets allowed)."""
     return bool(normalize_ip(value))
 
 
 def is_ipv6(value: str) -> bool:
+    """True for an IPv6 literal."""
     n = normalize_ip(value)
     if not n:
         return False
@@ -86,6 +94,7 @@ def is_ipv6(value: str) -> bool:
 
 
 def is_ipv4(value: str) -> bool:
+    """True for an IPv4 literal."""
     n = normalize_ip(value)
     if not n:
         return False
@@ -213,6 +222,7 @@ def bracket_host(host: str) -> str:
 
 
 def unbracket_host(host: str) -> str:
+    """Inverse of :func:`bracket_host` (``[2001:db8::1]`` → ``2001:db8::1``)."""
     return _strip_wrappers(host)
 
 
@@ -238,7 +248,7 @@ def resolve_connect_targets(
 
     When ``hostname`` is a FQDN it is tried first (DNS). Otherwise use DHCP IPv4
     and any stored global IPv6 per ``preferred`` mode. Derived DHCPv6 IIDs are
-  not used here — only in ``resolve_mgmt_ipv6`` for display.
+    not used here — only in ``resolve_mgmt_ipv6`` for display.
     """
     v4 = (ipv4 or '').strip()
     if v4 and is_ipv6(v4):

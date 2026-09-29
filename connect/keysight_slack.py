@@ -1,4 +1,18 @@
-"""Slack integration for Keysight lab status (slash commands + HW error webhooks)."""
+"""Slack integration for Keysight lab status (slash commands + HW error webhooks).
+
+Configuration (all optional; Slack stays inert when unset):
+
+* ``SLACK_SIGNING_SECRET`` — required for the ``/api/slack/keysight/`` slash
+  command; requests are rejected (403) when it is missing or the v0 HMAC /
+  5-minute timestamp window fails.
+* ``KEYSIGHT_SLACK_WEBHOOK_URL`` — comma-separated incoming-webhook URLs.
+  Enabled ``WebhookEndpoint`` rows with ``webhook_type='slack'`` are added.
+* ``LABVAULT_PUBLIC_HOSTNAME`` — when set, messages link to
+  ``https://<host>/keysight/chassis/<id>/``; otherwise relative paths are used.
+
+Outbound posts are synchronous ``requests.post`` calls (8 s timeout each) made
+from the request thread that changed a flag.
+"""
 
 from __future__ import annotations
 
@@ -20,10 +34,12 @@ _MAX_SLACK_LINES = 25
 
 
 def slack_signing_secret() -> str:
+    """``SLACK_SIGNING_SECRET`` from the environment ('' when unset)."""
     return (os.environ.get('SLACK_SIGNING_SECRET') or '').strip()
 
 
 def slack_webhook_urls() -> list[str]:
+    """Env webhook URLs plus enabled Slack ``WebhookEndpoint`` rows, de-duplicated."""
     urls: list[str] = []
     raw = (os.environ.get('KEYSIGHT_SLACK_WEBHOOK_URL') or '').strip()
     if raw:
@@ -35,6 +51,7 @@ def slack_webhook_urls() -> list[str]:
 
 
 def verify_slack_signature(request) -> bool:
+    """Validate Slack's ``X-Slack-Signature`` (v0 HMAC-SHA256) and request timestamp."""
     secret = slack_signing_secret()
     if not secret:
         logger.warning('Slack request rejected: SLACK_SIGNING_SECRET not configured')
@@ -73,6 +90,7 @@ def _chassis_detail_url(chassis_id: int | None) -> str:
 
 
 def format_hw_errors_text(rows: list[dict] | None = None) -> str:
+    """Slack mrkdwn list of flagged units (capped at ``_MAX_SLACK_LINES``)."""
     rows = rows if rows is not None else collect_hw_error_report()
     if not rows:
         return 'No reported hardware issues in LabVault.'
@@ -97,7 +115,11 @@ def format_hw_errors_text(rows: list[dict] | None = None) -> str:
 
 
 def handle_slack_command(text: str) -> dict:
-    """Build slash-command JSON response for Slack."""
+    """Build slash-command JSON response for Slack.
+
+    Commands: ``help`` (default), ``hw-errors`` / ``bad`` / ``hw`` / ``hardware``,
+    ``count`` / ``hw-count``. Unknown commands get an ephemeral hint.
+    """
     cmd = (text or '').strip().lower()
     if cmd in ('', 'help'):
         return {
@@ -128,6 +150,7 @@ def handle_slack_command(text: str) -> dict:
 
 
 def post_slack_message(text: str, *, username: str = 'LabVault') -> None:
+    """POST ``text`` to every configured webhook; failures are logged, not raised."""
     urls = slack_webhook_urls()
     if not urls:
         return
@@ -151,6 +174,7 @@ def notify_hw_error_change(
     notes: str = '',
     actor: str = '',
 ) -> None:
+    """Announce a chassis/node HW flag being set or cleared (no-op without webhooks)."""
     if not slack_webhook_urls():
         return
     ch_label = chassis.hostname or chassis.ip_address

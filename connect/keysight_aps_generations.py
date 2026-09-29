@@ -2,6 +2,14 @@
 
 APS 1.5 CNs are identified from IPMI FRU board product (e.g. APS-ONE-150) when
 available, otherwise from node names (``cn-aps-o2-``, ``cn-aps-o15-``, etc.).
+
+Classification precedence in :func:`node_aps_generation`: explicit ``aps_gen``
+hint (from ``KeysightBmcEndpoint.aps_gen``) → FRU strings → node name → the
+standalone hostname rule. Generation codes are the strings ``'10'`` and
+``'15'``. Inputs are node-association dicts from
+``keysight_node_associations`` (``mgmt_node`` / ``compute_nodes``); nothing
+here touches the network or database. Used by the dashboard ``aps_gen`` filter
+chips and the "models in selection" breakdown.
 """
 
 from __future__ import annotations
@@ -38,10 +46,12 @@ _APS_10_FRU_RE = re.compile(
 
 
 def is_aps_15_node_name(name: str) -> bool:
+    """True for ``cn-aps-o2-*`` / ``cn-aps-o15-*`` compute-node names."""
     return bool(_APS_15_NODE_RE.search((name or '').lower()))
 
 
 def is_kcos_node_name(name: str) -> bool:
+    """True for any ``cn-*`` KCOS compute-node name (default generation 1.0)."""
     n = (name or '').lower()
     return n.startswith('cn-aps-') or n.startswith('cn-')
 
@@ -147,6 +157,10 @@ def filter_chassis_queryset_by_aps_gen(qs, aps_gen: str):
 
 
 def count_nodes_for_aps_gen(assoc: dict | None, aps_gen: str) -> tuple[int, int]:
+    """Return ``(mgmt, compute)`` node counts of ``aps_gen`` in one association.
+
+    A standalone appliance counts as one mgmt node and zero compute nodes.
+    """
     if assoc and assoc.get('standalone'):
         gen = standalone_gen_for_chassis(None, assoc)
         if gen == aps_gen:

@@ -1,4 +1,13 @@
-"""Auto-profile topology nodes for timeline metrics and events."""
+"""Auto-profile topology nodes for timeline metrics and events.
+
+Builds a *resource catalog* for one LabTopology: ``{resource_key: meta}`` where
+``resource_key`` is ``node_<pk>`` for nodes and ``node_<pk>__<port_label>`` for
+ports. Each entry carries a profile (``keysight_chassis``, ``arista_switch``,
+``ocs`` …), the metric names collected for it, and management / chassis-internal
+PCPU addresses. Catalogs are cached (``lab_resource_catalog:<topo>:live=<0|1>``,
+300 s with live ports, 600 s without) and dropped by
+:func:`invalidate_resource_catalog_cache`.
+"""
 
 from __future__ import annotations
 
@@ -33,10 +42,12 @@ PORT_PCPU_MGMT_CACHE_TTL = 3600
 
 
 def node_resource_key(node: LabTopologyNode) -> str:
+    """Metric resource key for a topology node (``node_<pk>``)."""
     return f'node_{node.pk}'
 
 
 def port_resource_key(node_id: int, port_label: str) -> str:
+    """Metric resource key for a node port (``node_<pk>__<label>``)."""
     return f'node_{node_id}__{port_label}'
 
 
@@ -117,6 +128,7 @@ def pcpu_mgmt_ip_from_port(port: dict) -> str:
 
 
 def is_aresone_chassis_type(chassis_type: str) -> bool:
+    """True for any AresONE chassis_type spelling."""
     return 'aresone' in (chassis_type or '').lower().replace('-', '').replace('_', '')
 
 
@@ -538,6 +550,7 @@ def _port_profile_for_parent(parent_profile: Optional[str]) -> tuple[str, List[s
 
 
 def catalog_resource_keys(catalog: Dict[str, Dict[str, Any]]) -> Set[str]:
+    """Set of resource keys in a catalog (for ``restrict_*`` filters)."""
     return set(catalog.keys())
 
 

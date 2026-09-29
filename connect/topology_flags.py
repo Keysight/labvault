@@ -7,6 +7,11 @@ Set in environment or .env:
   LABVAULT_GRAPH_DESIGNER=1
   LABVAULT_TOPOLOGY_GRAPH_V3=1
   LABVAULT_TOPOLOGY_SSE=1
+
+Readers: GRAPH_FABRIC switches ``lab_fabric_map_api`` to ``TopologyGraphBuilder``;
+TOPOLOGY_GRAPH_V3 switches ``/topology/data/`` and ``/topology/export/`` to
+``build_global_graph()``. PORT_FABRIC, DESIGNER and SSE are not read by any
+view in this tree. Values are read once at import time (restart to change).
 """
 from __future__ import annotations
 

@@ -5,12 +5,17 @@ Design goals (research-backed visibility patterns for hardware labs):
 - **Time series**: bucketed trends so Pulse shows *when* stress happened, not just peaks.
 - **Stress graph**: relationship-centric view (devices + hot ports + fabric links) for
   bottleneck and dependency tracing — graph-thinking vs flat KPI tables.
-- **Bottlenecks**: scored findings with LaaS-oriented remediation hints.
+- **Bottlenecks**: scored findings with reservation-oriented remediation hints.
 - **Heat matrix**: compare devices on one screen (ops war-room pattern).
 - **PCPU board**: show real AresONE packet-CPU load (not chassis proxy).
 - **Rankings**: Pareto top consumers — where capacity actually goes.
 - **Waste radar**: owned/link-up but idle — the "eye opener" for lab managers.
 - **Activity**: reservation/link event density over the window.
+
+Payloads are built off the request path: the collector calls
+``refresh_stale_insights_snapshots`` and ``write_insights_snapshot`` writes
+``<cache>/insights-cache/<topo>-<preset>.json`` for the 4h and 24h presets, which
+``lab_usage_insights_views`` serves.
 """
 
 from __future__ import annotations
@@ -61,6 +66,7 @@ INSIGHTS_SNAPSHOT_PRESETS = ('4h', '24h')
 
 
 def insights_snapshot_dir() -> Path:
+    """``$LABVAULT_CACHE_DIR/insights-cache`` or ``BASE_DIR/var/insights-cache``."""
     cache_dir = (os.environ.get('LABVAULT_CACHE_DIR') or '').strip()
     if cache_dir:
         return Path(cache_dir) / 'insights-cache'
@@ -68,11 +74,13 @@ def insights_snapshot_dir() -> Path:
 
 
 def insights_snapshot_path(topo_id: int, preset: str) -> Path:
+    """Snapshot file path for a topology and window preset (preset is sanitized)."""
     safe = re.sub(r'[^a-zA-Z0-9_-]+', '', preset or '24h') or '24h'
     return insights_snapshot_dir() / f'{int(topo_id)}-{safe}.json'
 
 
 def read_insights_snapshot(topo_id: int, preset: str) -> Optional[Dict[str, Any]]:
+    """Load a compacted Pulse snapshot, or None when missing/unreadable."""
     path = insights_snapshot_path(topo_id, preset)
     try:
         raw = path.read_text(encoding='utf-8')
@@ -99,6 +107,7 @@ def write_insights_snapshot(topo_id: int, preset: str = '24h') -> Dict[str, Any]
 
 
 def refresh_insights_snapshots(topo_id: int) -> None:
+    """Rewrite every preset in ``INSIGHTS_SNAPSHOT_PRESETS``; failures are logged, not raised."""
     for preset in INSIGHTS_SNAPSHOT_PRESETS:
         try:
             write_insights_snapshot(topo_id, preset)

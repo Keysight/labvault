@@ -1,12 +1,22 @@
 """
 LabVault Multi-Vendor Views
-Supports: Arista EOS, SONiC, FortiGate, Palo Alto
+Supports: Arista EOS, SONiC, FortiGate, Palo Alto, OCS photonic switches (plus
+Keysight devices registered as ``Device``; chassis proper live in ``keysight_views``).
 
-Performance: Background thread caches device data every 20s.
-Page loads serve from cache (instant). No blocking API calls on page load.
+Device cache: ``fetch_device_data`` stores interfaces/LLDP/port-channel (and, for OCS,
+cross-connect/shelf) payloads in the shared Django file cache under
+``device_data:v1:<device_id>`` (TTL 600 s). Pages treat entries younger than 60 s
+(180 s for OCS) as fresh, fall back to stale entries up to 600 s old, and schedule a
+background refresh thread instead of blocking.
 
-Enhanced features: BGP/OSPF/Environment tabs, topology engine, fleet reports,
-config management, webhooks, API tokens, maintenance windows, scheduled jobs.
+The 20 s in-process poller (``start_refresh_thread``) only runs outside gunicorn
+(e.g. ``runserver``) and when ``LABVAULT_DISABLE_INPROCESS_REFRESH`` is unset.
+
+Also here: login/logout, dashboard, device sub-pages (BGP/OSPF/env/DOM/routing/VLAN/
+config/ARP/MAC/LLDP/firewall), CRUD + bulk actions, alerts + webhooks, compliance,
+config search/diff, reports, settings (webhooks, API tokens, maintenance windows,
+scheduled jobs, groups), export/import, audit log, legacy REST API, OCS patch
+snapshots, and 404 stubs for surfaces not shipped in this SKU.
 """
 import csv
 import io
@@ -73,6 +83,7 @@ def _get_client_ip(request):
 
 
 def _log_action(user, action, device=None, details='', request=None):
+    """Insert an ``AuditLog`` row with client IP (first X-Forwarded-For hop) and user-agent."""
     ip = _get_client_ip(request) if request else None
     ua = ''
     if request:
@@ -110,6 +121,7 @@ def _cache_fresh_seconds(vendor_type=None):
 
 
 def _get_cache_entry(device_id):
+    """Return ``{'data', 'timestamp'}`` from the file cache, or ``None`` if missing/malformed."""
     entry = cache_get(_device_cache_key(device_id))
     if not isinstance(entry, dict) or 'data' not in entry:
         return None
@@ -120,6 +132,7 @@ def _get_cache_entry(device_id):
 
 
 def _get_cached_data(device_id, vendor_type=None):
+    """Cached device payload only if fresher than 60 s (180 s when ``vendor_type == 'ocs'``)."""
     entry = _get_cache_entry(device_id)
     if entry:
         age = (timezone.now() - entry['timestamp']).total_seconds()
@@ -139,6 +152,7 @@ def _get_stale_cached_data(device_id, max_age_seconds=600):
 
 
 def _set_cached_data(device_id, data):
+    """Store ``data`` with an ISO timestamp; shared by all gunicorn workers via the file cache."""
     cache_set(
         _device_cache_key(device_id),
         {'data': data, 'timestamp': timezone.now().isoformat()},
@@ -341,16 +355,22 @@ def _build_path_verify_rows(triplet_map: dict, lldp_neighbors: list, ocs_device)
     return rows
 
 
-def _fetch_ocs_device_data(device, driver, data):
-    """OCS: shelves grid, ocs_xconns, patch pairs; one crossconnect GET shared by LLDP + table."""
+def _fetch_ocs_device_data(device, driver, data, raw_rows=None):
+    """OCS: shelves grid, ocs_xconns, patch pairs; one crossconnect GET shared by LLDP + table.
+
+    Adds ``lldp_neighbors``, ``path_verify_rows``, ``ocs_xconns``, ``ocs_shelves``,
+    ``ocs_patch_pairs``, ``ocs_summary`` and ``is_ocs`` to ``data``, then caches it.
+    Path verification reads *other* devices' cache entries (peer switch LLDP).
+    """
     physical = data.get('physical_data') or []
 
     # Single REST GET — reused by both get_ocs_crossconnects and get_lldp_neighbors_detail
-    raw_rows: list = []
-    try:
-        raw_rows = driver.fetch_crossconnect_list()
-    except Exception as e:
-        logger.debug('OCS fetch_crossconnect_list for %s: %s', device.ip_address, e)
+    if raw_rows is None:
+        try:
+            raw_rows = driver.fetch_crossconnect_list()
+        except Exception as e:
+            logger.debug('OCS fetch_crossconnect_list for %s: %s', device.ip_address, e)
+            raw_rows = []
 
     ocs_xc: list = []
     try:
@@ -493,17 +513,37 @@ def _enrich_device_lldp_neighbors(neighbors: list) -> list:
 # ============================================================
 
 def probe_device(device):
+    """Driver reachability check; returns ``'ok'``, ``'auth_failed'`` or ``'unreachable'``."""
     driver = get_driver(device)
     return driver.probe()
 
 
 def fetch_device_data(device, skip_probe=False):
-    if not skip_probe:
+    """Live-poll one device through its driver and refresh the device cache.
+
+    Flow: probe (OCS probes from one parallel source fetch instead) → on
+    ``auth_failed``/``unreachable`` save ``status`` and return ``None`` →
+    ``get_system_info`` updates discovery fields and marks online → ``get_interfaces``
+    → OCS branches to ``_fetch_ocs_device_data``; other vendors add LLDP (merged with
+    Keysight chassis / ``ChassisDeviceLink`` peers) and port-channel member detail.
+    The result dict is written with ``_set_cached_data`` and returned. Blocking; runs
+    network I/O against the device and saves the ``Device`` row.
+    """
+    driver = get_driver(device)
+
+    sources = None
+    if device.vendor_type == 'ocs':
+        sources = driver.fetch_ocs_sources_parallel()
+        result = driver.probe_from_sources(sources)
+        if result == 'unreachable':
+            result = driver.probe()
+    elif not skip_probe:
         result = probe_device(device)
     elif _should_skip_device_probe(device):
         result = 'ok'
     else:
         result = probe_device(device)
+
     if result == 'auth_failed':
         device.status = 'auth_failed'
         device.save(update_fields=['status', 'updated_at'])
@@ -512,8 +552,6 @@ def fetch_device_data(device, skip_probe=False):
         device.status = 'offline'
         device.save(update_fields=['status', 'updated_at'])
         return None
-
-    driver = get_driver(device)
 
     info_result = driver.get_system_info()
     if info_result.success:
@@ -528,11 +566,15 @@ def fetch_device_data(device, skip_probe=False):
         device.last_seen = timezone.now()
         device.save()
 
-    intf_result = driver.get_interfaces()
+    if device.vendor_type == 'ocs' and sources is not None:
+        intf_result = driver.get_interfaces(ports_rows=sources.get('ports_rows'))
+    else:
+        intf_result = driver.get_interfaces()
     if intf_result.success:
         data = intf_result.data
         if device.vendor_type == 'ocs':
-            return _fetch_ocs_device_data(device, driver, data)
+            xc_rows = sources.get('xc_rows') if sources else None
+            return _fetch_ocs_device_data(device, driver, data, raw_rows=xc_rows)
 
         # LLDP for device detail — always cache even if port-channel enrichment fails
         lldp_neighbors = []
@@ -651,6 +693,7 @@ def fetch_device_data(device, skip_probe=False):
 
 
 def fetch_device_health(device):
+    """Poll CPU/memory/temperature, persist a ``DeviceSnapshot`` and raise threshold alerts."""
     driver = get_driver(device)
     result = driver.get_health()
     if result.success:
@@ -669,6 +712,7 @@ def fetch_device_health(device):
 
 
 def _check_health_thresholds(device, health_data):
+    """Create high_cpu / high_memory ``Alert`` (+ webhooks), at most one per type per 5 minutes."""
     cpu = health_data.get('cpu_utilization', 0)
     mem = health_data.get('memory_percent', 0)
     if cpu and cpu > device.cpu_threshold:
@@ -712,6 +756,7 @@ def _send_webhooks(device, alert_type, severity, message):
 
 
 def _build_webhook_payload(webhook_type, device, alert_type, severity, message):
+    """Slack attachment, Teams MessageCard, or a flat generic JSON body (also used for PagerDuty)."""
     if webhook_type == 'slack':
         color = {'critical': '#FF0000', 'warning': '#FFA500', 'info': '#2196F3'}.get(severity, '#607D8B')
         return {
@@ -757,6 +802,7 @@ def _build_webhook_payload(webhook_type, device, alert_type, severity, message):
 # ============================================================
 
 def _refresh_all_devices():
+    """Forever: refresh every non-maintenance device (10-thread pool, 45 s batch cap), sleep 20 s."""
     while True:
         try:
             close_old_connections()
@@ -792,6 +838,7 @@ def _refresh_single_device_safe(device):
 
 
 def _refresh_single_device(device):
+    """Poll one device; on online↔offline transitions create ``Alert`` rows and a change-log event."""
     try:
         old_status = device.status
         fetch_device_data(device)
@@ -822,6 +869,7 @@ def _refresh_single_device(device):
 
 
 def _inprocess_refresh_disabled() -> bool:
+    """True under gunicorn or when ``LABVAULT_DISABLE_INPROCESS_REFRESH`` is truthy."""
     flag = (os.environ.get('LABVAULT_DISABLE_INPROCESS_REFRESH') or '').strip().lower()
     if flag in ('1', 'true', 'yes', 'on'):
         return True
@@ -829,6 +877,7 @@ def _inprocess_refresh_disabled() -> bool:
 
 
 def start_refresh_thread():
+    """Start the per-process device poller once (called on every dashboard load; no-op under gunicorn)."""
     global _refresh_thread_started
     if _inprocess_refresh_disabled():
         return
@@ -844,6 +893,10 @@ def start_refresh_thread():
 # ============================================================
 
 def login_view(request):
+    """Session login via ``AuthenticationForm``; backends are LDAP (if configured) then local.
+
+    Success writes an ``AuditLog`` ``login`` row and redirects to the dashboard.
+    """
     if request.user.is_authenticated:
         return redirect('dashboard')
     if request.method == 'POST':
@@ -867,6 +920,7 @@ def login_view(request):
 
 
 def logout_view(request):
+    """Log the ``logout`` action, end the session and return to the login page (GET allowed)."""
     if request.user.is_authenticated:
         _log_action(request.user, 'logout', request=request)
     logout(request)
@@ -880,6 +934,7 @@ def logout_view(request):
 
 @login_required
 def dashboard(request):
+    """Device list with vendor/status/group/site/tag/search filters and fleet counters (DB only)."""
     devices = Device.objects.all()
     start_refresh_thread()
 
@@ -941,6 +996,11 @@ def dashboard(request):
 
 @login_required
 def device_detail(request, device_id):
+    """Device page served from cache: fresh → stale (+ background refresh) → synchronous fetch.
+
+    ``?refresh=1`` skips both cache tiers and polls live. Offline/auth-failed devices with
+    no cache get an error banner instead of a blocking fetch.
+    """
     device = get_object_or_404(Device, id=device_id)
     force_refresh = request.GET.get('refresh') == '1'
     vendor = (device.vendor_type or '').lower()
@@ -980,6 +1040,8 @@ def device_detail(request, device_id):
     context['vendor_commands'] = VENDOR_COMMANDS.get(device.vendor_type, [])
     context.setdefault('is_ocs', False)
     if context.get('is_ocs'):
+        age = _cache_entry_age_seconds(device_id)
+        context['cache_age_sec'] = round(age, 1) if age is not None else None
         context.setdefault('ocs_patch_pairs', [])
         context.setdefault('ocs_shelves', [])
         context.setdefault('ocs_xconns', [])
@@ -1329,6 +1391,7 @@ def add_device(request):
 
 @login_required
 def edit_device(request, device_id):
+    """Save edits, reset status/transport, and clear driver transport caches plus the device cache."""
     device = get_object_or_404(Device, id=device_id)
     if request.method == 'POST':
         form = EditDeviceForm(request.POST, instance=device)
@@ -1375,6 +1438,10 @@ def delete_device(request, device_id):
 @login_required
 @require_POST
 def bulk_action(request):
+    """Dashboard multi-select: delete, refresh, maintenance on/off, backup_config, enable_lldp.
+
+    ``refresh``, ``backup_config`` and ``enable_lldp`` poll devices synchronously in the request.
+    """
     action = request.POST.get('bulk_action', '')
     device_ids = request.POST.getlist('device_ids')
     if not device_ids:
@@ -1698,6 +1765,7 @@ def export_labvault_bundle(request):
 
 @login_required
 def export_devices(request):
+    """CSV of all devices *including* cleartext password and API key (any logged-in user)."""
     response = HttpResponse(content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="network_devices.csv"'
     writer = csv.writer(response)
@@ -1714,6 +1782,10 @@ def export_devices(request):
 
 @login_required
 def import_devices(request):
+    """Staff-only import: ``bundle_file`` (.tar.gz), ``labvault_file`` (JSON), else CSV rows.
+
+    CSV rows whose IP already exists are skipped; missing credentials default to admin/admin.
+    """
     if not (request.user.is_staff or request.user.is_superuser):
         from django.core.exceptions import PermissionDenied
         raise PermissionDenied
@@ -2388,6 +2460,7 @@ def create_device_group(request):
 
 @login_required
 def device_live_status(request):
+    """Dashboard poll: DB status fields for every device (excluded from ``RequestLog``)."""
     devices = Device.objects.all().values(
         'id', 'ip_address', 'hostname', 'status', 'vendor_type',
         'model_name', 'version', 'uptime', 'last_seen', 'serial_number')
@@ -2414,6 +2487,7 @@ def device_quick_status(request, device_id):
 
 @login_required
 def api_devices(request):
+    """Session-auth JSON inventory (no credentials). Fleet Bearer APIs live in ``fleet_api_views``."""
     devices = Device.objects.all()
     data = [{'id': d.id, 'ip_address': d.ip_address, 'hostname': d.hostname,
              'vendor_type': d.vendor_type, 'version': d.version,
@@ -2427,6 +2501,7 @@ def api_devices(request):
 
 @login_required
 def api_device_detail(request, device_id):
+    """Device fields plus the fresh cache payload (``{}`` when the cache is stale or empty)."""
     device = get_object_or_404(Device, id=device_id)
     cached = _get_cached_data(device_id)
     return JsonResponse({
@@ -2448,17 +2523,26 @@ def api_device_health(request, device_id):
 
 @login_required
 def api_device_ocs_patch(request, device_id):
-    """Return patch-line pairs from the same in-memory cache as the device page."""
+    """Return patch-line pairs from the shared device cache (same as the device page)."""
     device = get_object_or_404(Device, id=device_id)
     if device.vendor_type != 'ocs':
         return JsonResponse({'error': 'not_ocs_device'}, status=400)
-    cached = _get_cached_data(device_id) or _get_stale_cached_data(device_id)
+    if request.GET.get('refresh') == '1':
+        _clear_cached_data(device_id)
+        fetch_device_data(device, skip_probe=_should_skip_device_probe(device))
+    cached = _get_cached_data(device_id, vendor_type='ocs') or _get_stale_cached_data(device_id)
     ent = _get_cache_entry(device_id)
     cache_time = ent['timestamp'].isoformat() if ent else None
+    age = _cache_entry_age_seconds(device_id)
+    cache_age_sec = round(age, 1) if age is not None else None
     if not cached:
-        return JsonResponse({'pairs': [], 'count': 0, 'cache_time': cache_time})
+        return JsonResponse({
+            'pairs': [], 'count': 0, 'cache_time': cache_time, 'cache_age_sec': cache_age_sec,
+        })
     pairs = cached.get('ocs_patch_pairs') or []
-    return JsonResponse({'pairs': pairs, 'count': len(pairs), 'cache_time': cache_time})
+    return JsonResponse({
+        'pairs': pairs, 'count': len(pairs), 'cache_time': cache_time, 'cache_age_sec': cache_age_sec,
+    })
 
 
 def api_execute_command(request, device_id):

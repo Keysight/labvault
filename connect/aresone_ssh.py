@@ -2,6 +2,13 @@
 
 Credentials come from Django settings (``ARESONE_ROOT_*`` env vars). Never log
 passwords or key material.
+
+Flow: SSH to the chassis management host as root (password first, then key), then
+``ssh root@10.0.<card>.<port>`` to each packet CPU on the chassis-internal network
+and run read-only commands (``free -m``, ``/proc/stat``, or a local IxOS REST query
+for application versions). Called from ``IxOSDriver.get_pcpu_health_by_mgmt_ip`` /
+``get_pcpu_apps_by_mgmt_ip``; results are keyed by PCPU management IP. Returns
+``{}`` when no credentials are configured.
 """
 from __future__ import annotations
 
@@ -122,7 +129,11 @@ def collect_pcpu_health(
     connect_timeout: int = 15,
     command_timeout: int = 25,
 ) -> dict[str, dict[str, float | None]]:
-    """SSH to chassis root, hop to each PCPU ``managementIp``, return health map."""
+    """SSH to chassis root, hop to each PCPU ``managementIp``, return health map.
+
+    Returns ``{mgmt_ip: {"cpu_pct": float, "mem_pct": float}}`` (keys omitted when
+    unparsable). PCPUs are visited sequentially over one chassis session.
+    """
     ips = _normalize_mgmt_ips(management_ips)
     if not ips or not chassis_hosts:
         return {}
@@ -248,7 +259,11 @@ def collect_pcpu_app_versions(
     connect_timeout: int = 15,
     command_timeout: int = 30,
 ) -> dict[str, dict]:
-    """SSH hop to each PCPU and read local IxOS ``/chassis`` application versions."""
+    """SSH hop to each PCPU and read local IxOS ``/chassis`` application versions.
+
+    Returns ``{mgmt_ip: {"ixos_version", "ixnetwork_version", "applications"}}``
+    (see :func:`connect.pcpu_versions.normalize_ixos_applications`).
+    """
     from connect.pcpu_versions import parse_pcpu_ixos_blob
 
     ips = _normalize_mgmt_ips(management_ips)

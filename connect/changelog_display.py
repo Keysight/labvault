@@ -1,4 +1,9 @@
-"""UI helpers for reachability badges on Keysight dashboard."""
+"""UI helpers for reachability badges on the Keysight dashboard.
+
+``chassis_reachability_badge`` reads ``DeviceStateBaseline`` (target kind ``chassis``)
+and returns ``{label, css_class}`` for extended or temporary-down badges. Online
+chassis get an empty label. Used by the chassis dashboard templates only.
+"""
 from __future__ import annotations
 
 from django.utils import timezone

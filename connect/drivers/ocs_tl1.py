@@ -1,16 +1,22 @@
 """
 TL1 cross-connect operations for Calient OCS (via SSH → localhost:3083).
 
-Used when REST credentials are read-only (403 on write APIs).
+Used when REST credentials are read-only (403 on write APIs), and only from
+:meth:`connect.drivers.ocs.OcsDriver.restore_patch_snapshot`.
 Credentials come from ``Device.api_key`` JSON::
 
     {
-      "ssh_user": "root",
+      "ssh_user": "<ssh-user>",
       "ssh_password": "…",
-      "tl1_user": "admin",
+      "tl1_user": "<tl1-user>",
       "tl1_password": "…",
       "tl1_port": 3083
     }
+
+Transport: ``sshpass`` + OpenSSH (``StrictHostKeyChecking=no``, connect timeout
+15 s) runs ``bash -s`` on the switch, which pipes the TL1 lines into
+``telnet 127.0.0.1 <tl1_port>`` with short sleeps between lines. Requires the
+``sshpass`` binary on the LabVault host.
 """
 from __future__ import annotations
 
@@ -28,7 +34,11 @@ _TL1_OK = re.compile(r"\bCOMPLD\b", re.I)
 
 
 def tl1_credentials_from_device(device) -> Optional[Dict[str, Any]]:
-    """Return SSH/TL1 creds dict if device api_key JSON has enough fields."""
+    """Return SSH/TL1 creds dict if device api_key JSON has enough fields.
+
+    Devices tagged ``ocs-lab`` get built-in fallback values for any missing field.
+    Returns ``{ssh_user, ssh_password, tl1_user, tl1_password, tl1_port}`` or None.
+    """
     import json
 
     raw = (getattr(device, "api_key", None) or "").strip()
@@ -71,7 +81,11 @@ def run_tl1_over_ssh(
     *,
     timeout: int = 180,
 ) -> Tuple[bool, str]:
-    """Execute TL1 commands on OCS via SSH + telnet to localhost TL1 port."""
+    """Execute TL1 commands on OCS via SSH + telnet to localhost TL1 port.
+
+    Wraps *commands* in ``ACT-USER`` / ``CANC-USER``. Returns ``(ok, tail_of_output)``;
+    ok requires a ``COMPLD`` response and no bare ``DENY`` / ``FAIL``.
+    """
     port = int(creds.get("tl1_port") or 3083)
     tl1_user = creds["tl1_user"]
     tl1_password = creds["tl1_password"]
@@ -127,7 +141,12 @@ def restore_connections_via_tl1(
     *,
     clear_first: bool = True,
 ) -> DriverResult:
-    """Clear (optional) and replay cross-connects using ENT-CRS / ACT-CRS."""
+    """Clear (optional) and replay cross-connects using ENT-CRS / ACT-CRS.
+
+    ``clear_first=True`` sends ``DLT-CRS-ALL`` first, deleting every cross-connect.
+    Rows need ``in`` and ``out``; ``conn`` defaults to ``"<in>-<out>"``. All entries
+    are created ``2WAY``. ``data``: ``{method: "tl1", commands, connections, detail}``.
+    """
     cmds: List[str] = []
     if clear_first:
         cmds.append("DLT-CRS-ALL:::;")
@@ -156,6 +175,7 @@ def restore_connections_via_tl1(
 
 
 def is_rest_permission_denied(err: Optional[str]) -> bool:
+    """Heuristic: does a REST error string indicate a read-only / forbidden user?"""
     if not err:
         return False
     low = err.lower()

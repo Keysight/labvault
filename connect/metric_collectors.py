@@ -1,4 +1,18 @@
-"""Per-device metric collectors for lab topology timeline."""
+"""Per-device metric collectors for lab topology timeline.
+
+One collect cycle (``collect_all_topologies``) polls every node of each topology with
+``metrics_collection_enabled=True`` and writes to ``np_timeseries``:
+
+- chassis (IxOS/KCOS REST): cpu/mem, per-port ownership, link speed, bps, PCPU cpu/mem;
+- Arista/SONiC switches: cpu/mem, per-interface bps and (Arista) input-discard deltas;
+- OCS: crossconnect diffs as ``patch_*`` / ``link_*`` events only (no samples).
+
+Driven by ``manage.py run_metric_collector`` (systemd/compose, 60 s) or
+``collect_topology_metrics``. ``CollectorState`` carries counter baselines between ticks;
+only byte-counter baselines survive a process restart. ``seed_*`` helpers write synthetic
+rows for demos and are not used in ``idle``/``live`` mode unless
+``LABVAULT_COLLECTOR_SWITCH_DISCARDS_SEEDED`` is set.
+"""
 
 from __future__ import annotations
 
@@ -161,6 +175,7 @@ def node_is_collectable(node: LabTopologyNode) -> bool:
 
 
 def topology_has_collectable_nodes(topo_id: int) -> bool:
+    """True when at least one node passes :func:`node_is_collectable` (no network I/O)."""
     nodes = LabTopologyNode.objects.filter(topology_id=topo_id).select_related('device')
     return any(node_is_collectable(n) for n in nodes)
 

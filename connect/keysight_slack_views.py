@@ -1,4 +1,9 @@
-"""Slack slash-command endpoint for Keysight lab queries."""
+"""Slack slash-command endpoint for Keysight lab queries.
+
+Route: ``POST /api/slack/keysight/`` (name ``keysight_slack_command``). CSRF
+exempt and unauthenticated by session; trust comes solely from the Slack
+signing-secret check in ``keysight_slack.verify_slack_signature``.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,11 @@ logger = logging.getLogger(__name__)
 @csrf_exempt
 @require_POST
 def keysight_slack_command(request):
-    """Slack slash command handler (configure Request URL in Slack app)."""
+    """Slack slash command handler (configure Request URL in Slack app).
+
+    Reads form field ``text``; returns Slack JSON (``response_type``, ``text``)
+    or ``403 invalid signature``.
+    """
     if not verify_slack_signature(request):
         return HttpResponse('invalid signature', status=403)
     text = request.POST.get('text', '')

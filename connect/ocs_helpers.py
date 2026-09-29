@@ -1,5 +1,10 @@
 """
 OCS (photonic) device view helpers: triplet keys, shelf/bank grid, xconn table, patch lines, site mapping.
+
+Ports are addressed as ``shelf.module.port`` triplets (optional ``/n`` suffix). The device
+page renders ``OCS_PANEL_COUNT`` shelves, each made of banks of ``OCS_BANK_SIZE`` slots.
+Everything here is pure data shaping over driver output and cached LLDP; nothing talks to
+the controller. See ``docs/development/subsystems/ocs.md``.
 """
 from __future__ import annotations
 
@@ -26,6 +31,7 @@ def norm_ocs_triplet_key(raw: str) -> str:
 
 
 def parse_triplet_parts(key: str) -> Optional[Tuple[int, int, int, Optional[int]]]:
+    """Return ``(shelf, module, port, suffix_or_None)`` for a normalized triplet, else None."""
     m = _OCS_KEY_RE.match(key or "")
     if not m:
         return None
@@ -34,6 +40,7 @@ def parse_triplet_parts(key: str) -> Optional[Tuple[int, int, int, Optional[int]
 
 
 def ocs_triplet_sort_key(triplet: str) -> Tuple[int, int, int, int]:
+    """Numeric sort key for triplets; unparseable keys sort last."""
     m = _OCS_KEY_RE.match(triplet or "")
     if m:
         s, m_, p, b = m.groups()
@@ -51,6 +58,7 @@ def _ocs_led_for_port(row: Dict[str, Any]) -> str:
 
 
 def annotate_ocs_port(intf: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy a driver ``physical_data`` row and add ``ocs_triplet_key``, ``short_name``, ``status_color``."""
     out = dict(intf)
     name = (out.get("name") or out.get("display_name") or "").strip()
     out["ocs_triplet_key"] = norm_ocs_triplet_key(name)

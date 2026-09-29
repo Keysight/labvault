@@ -1,5 +1,6 @@
 """
-IxOS/KCOS card_type → stable family tokens for LaaS resource matching.
+IxOS/KCOS card_type → stable family tokens (CS, PS, APS, M8400, ARESONE, XGS…)
+for matching requested card families against chassis inventory.
 """
 from __future__ import annotations
 

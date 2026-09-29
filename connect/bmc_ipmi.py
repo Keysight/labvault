@@ -4,6 +4,15 @@ Direct IPMI/ipmitool interface for querying BMC endpoints.
 Runs ipmitool as a subprocess to fetch info from BMCs even when
 the host OS / KCOS API is down.  Only requires network reachability
 to the BMC management interface.
+
+Read-only: ``bmc getsysinfo primary_os_name``, ``fru print``, ``mc info`` and
+``chassis power status`` over ``-I lanplus`` (UDP 623), ``DEFAULT_TIMEOUT`` per
+call. No power-control commands are issued. The BMC password is passed with
+``-P`` and is therefore visible in the local process list while ipmitool runs.
+
+Consumer: ``keysight_views`` (BMC inventory panel via :func:`fetch_all_bmcs`).
+``connect.changelog.scan_bmc_endpoint`` imports ``probe_bmc_reachable`` from this
+module, which is not defined here.
 """
 from __future__ import annotations
 
@@ -23,6 +32,8 @@ DEFAULT_TIMEOUT = 8  # seconds per ipmitool call
 
 @dataclass
 class BmcInfo:
+    """Parsed result of :func:`fetch_bmc_info` for one BMC (``raw`` keeps tool output)."""
+
     hostname: str = ''
     ip: str = ''
     reachable: bool = False
@@ -75,7 +86,7 @@ def _run_ipmitool(ip: str, user: str, password: str, *args: str,
 
 
 def _parse_primary_os_name(raw: str) -> dict:
-    """Parse 'v=1 mh=eagle-ma006 mps=APS-M1-TW20230110' into components."""
+    """Parse 'v=1 mh=<master-host> mps=<mgmt-primary-system>' into components."""
     result = {'raw': raw, 'v': '', 'mh': '', 'mps': ''}
     if not raw:
         return result
@@ -141,7 +152,11 @@ def _parse_power(raw: str) -> str:
 
 def fetch_bmc_info(hostname: str, ip: str, user: str, password: str,
                    timeout: int = DEFAULT_TIMEOUT) -> BmcInfo:
-    """Query a single BMC for all available information."""
+    """Query a single BMC for all available information.
+
+    Runs four sequential ipmitool calls; ``reachable`` is True if any returned
+    output. Never raises.
+    """
     info = BmcInfo(hostname=hostname, ip=ip)
 
     if not ip:

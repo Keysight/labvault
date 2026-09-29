@@ -1,4 +1,7 @@
-"""Resolve a LabTopology by unique name. No LaaS / B2B dependency."""
+"""Resolve a LabTopology by unique name (used by ``/lab-topology/by-name/…`` routes).
+
+Errors are returned as dicts with a suggested HTTP ``status`` (400/404/409).
+"""
 from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple

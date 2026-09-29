@@ -1,4 +1,8 @@
-"""Extract client IP, user-agent, and parsed browser/OS from Django requests."""
+"""Extract client IP, user-agent, and parsed browser/OS from Django requests.
+
+Overlaps with ``connect.request_audit``; this variant also resolves a PTR hostname.
+No module in this tree currently imports it.
+"""
 from __future__ import annotations
 
 import re
@@ -14,6 +18,11 @@ def _client_ip_from_meta(meta: dict) -> str:
 
 
 def ptr_lookup(ip: str) -> str:
+    """Reverse-DNS ``ip`` (blocking, ~0.35 s cap); ``''`` for loopback or on failure.
+
+    ``socket.setdefaulttimeout`` is process-global, so concurrent threads briefly
+    inherit the short timeout while this runs.
+    """
     if not ip or ip in ('127.0.0.1', '::1'):
         return ''
     old = socket.getdefaulttimeout()

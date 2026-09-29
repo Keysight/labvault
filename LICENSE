@@ -1,3 +1,15 @@
+LabVault is free of charge. The copyright holders are not selling licenses
+to this distribution, and this file is not an offer for sale.
+
+The terms below are the MIT License, the same license used by other free
+software in this stack (Django's BSD/MIT dependencies, gunicorn, and the
+vendored MIT libraries). The words "publish", "sublicense", and "sell copies"
+give people who already have a copy permission to share it, including on a
+website or for a support fee. They do not require payment to the authors.
+Open source licenses (MIT, BSD, Apache-2.0, GPL) all include that
+redistribution right. Deleting it would make this a different, non-open-source
+license. Do not add that restriction here.
+
 MIT License
 
 Copyright (c) 2026 LabVault contributors

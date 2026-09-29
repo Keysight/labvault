@@ -1,22 +1,35 @@
 """
-Multi-vendor device driver framework.
+Multi-vendor device driver framework for ``Device`` rows (switches, firewalls, OCS).
 
-Each vendor driver implements a common interface for:
-- Connectivity probing and authentication
+Each vendor driver subclasses :class:`~connect.drivers.base.BaseDriver` and returns
+:class:`~connect.drivers.base.DriverResult` objects for:
+
+- Connectivity probing and authentication (``probe()`` → ``'ok' | 'auth_failed' | 'unreachable'``)
 - Version/system info retrieval
 - Interface listing
 - Health monitoring (CPU, memory, uptime)
 - Routing table
 - VLAN information
 - Running/startup config
-- Command execution
+- Read-only command execution (per-driver prefix allowlist)
+- Configuration push (``send_config``) and LLDP enablement
 
-Supported vendors:
-- Arista EOS (eAPI via JSON-RPC over HTTP/HTTPS)
-- SONiC (REST API over HTTPS)
-- FortiGate (REST API with API key or session token)
-- Palo Alto (XML API with API key)
-- OCS (photonic switch REST, SNMP LLDP)
+Registered vendors (``VENDOR_DRIVERS``, keyed by ``Device.vendor_type``):
+
+- ``arista``    — Arista EOS (eAPI JSON-RPC over HTTPS/HTTP, SSH + FastCli fallback)
+- ``sonic``     — SONiC (RESTCONF + ``/api/v1/cli`` over HTTPS/HTTP, SSH fallback)
+- ``fortigate`` — FortiGate (FortiOS REST with API token or session login)
+- ``paloalto``  — Palo Alto (PAN-OS XML API with API key / keygen)
+- ``keysight``  — Keysight hardware exposing LLDP-MIB over SNMP
+- ``ocs``       — Optical circuit switch (Calient-style REST, TL1 fallback for restores)
+
+``f5.F5Driver`` and ``mellanox.MellanoxDriver`` exist as modules but are **not**
+registered here, so ``get_driver`` never returns them for built-in vendor types.
+
+Keysight/Ixia *chassis* (``KeysightChassis`` rows) use a separate factory:
+:func:`connect.keysight_drivers.get_driver`.
+
+See ``docs/development/subsystems/drivers.md`` for the full contract.
 """
 
 from .base import BaseDriver, DriverResult
@@ -38,7 +51,12 @@ VENDOR_DRIVERS = {
 
 
 class NullDriver(BaseDriver):
-    """Returned for unknown vendor_type. All calls return graceful failure."""
+    """Returned for unknown vendor_type. All calls return graceful failure.
+
+    Note: ``probe()`` returns the device address string rather than one of the
+    standard probe statuses; callers that compare against ``'auth_failed'`` /
+    ``'unreachable'`` will treat it as reachable.
+    """
 
     def __init__(self, device):
         super().__init__(device)
@@ -61,7 +79,13 @@ class NullDriver(BaseDriver):
 
 
 def get_driver(device):
-    """Get the appropriate driver for a device based on its vendor_type."""
+    """Get the appropriate driver for a device based on its vendor_type.
+
+    Delegates to :func:`connect.driver_registry.resolve_driver` (plugin-aware;
+    plugins are off by default). If the registry import or resolution raises,
+    falls back to the built-in ``VENDOR_DRIVERS`` map. Unknown vendors get a
+    :class:`NullDriver`. Construction performs no network I/O.
+    """
     try:
         from connect.driver_registry import resolve_driver
         return resolve_driver(device)
@@ -74,6 +98,7 @@ def get_driver(device):
         return driver_class(device)
 
 
+# Must stay in sync with ``Device.VENDOR_CHOICES`` in connect/models.py (separate copy).
 VENDOR_CHOICES = [
     ('arista', 'Arista EOS'),
     ('sonic', 'SONiC'),
@@ -83,7 +108,10 @@ VENDOR_CHOICES = [
     ('ocs', 'OCS Photonic'),
 ]
 
-# Quick command suggestions per vendor
+# Quick command suggestions per vendor, rendered on the device detail page
+# (``views.device_detail`` context ``vendor_commands``). Suggestions only — they are
+# not an execution allowlist; each driver's ``execute_command`` enforces its own
+# prefix check, and the free-form shell views are not shipped on this SKU.
 VENDOR_COMMANDS = {
     'arista': [
         'show version', 'show interfaces status', 'show ip route',

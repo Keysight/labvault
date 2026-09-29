@@ -1,3 +1,20 @@
+"""Django settings for LabVault (``DJANGO_SETTINGS_MODULE=connect.settings``).
+
+Every value is environment-driven; ``.env`` at the repo root is loaded when
+python-dotenv is installed. Key groups:
+
+* Security/TLS — ``DJANGO_SECRET_KEY``, ``DJANGO_ALLOWED_HOSTS`` (``*`` is rejected),
+  ``LABVAULT_USE_TLS`` (default on), ``LABVAULT_TLS_PORT`` (9443),
+  ``LABVAULT_CSRF_TRUSTED_ORIGINS`` / ``LABVAULT_PUBLIC_HOSTNAME``.
+* Cache — file-based, shared by all gunicorn workers (``LABVAULT_CACHE_DIR``).
+* Databases — ``default`` (``DATABASE_URL``) and ``np_timeseries``
+  (``NP_TIMESERIES_DATABASE_URL``), routed by ``connect.db_routers.NPTimeseriesRouter``.
+* Accounts — locked / break-glass / resettable / Django-admin username allowlists.
+* Optional LDAP — enabled only when ``LDAP_SERVER_URI`` is set.
+* Customer SKU flags at the bottom are hard-coded, not env-driven.
+
+See ``docs/development/subsystems/core-web.md`` and ``docs/install/CONFIGURATION.md``.
+"""
 import os
 from pathlib import Path
 

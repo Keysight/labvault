@@ -1,4 +1,12 @@
-"""Build a chassis card grid from a cached IxOS/fleet port list."""
+"""Build a chassis card grid from a cached IxOS/fleet port list.
+
+The shared chassis cache (``keysight:chassis_data:<id>``) can be written by two
+producers: the full ``keysight_views.fetch_chassis_data`` (cards + ports + SSH
+topology) and the lighter fleet heartbeat ``_refresh_ports_cache`` (ports only).
+These helpers let the dashboard and chassis-detail pages render a card grid
+from ports alone, marking synthesized cards with ``_from_fleet_ports`` and the
+payload with ``_cards_from_ports`` so callers know a full fetch is still due.
+"""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -49,6 +57,7 @@ def cards_from_cached_ports(ports: list) -> list:
                 pn_i = int(pn)
             except (TypeError, ValueError):
                 continue
+            # AresONE numbering: ports 9-24 pair into RG01..RG08.
             if 9 <= pn_i <= 24:
                 rg_map[(pn_i - 9) // 2 + 1].append(p)
         for rg_num in sorted(rg_map):

@@ -3,6 +3,12 @@ Redfish client wrapper for modern BMCs.
 
 Provides sensor collection and availability checks via DMTF Redfish REST API.
 Falls back gracefully when Redfish is unavailable — callers should try IPMI next.
+
+Uses the optional ``redfish`` package (``HAS_REDFISH``); without it every function
+returns False / ``[]``. Connects to ``https://<ip>`` with session auth and always
+logs out. Credentials are passed in by the caller; the keyword defaults are
+placeholders and should not be relied on. Used by the ``ipmi_discover``
+management command (``redfish_is_available``).
 """
 import logging
 
@@ -16,7 +22,7 @@ except ImportError:
 
 
 def redfish_is_available(ip, username='admin', password='admin', timeout=5):
-    """Quick check: can we connect to Redfish on this host?"""
+    """Quick check: can we connect to Redfish on this host? (login + logout, no retry)"""
     if not HAS_REDFISH:
         return False
     try:

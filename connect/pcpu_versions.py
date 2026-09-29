@@ -1,4 +1,12 @@
-"""PCPU / IxOS application version helpers for Lab Pulse fleet view."""
+"""PCPU / IxOS application version helpers for Lab Pulse fleet view.
+
+Pure data shaping plus cache/ORM reads — no device I/O. Version payloads have the
+shape ``{"ixos_version", "ixnetwork_version", "applications": {name: version}}``.
+Inputs come from ``KeysightChassis.ixos_applications`` (written by
+``keysight_views`` from ``get_chassis_info``) and the ``pcpu_apps:<topo_id>`` cache filled by
+``metric_collectors`` from ``IxOSDriver.get_pcpu_apps_by_mgmt_ip``. Consumer:
+``lab_usage_insights``.
+"""
 from __future__ import annotations
 
 import json

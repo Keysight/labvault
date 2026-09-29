@@ -1,4 +1,11 @@
-"""Validate topology links by flapping one switch port and observing the peer."""
+"""Validate topology links by flapping one switch port and observing the peer.
+
+Disruptive: :func:`validate_link_by_flap` sends ``shutdown`` / ``no shutdown``
+to a real switch/firewall/OCS port through ``driver.send_config``. The flap side
+must be a node bound to a ``Device``; the peer is read from that device's
+interface table or from the Keysight chassis cache. The outcome is stored in
+``LabTopologyLink.extra['last_validation']``.
+"""
 from __future__ import annotations
 
 import logging
@@ -67,6 +74,7 @@ def read_switch_oper_state(device: Device, port: str) -> Tuple[bool, str]:
 
 
 def flap_switch_port(device: Device, port: str, shutdown: bool) -> Tuple[bool, str]:
+    """Admin-down (``shutdown=True``) or admin-up one interface; returns (success, error)."""
     iface = _normalize_port_iface(port, device.vendor_type)
     cmd = f'interface {iface}\n shutdown' if shutdown else f'interface {iface}\n no shutdown'
     try:
@@ -81,6 +89,7 @@ def flap_switch_port(device: Device, port: str, shutdown: bool) -> Tuple[bool, s
 
 
 def read_chassis_port_link(chassis: KeysightChassis, port_name: str, refresh: bool = False) -> Tuple[bool, str]:
+    """Return (found, link_state) for a chassis port; ``refresh`` re-polls the chassis first."""
     from .keysight_views import _get_cached, fetch_chassis_data
     from .topology_chassis_ports import build_slot_layout
 

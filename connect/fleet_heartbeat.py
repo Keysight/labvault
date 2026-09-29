@@ -1,7 +1,28 @@
-"""Fleet heartbeat store + probe helpers for Google demo Oncaller APIs.
+"""Fleet heartbeat store + probe helpers for the on-caller fleet APIs.
 
 Seeded mode advances synthetic heartbeats without contacting hardware.
 Live mode probes ICMP/TCP livelihood then Keysight drivers for health.
+
+Two independent switches decide what a tick does:
+
+* :func:`heartbeat_mode` — ``idle`` | ``live`` from the ``heartbeat_mode``
+  ``RuntimeSetting`` (fallback ``LABVAULT_WORKER_MODE``, default ``idle``).
+  ``idle`` makes :func:`run_heartbeat_tick` a no-op.
+* :func:`seeded_mode` — ``LABVAULT_HEARTBEAT_MODE`` in ``seeded`` /
+  ``synthetic`` / ``demo`` selects synthetic rows; unset / empty / ``live``
+  means real probes.
+
+Store: one dict in the Django file cache under ``fleet_heartbeat:v1`` (TTL
+24 h) shaped ``{'updated_at', 'interval_seconds', 'mode', 'chassis':
+{'<id>': entry}}``. ``fleet_heartbeat_payload`` classifies each entry into
+``heartbeat_ok`` / ``halt_suspect`` / ``halt_reason`` at read time.
+
+Live ticks also refresh ``keysight:chassis_data:<id>`` ports for a small
+round-robin budget of API-healthy chassis (cursor key
+``fleet_heartbeat:port_refresh_cursor``).
+
+Run by ``manage.py run_fleet_heartbeat`` (loop, or ``--once``); ticks are
+serialised across processes with an ``fcntl`` lock (``LABVAULT_HEARTBEAT_LOCK``).
 """
 from __future__ import annotations
 
@@ -23,6 +44,7 @@ HEARTBEAT_CACHE_TTL = 86400
 
 
 def heartbeat_mode() -> str:
+    """``'live'`` or ``'idle'`` from runtime settings; anything else is ``'idle'``."""
     try:
         from connect.runtime_settings import get_setting
         mode = str(get_setting('heartbeat_mode') or 'idle').strip().lower()
@@ -54,6 +76,7 @@ def seeded_mode() -> bool:
 
 
 def heartbeat_workers() -> int:
+    """Probe thread-pool size from ``LABVAULT_HEARTBEAT_MAX_WORKERS`` (1–32, default 12)."""
     try:
         return max(1, min(32, int(os.environ.get('LABVAULT_HEARTBEAT_MAX_WORKERS', '12'))))
     except (TypeError, ValueError):
@@ -70,6 +93,7 @@ def _empty_store() -> dict[str, Any]:
 
 
 def load_store() -> dict[str, Any]:
+    """Return the cached heartbeat store, or a fresh empty one."""
     store = cache_get(HEARTBEAT_CACHE_KEY)
     if isinstance(store, dict) and isinstance(store.get('chassis'), dict):
         return store
@@ -77,6 +101,7 @@ def load_store() -> dict[str, Any]:
 
 
 def save_store(store: dict[str, Any]) -> None:
+    """Stamp ``updated_at`` / interval / mode and write the store to the cache."""
     store['updated_at'] = timezone.now().isoformat()
     store['interval_seconds'] = heartbeat_interval_seconds()
     store['mode'] = 'seeded' if seeded_mode() else heartbeat_mode()
@@ -84,6 +109,12 @@ def save_store(store: dict[str, Any]) -> None:
 
 
 def _classify(entry: dict[str, Any], interval: int, now) -> dict[str, Any]:
+    """Derive ``heartbeat_ok`` / ``halt_suspect`` / ``halt_reason`` from entry age.
+
+    ok: last probe ok and age ≤ max(3×interval, 180 s). Halt reasons:
+    ``no_heartbeat``, the probe's own reason (``probe_failed`` default), or
+    ``missed_heartbeat`` when age > max(6×interval, 360 s).
+    """
     last_raw = entry.get('last_heartbeat_at')
     age = None
     if last_raw:
@@ -117,6 +148,10 @@ def _classify(entry: dict[str, Any], interval: int, now) -> dict[str, Any]:
 
 
 def fleet_heartbeat_payload() -> dict[str, Any]:
+    """JSON body for ``/api/fleet/heartbeat.json``: classified rows plus counts.
+
+    Pure cache read; never probes hardware.
+    """
     store = load_store()
     interval = int(store.get('interval_seconds') or heartbeat_interval_seconds())
     now = timezone.now()
@@ -146,6 +181,7 @@ def fleet_heartbeat_payload() -> dict[str, Any]:
 
 
 def upsert_chassis_heartbeat(chassis_id: int, **fields) -> dict[str, Any]:
+    """Merge ``fields`` into one chassis entry (read-modify-write of the whole store)."""
     store = load_store()
     key = str(chassis_id)
     entry = dict(store.get('chassis', {}).get(key) or {})

@@ -10,6 +10,11 @@ that currently answers the API.
 
 When a tagged device's primary probe fails, we probe the alternate driver; if
 that succeeds, we persist ``vendor_type`` to match (e.g. ``arista`` ↔ ``sonic``).
+
+``eos-sonic-rotate`` is also accepted. This tag-based switch is independent of
+the in-driver dual-OS handling in ``AristaDriver`` (``dual_os_mode`` /
+``vendor_type_secondary``), which keeps ``vendor_type='arista'`` and delegates to
+``SonicDriver`` internally. Caller: ``connect.ocs_site_validate``.
 """
 import logging
 from typing import Set
@@ -24,6 +29,7 @@ DUAL_STACK_TAGS: Set[str] = frozenset({
 
 
 def device_has_eos_sonic_tag(device) -> bool:
+    """True when ``device.tags`` contains any of ``DUAL_STACK_TAGS`` (case-insensitive)."""
     tags = []
     if getattr(device, 'tags', None):
         tags = [t.strip() for t in (device.tags or '').split(',') if t.strip()]
@@ -46,6 +52,8 @@ def ensure_eos_sonic_vendor_type(device) -> bool:
     If the device is tagged and ``vendor_type`` is arista/sonic, probe the
     current driver; on failure, try the other. If the other answers ``ok``,
     save ``device.vendor_type`` and return True.
+
+    Network: one or two live ``probe()`` calls. DB: ``device.save`` on switch.
     """
     if not device_has_eos_sonic_tag(device):
         return False

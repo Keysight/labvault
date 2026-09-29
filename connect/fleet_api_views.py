@@ -1,8 +1,21 @@
 # HARD_DUMP_REMOVED — customer stub/compat
-"""Bearer fleet APIs for the LabVault demo fork.
+"""Bearer fleet APIs for LabVault automation clients.
 
-Every demo feature is reachable under /api/fleet/* (plus OCS routes wired in urls).
+Every fleet feature is reachable under /api/fleet/* (plus OCS routes wired in urls).
 Auth: session cookie OR Authorization: Bearer <token> via _api_auth_required.
+
+Data sources (no view here talks to hardware except ``?refresh=1`` on
+chassis health, ``?tick=1`` on heartbeat, the SSE stream in seeded mode, and
+``recover``):
+
+* ``KeysightChassis`` / reservation / snapshot / metric rows in the DB.
+* The shared chassis cache ``keysight:chassis_data:<id>`` read via
+  ``keysight_views._get_cached`` (written by ``run_labvault_refresh`` and the
+  heartbeat port refresher).
+* The heartbeat store (``fleet_heartbeat.fleet_heartbeat_payload``).
+
+Responses are JSON with ``ok`` and usually ``source`` / ``generated_at``.
+The OpenAPI document lives in ``fleet_openapi``; keep both in sync.
 """
 from __future__ import annotations
 
@@ -50,6 +63,7 @@ def _parse_json(request) -> dict:
 
 
 def _active_reservations_qs():
+    """Upcoming/active reservations whose end time has not passed."""
     now = timezone.now()
     return KeysightReservation.objects.filter(
         status__in=('upcoming', 'active'),
@@ -58,6 +72,7 @@ def _active_reservations_qs():
 
 
 def _reserved_port_keys() -> set[tuple[int, int | None, int | None]]:
+    """``{(chassis_id, slot|None, port|None)}`` for all active reservation items."""
     keys: set[tuple[int, int | None, int | None]] = set()
     for res in _active_reservations_qs():
         for item in res.items.all():
@@ -66,6 +81,7 @@ def _reserved_port_keys() -> set[tuple[int, int | None, int | None]]:
 
 
 def _port_is_reserved(chassis_id: int, slot, port, reserved_keys) -> bool:
+    """True if the port is covered by a chassis-, slot-, or port-level reservation."""
     if (chassis_id, None, None) in reserved_keys:
         return True
     if slot is not None and (chassis_id, int(slot), None) in reserved_keys:
@@ -76,6 +92,7 @@ def _port_is_reserved(chassis_id: int, slot, port, reserved_keys) -> bool:
 
 
 def _hb_by_chassis() -> dict[int, dict]:
+    """Classified heartbeat rows keyed by integer chassis id."""
     payload = fleet_heartbeat_payload()
     out = {}
     for row in payload.get('chassis') or []:
@@ -104,6 +121,7 @@ def _cached_port_fields(cached: dict | None) -> dict[str, int | None]:
 
 
 def _recovery_actions(ch: KeysightChassis, hb: dict | None) -> list[dict]:
+    """Suggested follow-up calls (method/path/body/hint); advisory only, never executed."""
     actions = []
     if hb and hb.get('halt_suspect'):
         actions.append({
@@ -137,6 +155,7 @@ def _recovery_actions(ch: KeysightChassis, hb: dict | None) -> list[dict]:
 @_api_auth_required
 @require_GET
 def fleet_index(request):
+    """GET /api/fleet/ — static endpoint catalogue grouped by persona ``story``."""
     endpoints = [
         {'method': 'GET', 'path': '/api/fleet/', 'story': 'meta'},
         {'method': 'GET', 'path': '/api/fleet/openapi.json', 'story': 'meta'},
@@ -200,6 +219,12 @@ def fleet_swagger_ui(request):
 @_api_auth_required
 @require_GET
 def fleet_health(request):
+    """GET /api/fleet/health.json — one row per chassis merging DB, heartbeat, and port cache.
+
+    Row: chassis_id, hostname, ip_address, chassis_type, status, last_seen,
+    team_tags, hardware_error_reported, cpu_pct, mem_pct, heartbeat_ok,
+    halt_suspect, halt_reason, ports_up/free/total, recovery_actions, source.
+    """
     hb_map = _hb_by_chassis()
     rows = []
     for ch in KeysightChassis.objects.all().order_by('pk'):
@@ -242,6 +267,11 @@ def fleet_health(request):
 @_api_auth_required
 @require_GET
 def fleet_heartbeat(request):
+    """GET /api/fleet/heartbeat.json — heartbeat store snapshot.
+
+    ``?tick=1`` runs a full ``run_heartbeat_tick()`` synchronously first
+    (blocks for the whole fleet probe in live mode; no-op when idle).
+    """
     if request.GET.get('tick') == '1':
         run_heartbeat_tick()
     return JsonResponse(fleet_heartbeat_payload())
@@ -250,7 +280,12 @@ def fleet_heartbeat(request):
 @_api_auth_required
 @require_GET
 def fleet_heartbeat_stream(request):
-    """SSE stream; clients may also poll /api/fleet/heartbeat.json every 2s."""
+    """SSE stream; clients may also poll /api/fleet/heartbeat.json every 2s.
+
+    GET /api/fleet/heartbeat/stream — emits ``event: heartbeat`` with the
+    payload up to 120 times, sleeping ``heartbeat_interval_seconds()`` between
+    events. Each open stream holds one worker thread for its lifetime.
+    """
     import time as _time
 
     def event_stream():
@@ -280,6 +315,11 @@ def heartbeat_interval_safe() -> int:
 @_api_auth_required
 @require_GET
 def fleet_chassis_health(request, chassis_id: int):
+    """GET /api/fleet/chassis/<id>/health.json — heartbeat + cached summary + PCPU for one chassis.
+
+    ``?refresh=1`` probes this chassis now (live) or re-seeds it (seeded) and
+    upserts the heartbeat entry before responding.
+    """
     ch = get_object_or_404(KeysightChassis, pk=chassis_id)
     if request.GET.get('refresh') == '1':
         from connect.fleet_heartbeat import probe_chassis_live, seeded_mode, upsert_chassis_heartbeat, tick_seeded
@@ -316,6 +356,13 @@ def fleet_chassis_health(request, chassis_id: int):
 @require_http_methods(['POST'])
 @csrf_exempt
 def fleet_chassis_recover(request, chassis_id: int):
+    """POST /api/fleet/chassis/<id>/recover — run a driver recovery action on real hardware.
+
+    JSON/form ``action``: ``reboot_chassis`` (default) | ``power_cycle_chassis`` |
+    ``power_cycle_node`` + ``node_name`` | ``restart_node`` + ``node_name`` |
+    ``port_reboot`` + ``port_id``. 400 on unsupported action, 502 on driver
+    failure. Operators must request this explicitly; do not automate it.
+    """
     blocked = mutation_blocked_response('recover')
     if blocked:
         return blocked
@@ -360,6 +407,11 @@ def fleet_chassis_recover(request, chassis_id: int):
 
 
 def _iter_ports_for_chassis(ch: KeysightChassis, reserved_keys) -> list[dict]:
+    """Normalise cached ports into fleet port rows (slot/port/owner/link/reserved/...).
+
+    Returns ``[]`` in live mode when the chassis cache is cold; only seeded
+    mode synthesises an 8-port placeholder.
+    """
     cached = _get_cached(ch.id) or {}
     ports = cached.get('ports') or []
     out = []
@@ -428,6 +480,10 @@ def _iter_ports_for_chassis(ch: KeysightChassis, reserved_keys) -> list[dict]:
 @_api_auth_required
 @require_GET
 def fleet_ports_telemetry(request):
+    """GET /api/fleet/ports/telemetry.json — every cached port across the fleet.
+
+    The LabMetricSample lookup below is computed but not yet merged into rows.
+    """
     reserved = _reserved_port_keys()
     ports = []
     for ch in KeysightChassis.objects.all().order_by('pk'):
@@ -461,6 +517,12 @@ def fleet_ports_telemetry(request):
 @_api_auth_required
 @require_GET
 def fleet_ports_preflight(request):
+    """GET /api/fleet/ports/preflight.json[?topology_id=N] — pass/fail gate before a test run.
+
+    Blocker types: chassis_api_stall, chassis_offline, port_reserved,
+    link_down, owned_by_other, hardware_error, topology_not_found. Returns 200
+    when there are none, 409 otherwise. Checks every chassis in the fleet.
+    """
     reserved = _reserved_port_keys()
     hb_map = _hb_by_chassis()
     topology_id = request.GET.get('topology_id')
@@ -547,6 +609,7 @@ def fleet_ports_preflight(request):
 @_api_auth_required
 @require_GET
 def fleet_chassis_ports(request, chassis_id: int):
+    """GET /api/fleet/chassis/<id>/ports.json — cached port rows for one chassis."""
     ch = get_object_or_404(KeysightChassis, pk=chassis_id)
     reserved = _reserved_port_keys()
     ports = _iter_ports_for_chassis(ch, reserved)
@@ -562,6 +625,12 @@ def fleet_chassis_ports(request, chassis_id: int):
 @_api_auth_required
 @require_GET
 def fleet_sla(request):
+    """GET /api/fleet/sla.json[?hours=24] — heuristic per-chassis uptime percentage.
+
+    Live mode: 100 (heartbeat ok) / 80 (halt suspect) / 50 (ICMP or TCP only)
+    / 100 (snapshots only) / 0. Seeded mode uses snapshot + status heuristics.
+    ``breach_count`` counts rows below 99 %. Not a measured availability SLA.
+    """
     hours = int(request.GET.get('hours') or 24)
     since = timezone.now() - timedelta(hours=hours)
     rows = []
@@ -624,6 +693,7 @@ def fleet_sla(request):
 @_api_auth_required
 @require_GET
 def fleet_summary(request):
+    """GET /api/fleet/summary.json — fleet rollup of chassis, ports, bps, reservations."""
     reserved = _reserved_port_keys()
     hb_map = _hb_by_chassis()
     chassis_list = list(KeysightChassis.objects.all())
@@ -652,6 +722,11 @@ def fleet_summary(request):
 @_api_auth_required
 @require_GET
 def fleet_transmission(request):
+    """GET /api/fleet/metrics/transmission.json?window=15m|1h|4h|24h — bps samples.
+
+    Reads up to 10 000 ``LabMetricSample`` rows (metric ``bps_in``/``bps_out``);
+    seeded mode fills a synthetic series when none exist.
+    """
     window = (request.GET.get('window') or '1h').strip()
     hours = {'15m': 0.25, '1h': 1, '4h': 4, '24h': 24}.get(window, 1)
     since = timezone.now() - timedelta(hours=hours)
@@ -706,6 +781,7 @@ def fleet_transmission(request):
 
 
 def _inventory_rows() -> list[dict]:
+    """Per-chassis inventory rows (DB fields + heartbeat + port counts + port list)."""
     reserved = _reserved_port_keys()
     hb_map = _hb_by_chassis()
     rows = []
@@ -735,6 +811,7 @@ def _inventory_rows() -> list[dict]:
 @_api_auth_required
 @require_GET
 def fleet_inventory(request):
+    """GET /api/fleet/inventory.json — ``_inventory_rows()`` as JSON."""
     rows = _inventory_rows()
     return JsonResponse({
         'ok': True,
@@ -748,6 +825,7 @@ def fleet_inventory(request):
 @_api_auth_required
 @require_GET
 def fleet_inventory_csv(request):
+    """GET /api/fleet/inventory.csv — chassis-level inventory (no per-port rows) as CSV."""
     rows = _inventory_rows()
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -768,6 +846,7 @@ def fleet_inventory_csv(request):
 @_api_auth_required
 @require_GET
 def fleet_reservations(request):
+    """GET /api/fleet/reservations.json — active/upcoming reservations with items."""
     rows = []
     for res in _active_reservations_qs().order_by('start_time'):
         items = []
@@ -800,6 +879,13 @@ def fleet_reservations(request):
 @require_http_methods(['POST'])
 @csrf_exempt
 def fleet_reservations_create(request):
+    """POST /api/fleet/reservations — create an immediate reservation (201).
+
+    JSON: ``chassis_id`` (required), ``title``, ``description``,
+    ``duration_hours`` (default 4), ``slot``, ``port``, ``notes``. Starts now,
+    owned by the token's user. No overlap check (see ``conflicts.json``) and no
+    email notification, unlike the UI flows.
+    """
     blocked = mutation_blocked_response('create_reservation')
     # Allow reservation create in demo mode (planning feature); only block hardware mutate.
     # If you want to block this too, uncomment:
@@ -843,6 +929,7 @@ def fleet_reservations_create(request):
 @require_http_methods(['POST'])
 @csrf_exempt
 def fleet_team_tags(request, chassis_id: int):
+    """POST /api/fleet/chassis/<id>/team-tags — replace ``team_tags`` (list or comma string)."""
     ch = get_object_or_404(KeysightChassis, pk=chassis_id)
     body = _parse_json(request)
     tags_raw = body.get('team_tags')
@@ -859,6 +946,7 @@ def fleet_team_tags(request, chassis_id: int):
 @_api_auth_required
 @require_GET
 def fleet_ownership(request):
+    """GET /api/fleet/ownership.json — per-port IxOS owner, reservation flag, team tags."""
     reserved = _reserved_port_keys()
     rows = []
     for ch in KeysightChassis.objects.all().order_by('pk'):
@@ -884,7 +972,11 @@ def fleet_ownership(request):
 @_api_auth_required
 @require_GET
 def fleet_conflicts(request):
-    """Report overlapping reservations and owned+reserved collisions."""
+    """Report overlapping reservations and owned+reserved collisions.
+
+    GET /api/fleet/conflicts.json. Types: ``reservation_overlap`` (pairwise,
+    O(n²) over active items) and ``owned_and_reserved``.
+    """
     reserved = _reserved_port_keys()
     conflicts = []
     # Reservation overlaps (same chassis/slot/port, overlapping windows)

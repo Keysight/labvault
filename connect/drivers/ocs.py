@@ -29,12 +29,28 @@ operation; port/cross-connect state comes from ``/rest/ports`` and
 ``/rest/crossconnects``. SNMP LLDP (via :class:`KeysightDriver`) is still used
 when present and is **merged** with cross-connect-derived adjacency (SNMP wins
 on duplicate ``local_port``).
+
+Other ``api_key`` JSON keys: ``headers`` (extra HTTP headers), ``bearer_token`` /
+``token`` (sent as ``Authorization: Bearer``), ``rest_paths`` (extra legacy LLDP
+URLs), and the TL1 fallback keys read by :mod:`connect.drivers.ocs_tl1`. A non-JSON
+``api_key`` is sent as ``X-API-Key``.
+
+Transport: every REST call walks connect targets in order and tries https then
+http per target; a timeout skips the http retry for that target. ``self.ip`` stays
+on the target that answered.
+
+**Safety.** ``send_config`` mutates the optical fabric. ``xconnect_deleteall``
+removes every cross-connect on the switch; in-tree it is only emitted by
+:meth:`OcsDriver.restore_patch_snapshot` when ``clear_first=True``. Callers that
+forward caller-supplied command lists to ``send_config`` can still pass it through.
+This driver has no reboot/restart operation and none should be added.
 """
 from __future__ import annotations
 
 import json
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode, urljoin
 
@@ -75,6 +91,15 @@ def _norm_dir(s: Any) -> str:
 
 
 class OcsDriver(KeysightDriver):
+    """Optical circuit switch driver (Calient-style REST under ``rest_base``).
+
+    Inherits SNMP helpers from :class:`KeysightDriver` for LLDP / probe fallback.
+    Read paths: :meth:`fetch_ocs_sources_parallel`, :meth:`get_interfaces`,
+    :meth:`fetch_crossconnect_list`, :meth:`get_ocs_crossconnects`,
+    :meth:`get_lldp_neighbors_detail`, :meth:`identity`. Write paths:
+    :meth:`send_config`, :meth:`restore_patch_snapshot`.
+    """
+
     VENDOR_NAME = "ocs"
 
     def __init__(self, device):
@@ -137,6 +162,8 @@ class OcsDriver(KeysightDriver):
         json_body: Any = None,
         timeout: int = 30,
     ) -> Tuple[Optional[requests.Response], Optional[str]]:
+        """Return ``(response, None)`` from the first target/proto that answers (any
+        HTTP status), or ``(None, last_error)`` when every attempt raised."""
         last_err: Optional[str] = None
         saved_ip = self.ip
         for target in self.iter_connect_targets():
@@ -152,6 +179,13 @@ class OcsDriver(KeysightDriver):
                         timeout=timeout,
                     )
                     return r, None
+                except requests.exceptions.Timeout as e:
+                    last_err = str(e)
+                    logger.debug(
+                        "OCS REST %s %s via %s/%s timeout — skipping http fallback: %s",
+                        method, rel, target, proto, e,
+                    )
+                    break
                 except (OSError, requests.RequestException) as e:
                     last_err = str(e)
                     logger.debug(
@@ -209,6 +243,8 @@ class OcsDriver(KeysightDriver):
         return self._rest_root(p)
 
     def probe(self) -> str:
+        """``GET info/?id=restversion`` (5 s): 200 → ok, 401/403 → auth_failed; otherwise
+        falls back to SNMP sysDescr (stubbed on the customer SKU, see keysight.py)."""
         r, _ = self._rest_request("GET", "info/", params={"id": "restversion"}, timeout=5)
         if r is not None:
             if r.status_code == 200:
@@ -224,7 +260,137 @@ class OcsDriver(KeysightDriver):
         self.ip = saved_ip
         return "unreachable"
 
+    @staticmethod
+    def probe_from_sources(sources: Dict[str, Any]) -> str:
+        """Derive probe status from :meth:`fetch_ocs_sources_parallel` output.
+
+        Pure function (no I/O). ``'unreachable'`` here means "no REST evidence";
+        ``views.fetch_device_data`` then calls :meth:`probe` for a definitive answer.
+        """
+        status = str(sources.get("restversion_status") or "")
+        if status == "ok":
+            return "ok"
+        if status in ("401", "403", "auth_failed"):
+            return "auth_failed"
+        if sources.get("restversion") is not None:
+            return "ok"
+        return "unreachable"
+
+    def fetch_ocs_sources_parallel(self) -> Dict[str, Any]:
+        """Fetch restversion + ports + crossconnects concurrently (Calient REST is slow per call).
+
+        Three worker threads; timeouts 5 s / 15 s / 20 s. Never raises — per-source
+        failures are appended to ``errors``. Returns::
+
+            {"restversion": <json|None>, "restversion_status": "ok"|"auth_failed"|"error"|"<http code>",
+             "ports_rows": [...], "xc_rows": [...], "errors": ["ports: ...", ...]}
+
+        Feed ``ports_rows`` to :meth:`get_interfaces` and ``xc_rows`` to
+        :meth:`get_ocs_crossconnects` / :meth:`get_lldp_neighbors_detail` to avoid
+        repeat GETs.
+        """
+        errors: List[str] = []
+        restversion: Any = None
+        restversion_status = ""
+        ports_rows: List[Dict[str, Any]] = []
+        xc_rows: List[Dict[str, Any]] = []
+
+        def _restversion() -> Tuple[Any, str, Optional[str]]:
+            r, err = self._rest_request("GET", "info/", params={"id": "restversion"}, timeout=5)
+            if r is None:
+                return None, "error", err
+            if r.status_code == 200:
+                try:
+                    body = r.json() if (r.text or "").strip() else None
+                except ValueError:
+                    body = None
+                return body, "ok", None
+            if r.status_code in (401, 403):
+                return None, "auth_failed", self._rest_http_error(r)
+            return None, str(r.status_code), self._rest_http_error(r)
+
+        def _ports() -> List[Dict[str, Any]]:
+            rows = self._rest_get_json("ports/", {"id": "summary"}, timeout=15)
+            return rows if isinstance(rows, list) else []
+
+        def _crossconnects() -> List[Dict[str, Any]]:
+            rows = self._rest_get_json("crossconnects/", {"id": "list"}, timeout=20)
+            return rows if isinstance(rows, list) else []
+
+        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="ocs-panel") as pool:
+            fut_rv = pool.submit(_restversion)
+            fut_ports = pool.submit(_ports)
+            fut_xc = pool.submit(_crossconnects)
+            try:
+                restversion, restversion_status, rv_err = fut_rv.result()
+                if rv_err:
+                    errors.append(f"restversion: {rv_err}")
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"restversion: {exc}")
+            try:
+                ports_rows = fut_ports.result()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"ports: {exc}")
+            try:
+                xc_rows = fut_xc.result()
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"crossconnects: {exc}")
+
+        return {
+            "restversion": restversion,
+            "restversion_status": restversion_status,
+            "ports_rows": ports_rows,
+            "xc_rows": xc_rows,
+            "errors": errors,
+        }
+
+    def identity(self) -> Dict[str, Any]:
+        """Software/hardware/REST identity (for diagnostics; not used on every page load).
+
+        Sequential GETs (30 s each): ``info/?id=softwareversion``, ``node/?id=summary``
+        with ``detail=SOFTWARE`` and ``detail=HARDWARE``, ``info/?id=restversion``, and
+        ``detail=SYSCFG`` when no serial was found. Each failure is stored as
+        ``<key>_error``. Always includes ``ip``, ``serial``, ``partnumber``.
+        """
+        out: Dict[str, Any] = {"ip": self.ip}
+        try:
+            out["softwareversion"] = self._rest_get_json("info/", {"id": "softwareversion"}, timeout=30)
+        except Exception as exc:
+            out["softwareversion_error"] = str(exc)
+        try:
+            out["software"] = self._rest_get_json("node/", {"id": "summary", "detail": "SOFTWARE"}, timeout=30)
+        except Exception as exc:
+            out["software_error"] = str(exc)
+        try:
+            out["hardware"] = self._rest_get_json("node/", {"id": "summary", "detail": "HARDWARE"}, timeout=30)
+        except Exception as exc:
+            out["hardware_error"] = str(exc)
+        try:
+            out["restversion"] = self._rest_get_json("info/", {"id": "restversion"}, timeout=30)
+        except Exception as exc:
+            out["restversion_error"] = str(exc)
+        serial = ""
+        part = ""
+        hw = out.get("hardware")
+        if isinstance(hw, dict):
+            sysinfo = hw.get("nodeSysConfigInfo") or {}
+            serial = str(sysinfo.get("serialnumber") or "").strip()
+            part = str(sysinfo.get("partnumber") or "").strip()
+        if not serial:
+            try:
+                j = self._rest_get_json("node/", {"id": "summary", "detail": "SYSCFG"})
+                if isinstance(j, dict):
+                    serial = str(j.get("serialnumber") or "").strip()
+                    part = part or str(j.get("partnumber") or "").strip()
+            except Exception:
+                pass
+        out["serial"] = serial
+        out["partnumber"] = part
+        return out
+
     def get_system_info(self) -> DriverResult:
+        """Always ``success=True``; ``data``: hostname (= connect address), version,
+        model_name (part number or ``'OCS'``), serial_number, uptime=None."""
         host = self.ip
         version = ""
         model = "OCS"
@@ -261,34 +427,49 @@ class OcsDriver(KeysightDriver):
             },
         )
 
-    def get_interfaces(self) -> DriverResult:
-        try:
-            rows = self._rest_get_json("ports/", {"id": "summary"})
-        except Exception as e:
-            logger.warning("OCS ports summary failed %s: %s", self.ip, e)
-            return DriverResult(success=True, data={"physical_data": [], "logical_data": []})
+    @staticmethod
+    def _physical_from_ports_rows(rows: Any) -> List[Dict[str, Any]]:
         physical: List[Dict[str, Any]] = []
-        if isinstance(rows, list):
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                pid = str(row.get("port") or "").strip()
-                if not pid:
-                    continue
-                conn = str(row.get("conn") or row.get("connid") or "").strip()
-                st = "connected" if conn else "up"
-                physical.append(
-                    {
-                        "name": pid,
-                        "status": st,
-                        "description": f"OCS triplet {pid} conn={conn}" if conn else f"OCS port {pid}",
-                        "display_name": pid,
-                        "alias": (row.get("inalias") or row.get("outalias") or "") or "",
-                        "ocs_connid": row.get("connid", ""),
-                        "ocs_conn": conn,
-                        "ocs_power": row.get("power", ""),
-                    }
-                )
+        if not isinstance(rows, list):
+            return physical
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            pid = str(row.get("port") or "").strip()
+            if not pid:
+                continue
+            conn = str(row.get("conn") or row.get("connid") or "").strip()
+            st = "connected" if conn else "up"
+            physical.append(
+                {
+                    "name": pid,
+                    "status": st,
+                    "description": f"OCS triplet {pid} conn={conn}" if conn else f"OCS port {pid}",
+                    "display_name": pid,
+                    "alias": (row.get("inalias") or row.get("outalias") or "") or "",
+                    "ocs_connid": row.get("connid", ""),
+                    "ocs_conn": conn,
+                    "ocs_power": row.get("power", ""),
+                }
+            )
+        return physical
+
+    def get_interfaces(self, ports_rows: Optional[List[Dict[str, Any]]] = None) -> DriverResult:
+        """Ports summary → ``{physical_data, logical_data: [], ocs_rest: True}``.
+
+        Pass ``ports_rows`` (from :meth:`fetch_ocs_sources_parallel`) to skip the GET.
+        Rows carry ``ocs_conn`` / ``ocs_connid`` / ``ocs_power``; ``status`` is
+        ``'connected'`` when the port is in a cross-connect. A failed GET returns
+        success with empty lists.
+        """
+        rows = ports_rows
+        if rows is None:
+            try:
+                rows = self._rest_get_json("ports/", {"id": "summary"})
+            except Exception as e:
+                logger.warning("OCS ports summary failed %s: %s", self.ip, e)
+                return DriverResult(success=True, data={"physical_data": [], "logical_data": []})
+        physical = self._physical_from_ports_rows(rows)
         return DriverResult(
             success=True,
             data={
@@ -298,7 +479,12 @@ class OcsDriver(KeysightDriver):
             },
         )
 
-    def fetch_crossconnect_list(self) -> List[Dict[str, Any]]:
+    def fetch_crossconnect_list(
+        self, raw_rows: Optional[List[Dict[str, Any]]] = None
+    ) -> List[Dict[str, Any]]:
+        """Raw ``crossconnects/?id=list`` rows (``[]`` on error); returns *raw_rows* if given."""
+        if raw_rows is not None:
+            return raw_rows if isinstance(raw_rows, list) else []
         try:
             rows = self._rest_get_json("crossconnects/", {"id": "list"}, timeout=20)
         except Exception as e:
@@ -403,6 +589,11 @@ class OcsDriver(KeysightDriver):
     def get_lldp_neighbors_detail(
         self, *, crossconnect_rows: Optional[List[Dict[str, Any]]] = None
     ) -> DriverResult:
+        """SNMP LLDP merged with cross-connect adjacency (``source='ocs_crossconnect'``).
+
+        Each cross-connect ``A>B`` yields two rows (A→B and B→A). When both SNMP and
+        cross-connects are empty, tries ``rest_paths`` + legacy ``/api/.../lldp`` URLs.
+        """
         ocs_links = (
             self._neighbors_from_crossconnect_rows(crossconnect_rows)
             if crossconnect_rows is not None
@@ -441,7 +632,18 @@ class OcsDriver(KeysightDriver):
         return snmp_res if snmp_res.data is not None else DriverResult(success=False, error=snmp_res.error or "no LLDP")
 
     def send_config(self, commands: list, commit: bool = True) -> DriverResult:
-        """Apply cross-connect operations from JSON strings (see module docstring)."""
+        """Apply cross-connect operations from JSON strings (see module docstring).
+
+        Supported ``op`` values → REST call under ``crossconnects/`` (or ``ports/``):
+        ``xconnect_add`` (POST ``id=add``), ``xconnect_badd`` (POST ``id=badd``, list body),
+        ``xconnect_delete`` (DELETE ``id=delete``), ``xconnect_activate`` /
+        ``xconnect_deactivate`` (POST), ``xconnect_deleteall`` (POST ``id=deleteall``,
+        60 s — clears the whole switch), ``port_config`` (POST ``ports/?id=config``).
+
+        Stops at the first failure; ``data`` then holds results so far. On success
+        ``data`` = ``{"results": [{"op", "response"}, ...], "commit": commit}``
+        (*commit* is echoed only; the REST API applies immediately).
+        """
         results: List[Dict[str, Any]] = []
         for raw in commands or []:
             line = (raw or "").strip()
@@ -521,7 +723,15 @@ class OcsDriver(KeysightDriver):
         *,
         clear_first: bool = True,
     ) -> DriverResult:
-        """Restore cross-connects via REST, falling back to TL1 when REST user is read-only."""
+        """Restore cross-connects via REST, falling back to TL1 when REST user is read-only.
+
+        *connections*: ``[{"in", "out", "conn"?, ...}]`` as accepted by ``xconnect_badd``.
+        With ``clear_first=True`` (the default) **all existing cross-connects are
+        deleted first** (REST ``xconnect_deleteall`` / TL1 ``DLT-CRS-ALL``); only use it
+        for an explicit operator restore. ``data["method"]`` is ``"rest"`` or ``"tl1"``.
+        TL1 is attempted only when the REST error looks like a permission denial and
+        :func:`~connect.drivers.ocs_tl1.tl1_credentials_from_device` returns creds.
+        """
         from connect.drivers.ocs_tl1 import (
             is_rest_permission_denied,
             restore_connections_via_tl1,

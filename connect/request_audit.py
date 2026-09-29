@@ -1,4 +1,11 @@
-"""HTTP request metadata for audit and change-log attribution."""
+"""HTTP request metadata for audit and change-log attribution.
+
+Used by ``connect.keysight_views`` (deploy jobs, change-log record-operation API) to
+stamp actor username, client IP, user-agent and parsed browser/OS onto
+``ChangeLogEvent`` / ``KeysightDeploymentJob`` rows. Also holds ``version_key`` /
+``classify_version_change`` for upgrade-vs-downgrade detection.
+``connect.request_context`` is a similar helper that additionally does PTR lookups.
+"""
 from __future__ import annotations
 
 import re
@@ -8,6 +15,7 @@ from django.http import HttpRequest
 
 
 def client_ip(request: HttpRequest | None) -> str | None:
+    """First ``X-Forwarded-For`` hop (set by nginx), else ``REMOTE_ADDR``; ``None`` when unknown."""
     if not request:
         return None
     xff = request.META.get('HTTP_X_FORWARDED_FOR')
@@ -18,6 +26,7 @@ def client_ip(request: HttpRequest | None) -> str | None:
 
 
 def client_user_agent(request: HttpRequest | None, *, max_len: int = 500) -> str:
+    """``User-Agent`` header truncated to ``max_len`` (matches model column sizes)."""
     if not request:
         return ''
     return (request.META.get('HTTP_USER_AGENT') or '')[:max_len]

@@ -1,6 +1,15 @@
 """
 Subnet discovery for Keysight/Ixia chassis.
 Scans a given CIDR range and identifies IxOS and KCOS devices.
+
+Each host is probed over HTTPS (TLS verification disabled): first the IxOS
+``/platform/api/v1/auth/session`` login, then the KCOS Keycloak token endpoint.
+A 401/403 still counts as a Keysight device (``auth_ok=False``) so the UI can
+show it, but :func:`auto_add_discovered` only creates chassis whose login
+succeeded.
+
+Scan progress lives in the process-local ``_scan_state`` dict, so
+``get_scan_status`` only sees scans started by the same gunicorn worker.
 """
 from __future__ import annotations
 
@@ -33,6 +42,11 @@ def _next_scan_id() -> str:
 
 
 def get_scan_status(scan_id: str) -> dict | None:
+    """Return a copy of the in-memory scan state for ``scan_id`` (or None).
+
+    Keys: ``state`` (running/completed/error), ``subnet``, ``progress``,
+    ``total``, ``discovered`` (list of probe dicts), ``started_at``, ``error``.
+    """
     with _scan_lock:
         return _scan_state.get(scan_id, {}).copy() if scan_id in _scan_state else None
 
@@ -43,7 +57,13 @@ def get_scan_status(scan_id: str) -> dict | None:
 
 def _probe_host(ip: str, username: str, password: str, timeout: int = 5) -> dict | None:
     """Probe a single IP to determine if it's an IxOS or KCOS device.
-    Returns a dict with discovery info or None if not a Keysight device."""
+    Returns a dict with discovery info or None if not a Keysight device.
+
+    Result keys: ``ip``, ``platform`` (``ixos``/``kcos``),
+    ``chassis_type_guess`` (a ``KEYSIGHT_CHASSIS_TYPE_CHOICES`` value),
+    ``reachable``, ``auth_ok``. KCOS model detection tries Helm release chart
+    names, then ``/api/v2/vital/hostname``, then system/chassis/hardware info.
+    """
 
     # Try IxOS first (faster to reject)
     try:

@@ -5,6 +5,13 @@ Layering (fastest first):
   1. Django cache (process-local / shared if Redis configured)
   2. LabTopologyFabricSnapshot (Postgres JSON — survives restarts, shared workers)
   3. Full rebuild (OCS live fetch + LLDP + port groups)
+
+There is also an in-process L1 dict ahead of the Django cache (45 s warm /
+120 s cold). Django cache TTL is 45 s warm / 600 s cold. DB snapshots are one
+row per (topology, kind) and are valid while ``revision`` matches
+:func:`compute_topology_revision`; a cold request may be served a mismatched
+("db_stale") snapshot younger than 1 h. Only the ``port_fabric_*`` kinds are
+written today; the ``fabric_map_*`` kinds are defined but unused.
 """
 from __future__ import annotations
 
@@ -61,10 +68,12 @@ def compute_topology_revision(topo) -> str:
 
 
 def port_fabric_kind(want_live: bool) -> str:
+    """Snapshot kind for Port Fabric: ``warm`` = live OCS, ``cold`` = cached sources."""
     return KIND_PORT_FABRIC_WARM if want_live else KIND_PORT_FABRIC_COLD
 
 
 def fabric_map_kind(want_live: bool) -> str:
+    """Snapshot kind for the node-level Fabric Map (currently unused)."""
     return KIND_FABRIC_MAP_WARM if want_live else KIND_FABRIC_MAP_COLD
 
 
@@ -77,6 +86,7 @@ def django_cache_key(
     want_lldp: bool,
     force_refresh: bool,
 ) -> str:
+    """Django cache key; embeds ``revision`` so topology edits miss naturally."""
     return (
         f'{api}:v8:{topo_id}:{revision}:'
         f'{int(want_live)}:{int(want_lldp)}:{int(force_refresh)}'
@@ -102,6 +112,7 @@ def _l1_set(key: str, payload: Dict[str, Any], ttl: float) -> None:
 
 
 def get_db_snapshot(topo_id: int, kind: str, revision: str) -> Optional[Dict[str, Any]]:
+    """Snapshot payload for an exact revision match, with a ``_cache`` metadata block."""
     from .models import LabTopologyFabricSnapshot
 
     row = (
@@ -137,6 +148,7 @@ def save_db_snapshot(
     build_ms: float = 0,
     meta: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Upsert the single (topology, kind) snapshot row; drops ``_timing`` from the payload."""
     from .models import LabTopologyFabricSnapshot
 
     store = {k: v for k, v in payload.items() if k != '_timing'}
@@ -249,6 +261,7 @@ def store_port_fabric_cached(
     build_ms: float = 0,
     timing: Optional[Dict[str, Any]] = None,
 ) -> None:
+    """Write a freshly built Port Fabric payload to DB snapshot, Django cache and L1."""
     kind = port_fabric_kind(want_live)
     meta = {'timing': timing or {}}
     save_db_snapshot(topo_id, kind, revision, payload, build_ms=build_ms, meta=meta)

@@ -1,4 +1,11 @@
-"""Unified change-log writers: status transitions, topology/location moves, offline thresholds."""
+"""Unified change-log writers: status transitions, topology/location moves, offline thresholds.
+
+``ChangeLogEvent`` rows (default database) are written by the Keysight refresh worker,
+``changelog_scan``, and device-status transitions. Readers are the change-log report
+page and the diagnostics payload. Display badges for chassis reachability live in
+``changelog_display.py``. Event types and the scan command are described in
+``docs/development/subsystems/metrics-insights.md``.
+"""
 from __future__ import annotations
 
 import logging

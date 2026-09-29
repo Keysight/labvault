@@ -1,4 +1,10 @@
-"""LabVault vs hardware (HTTPS) URLs for devices and Keysight chassis."""
+"""LabVault vs hardware (HTTPS) URLs for devices and Keysight chassis.
+
+Builds the "open device web UI" link (``https://<ptr-name-or-ip>/``) and the in-app
+detail path for topology nodes and templates. Only network activity is a cached
+reverse-DNS (PTR) lookup; no driver calls, no credentials. Consumers include
+``templatetags.ip_display`` and ``keysight_views``.
+"""
 
 from __future__ import annotations
 
@@ -133,4 +139,4 @@ def enrich_topology_node(
     path = labvault_detail_path(obj)
     if path:
         node['labvault_url'] = path
-
+

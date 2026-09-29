@@ -1,4 +1,10 @@
-"""Helpers for writing and querying lab topology metric samples and events."""
+"""Helpers for writing and querying lab topology metric samples and events.
+
+All reads and writes go to the ``np_timeseries`` database (``TS_DB``):
+``LabMetricSample`` (raw), ``LabMetricRollup`` (hourly), ``LabResourceEvent`` (intervals).
+Bucket output shape is ``{resource_key: {metric: [[iso_ts, avg], ...]}}``.
+``get_metric_buckets`` is the window-aware entry point used by Lab Pulse and the timeline.
+"""
 
 from __future__ import annotations
 
@@ -29,6 +35,7 @@ ROLLUP_BUCKET_SECONDS = 3600
 
 
 def bulk_write_metrics(samples: Iterable[LabMetricSample]) -> int:
+    """Insert raw samples into np_timeseries; returns the row count."""
     rows = list(samples)
     if not rows:
         return 0
@@ -37,6 +44,7 @@ def bulk_write_metrics(samples: Iterable[LabMetricSample]) -> int:
 
 
 def bulk_write_events(events: Iterable[LabResourceEvent]) -> int:
+    """Insert resource events into np_timeseries; returns the row count."""
     rows = list(events)
     if not rows:
         return 0
@@ -99,6 +107,7 @@ def open_resource_event(
     started_at: Optional[datetime] = None,
     payload: Optional[Dict[str, Any]] = None,
 ) -> LabResourceEvent:
+    """Create one open (``ended_at=None``) event immediately (unbuffered)."""
     return LabResourceEvent.objects.using(TS_DB).create(
         topology_id=topology_id,
         resource_key=resource_key,
@@ -115,6 +124,7 @@ def close_open_events(
     event_type: str,
     ended_at: Optional[datetime] = None,
 ) -> int:
+    """Set ``ended_at`` on all open events matching topology/resource/type; returns count."""
     ended = ended_at or timezone.now()
     qs = LabResourceEvent.objects.using(TS_DB).filter(
         topology_id=topology_id,
@@ -130,6 +140,7 @@ def fetch_events(
     window_from: datetime,
     window_to: datetime,
 ) -> List[Dict[str, Any]]:
+    """All events overlapping ``[window_from, window_to)``, oldest first (uncapped)."""
     qs = LabResourceEvent.objects.using(TS_DB).filter(
         topology_id=topology_id,
         started_at__lt=window_to,
@@ -178,6 +189,7 @@ def _event_to_dict(e: LabResourceEvent) -> Dict[str, Any]:
 
 
 def models_Q_ended_after(window_from: datetime):
+    """Q filter: event still open or ended after ``window_from``."""
     return Q(ended_at__isnull=True) | Q(ended_at__gt=window_from)
 
 

@@ -1,3 +1,10 @@
+"""Django admin registration: every concrete ``connect`` model is auto-registered.
+
+Access to ``/admin/`` itself is further limited to ``LABVAULT_DJANGO_ADMIN_USERNAMES``
+by ``connect.django_admin_access.patch_django_admin_site_access`` (run from
+``ConnectConfig.ready``). ``auth.User`` keeps Django's stock ``UserAdmin``; no custom
+password-lock logic is applied in the admin.
+"""
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User

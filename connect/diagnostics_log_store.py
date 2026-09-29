@@ -1,4 +1,10 @@
-"""Read aggregated service logs written by labvault-log-agent."""
+"""Read aggregated service logs for the diagnostics bundle.
+
+``LABVAULT_DIAGNOSTICS_LOG_DIR`` points at a directory of per-service JSONL files
+(``web``, ``collector``, ``heartbeat``, ``nginx``, ``db``). ``read_host_logs`` returns
+the newest records up to a limit, or an empty list when the directory is unset or
+missing. This module does not tail processes and does not mount a container socket.
+"""
 from __future__ import annotations
 
 import json

@@ -3,6 +3,11 @@
 Used by live fleet heartbeat and optional livelihood checks. DNS suffix
 expansion is driven by ``LABVAULT_DNS_SUFFIXES`` (comma-separated), not a
 hardcoded site name.
+
+Protocol-agnostic: no credentials, no driver. ICMP uses the system ``ping``
+binary; TCP checks are plain connects to ``DEFAULT_TCP_PORTS`` (SSH, HTTPS, HTTP,
+8006, WinRM 5985/5986, 623). Caller: ``connect.fleet_heartbeat`` (host-alive
+signal before trying the chassis driver).
 """
 
 from __future__ import annotations
@@ -16,6 +21,7 @@ DEFAULT_TCP_PORTS: tuple[int, ...] = (22, 443, 80, 8006, 5985, 5986, 623)
 
 
 def dns_suffixes() -> list[str]:
+    """Suffixes from ``LABVAULT_DNS_SUFFIXES`` without leading dots."""
     raw = (os.environ.get('LABVAULT_DNS_SUFFIXES') or '').strip()
     if not raw:
         return []
@@ -41,6 +47,7 @@ def icmp_ping(host: str, *, timeout_s: float = 2.0) -> bool:
 
 
 def tcp_connect(host: str, port: int, *, timeout_s: float = 2.0) -> bool:
+    """True if a TCP connection to ``host:port`` opens within *timeout_s*."""
     host = (host or '').strip()
     if not host or ' ' in host:
         return False

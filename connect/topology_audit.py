@@ -20,6 +20,7 @@ def log_topology_action(
     extra: Any = None,
     request=None,
 ) -> None:
+    """Create one TopologyAuditLog row; client IP comes from X-Forwarded-For or REMOTE_ADDR."""
     try:
         from .models import TopologyAuditLog
 

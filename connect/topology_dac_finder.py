@@ -20,6 +20,7 @@ _SKIP_SERIALS = frozenset({'', 'N/A', 'NA', 'NONE', 'UNKNOWN', '-', '0'})
 
 
 def normalize_serial(value: Any) -> str:
+    """Upper-case transceiver serial, or '' for blanks and placeholders (``N/A``, ``0`` …)."""
     s = (str(value or '')).strip().upper()
     if not s or s in _SKIP_SERIALS:
         return ''

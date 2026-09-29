@@ -1,4 +1,10 @@
-"""Lab Pulse — usage insights page and JSON API."""
+"""Lab Pulse — usage insights page and JSON API.
+
+Login-required HTML at the lab-topology insights URL, plus a JSON snapshot read
+from the Django file cache (filled by ``refresh_stale_insights_snapshots`` in the
+metric collector). Window presets come from ``lab_usage_insights.WINDOW_PRESETS``.
+The payload shape is documented in ``docs/development/subsystems/metrics-insights.md``.
+"""
 
 from __future__ import annotations
 
@@ -46,7 +52,9 @@ def lab_topology_usage_insights_page(request, topo_id: int):
 def lab_topology_usage_insights_json(request, topo_id: int):
     """GET /lab-topology/<id>/usage-insights.json?window=24h|4h|7d or from=&to=
 
-    Auth: session cookie OR Bearer API token (LAAS optimizer is a service consumer).
+    Auth: session cookie OR Bearer API token (service consumers use a token).
+    Serves the Django cache or the collector-written snapshot; never builds on the
+    web worker (returns an empty ``snapshot_warming`` payload instead).
     """
     get_object_or_404(LabTopology, pk=topo_id)
 

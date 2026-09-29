@@ -1,4 +1,11 @@
-"""Timeline graph API for lab topology resource usage."""
+"""Timeline graph API for lab topology resource usage.
+
+``GET`` JSON for one ``LabTopology``: metric buckets from ``lab_metrics.get_metric_buckets``
+(``np_timeseries``), interval events from ``fetch_events_grouped``, and the port-usage
+graph from ``LabPortUsageGraphBuilder``. Results are cached in the shared Django file
+cache, keyed by topology, window, and a hash of the request. Login is required by the
+URL wiring in ``connect/urls.py``. See ``docs/development/subsystems/metrics-insights.md``.
+"""
 
 from __future__ import annotations
 

@@ -1,9 +1,13 @@
-"""OCS crossconnect fleet APIs (Google-demo cycle).
+"""OCS crossconnect fleet APIs keyed by device management IP.
 
 GET  /api/ocs/<device_ip>/crossconnects/
 POST /api/ocs/<device_ip>/crossconnect/
      {"action": "xconnect_add"|"xconnect_delete",
       "port_a": "1.1.1", "port_b": "2.1.1", "name": "..."}
+
+Only single add/delete is exposed here (no deleteall / bulk ops). A successful mutation
+clears the device cache and schedules a background refresh so the device page and
+``ocs-patch.json`` pick up the new state.
 """
 from __future__ import annotations
 
@@ -54,6 +58,7 @@ def _xconnect_endpoints(row: dict) -> tuple[str, str, str]:
 
 @_api_auth_required
 def api_ocs_crossconnects_list(request, device_ip: str):
+    """Live crossconnect list from the OCS REST API (``{ok, crossconnects, count, ...}``)."""
     dev, err = _ocs_device(device_ip)
     if err:
         return err
@@ -96,6 +101,7 @@ def api_ocs_crossconnects_list(request, device_ip: str):
 
 @_api_auth_required
 def api_ocs_crossconnect_mutate(request, device_ip: str):
+    """POST one ``xconnect_add`` / ``xconnect_delete`` to the OCS; blocked in demo mode."""
     if request.method != "POST":
         return JsonResponse({"error": "POST required"}, status=405)
     from .demo_mode import mutation_blocked_response
@@ -137,6 +143,10 @@ def api_ocs_crossconnect_mutate(request, device_ip: str):
             {"ok": False, "error": getattr(result, "error", "unknown"), "action": action},
             status=502,
         )
+    from .views import _clear_cached_data, _schedule_device_data_refresh
+
+    _clear_cached_data(dev.id)
+    _schedule_device_data_refresh(dev)
     return JsonResponse({
         "ok": True,
         "action": action,

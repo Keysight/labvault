@@ -8,6 +8,13 @@ on test/compute interfaces.
 
 Credentials come from Django settings (``KCOS_ROOT_*`` env vars). Never log
 passwords or key material.
+
+Called from :meth:`connect.keysight_drivers.kcos.KCOSDriver.get_lldp_ssh`. Side
+effects on the chassis are best-effort LLDP enablement: starting ``lldpd`` and
+setting ``lldpcli`` interface patterns on compute nodes; the optional
+``merlin_use_k8s_lldpd`` path creates and deletes a short-lived ``lv-lldp-*`` pod
+in the ``default`` namespace (off in the in-tree caller). Host keys are
+auto-accepted (Paramiko ``AutoAddPolicy``; ``StrictHostKeyChecking=no`` on hops).
 """
 from __future__ import annotations
 
@@ -443,6 +450,10 @@ def collect_kcos_lldp(
     ephemeral lldpd; APS100/M1010 uses compute hops only.
     ``probe_producer_pods``: kubectl exec into ``kcos-lldp-cablemap`` producer
     DaemonSet pods (M8400 front-panel ``eaglefp*`` TX/RX lives on compute nodes).
+
+    Returns ``{node_name: [{interface, remote_device, remote_port, port_descr,
+    chassis_id, mgmt_ip}, ...]}``; ``{}`` when no credentials, no paramiko, or the
+    management node is unreachable. Compute hops run in up to 8 threads.
     """
     nodes = [
         n for n in (compute_nodes or [])

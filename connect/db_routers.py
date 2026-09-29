@@ -1,4 +1,10 @@
-"""Database routing for NP time-series samples (customer SKU)."""
+"""Database routing for NP time-series samples (customer SKU).
+
+Five high-volume metric models (``NP_TIMESERIES_MODEL_NAMES``) live in the
+``np_timeseries`` database; everything else stays on ``default``. Migrations for
+those models run only against ``np_timeseries`` (``migrate --database np_timeseries``)
+and are suppressed on ``default``.
+"""
 
 NP_TIMESERIES_MODEL_NAMES = {
     "npresourcesample",
@@ -23,6 +29,7 @@ class NPTimeseriesRouter:
         return None
 
     def allow_relation(self, obj1, obj2, **hints):
+        # Cross-DB FKs (e.g. NPResourceSample.chassis) use db_constraint=False, so allow them.
         names = {obj1._meta.model_name, obj2._meta.model_name}
         if names & NP_TIMESERIES_MODEL_NAMES:
             return True

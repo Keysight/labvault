@@ -3,6 +3,12 @@ from django.conf import settings
 
 
 def global_context(request):
+    """Variables available in every template (registered in ``TEMPLATES`` settings).
+
+    Returns product flags plus two auth-derived booleans used by ``base.html``:
+    ``password_change_allowed`` (hide the Password link for locked accounts) and
+    ``show_breakglass_password_reset`` (show the ADMIN > Reset user password link).
+    """
     user = getattr(request, "user", None)
     authed = bool(getattr(user, "is_authenticated", False))
     uname = (getattr(user, "username", None) or "").strip().lower() if authed else ""

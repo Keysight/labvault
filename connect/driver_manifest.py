@@ -1,4 +1,10 @@
-"""Driver manifest schema for LabVault plugin spikes."""
+"""Driver manifest schema for LabVault plugin spikes.
+
+A manifest describes one out-of-tree vendor driver. It is loaded from
+``<LABVAULT_DRIVER_PATH>/<plugin>/manifest.yaml`` (drop-in / REST modes) or
+synthesised from a ``labvault.drivers`` entry point by
+:mod:`connect.driver_registry`. Pure data — no I/O here.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -7,6 +13,20 @@ from typing import Any
 
 @dataclass
 class DriverManifest:
+    """One plugin driver declaration.
+
+    Fields:
+        vendor_type: key matched against ``Device.vendor_type`` (lower-cased).
+        display_name: label appended to vendor choices by ``list_vendor_choices``.
+        module / class_name: import path of a ``BaseDriver`` subclass.
+        topology_node_type: node kind for the topology map (``switch``, ``firewall``…).
+        collector_hook: ``module:function`` called by ``metric_collectors`` for
+            plugin vendors (function defaults to ``collect``).
+        transport, commands, ui_panels: declarative metadata; no in-tree consumer.
+        rest_base_url / rest_probe_path: REST sidecar settings (``RestAdapterDriver``).
+        plugin_dir: directory of the manifest; prepended to ``sys.path`` on import.
+    """
+
     vendor_type: str
     display_name: str
     module: str = ''
@@ -23,6 +43,7 @@ class DriverManifest:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> 'DriverManifest':
+        """Build from parsed YAML; ``plugin_dir`` is set by the caller."""
         return cls(
             vendor_type=str(data.get('vendor_type', '')).lower().strip(),
             display_name=str(data.get('display_name') or data.get('vendor_type', '')),
@@ -38,6 +59,7 @@ class DriverManifest:
         )
 
     def to_dict(self) -> dict[str, Any]:
+        """Serialisable view used by ``registry_summary`` (omits ``plugin_dir``)."""
         return {
             'vendor_type': self.vendor_type,
             'display_name': self.display_name,

@@ -10,6 +10,9 @@ Excluded to avoid noise:
   - Static / media file requests (/static/, /media/)
   - High-frequency polling endpoints (live-status, keysight dashboard API, deploy status)
   - AJAX chassis data endpoints that fire every ~10 s automatically
+
+Rows are buffered per worker process and flushed by a 2 s ``threading.Timer``; entries
+still queued when a worker exits are lost. Write failures are swallowed by design.
 """
 
 import threading

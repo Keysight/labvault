@@ -2,6 +2,18 @@
 
 Distinct from multi-node M1010/M8400 chassis where mgmt (role master/merlin) is
 separate from cn-aps-* compute nodes. Standalone units only serve themselves (1 CN).
+
+Pure helpers (no I/O). Detection signals, strongest first:
+
+* KCOS ``/introspection/nodes`` returns exactly one node named ``mgmt`` with
+  role ``compute`` (:func:`is_standalone_kcos_api_nodes`).
+* ``get_node_inventory()`` rows with ``operating_mode == 'standalone_merged'``
+  (:func:`is_standalone_node_inventory`).
+* Appliance hostnames ``APS-O1-*`` / ``APS-O2-*`` / ``APS-M1-*`` / ``APS-M2-*``.
+
+``standalone_cn_identity`` maps an appliance hostname to the CN name it would
+have inside a multi-node chassis, so a CN slot and its standalone record can be
+cross-linked (see ``keysight_node_associations``).
 """
 
 from __future__ import annotations
@@ -21,6 +33,7 @@ _STANDALONE_HOSTNAME_RE = re.compile(
 
 
 def is_mgmt_kcos_role(role: str) -> bool:
+    """True for KCOS mgmt roles (``merlin`` on M8400, ``master`` on M1010)."""
     return (role or '').lower() in ('merlin', 'master')
 
 
@@ -121,7 +134,11 @@ def infer_chassis_type_from_kcos(
     bps_model: str = '',
     current_type: str = '',
 ) -> str:
-    """Pick chassis_type after KCOS introspection."""
+    """Pick chassis_type after KCOS introspection.
+
+    T-Rex / HTREX types are sticky; standalone always wins next; then chart
+    name, BPS model, and hostname hints; default ``aps_m1010``.
+    """
     if current_type in ('aresone_htrex', 'trex'):
         return current_type
     if is_standalone:
@@ -167,6 +184,7 @@ def primary_bmc_ip(node: dict) -> str:
 
 
 def node_operating_mode(kcos_role: str, node_name: str, is_standalone: bool) -> str:
+    """Map to ``BMC_OPERATING_MODE_CHOICES``: standalone_merged / chassis_mgmt / chassis_cn / unknown."""
     if is_standalone:
         return 'standalone_merged'
     if is_mgmt_kcos_role(kcos_role):
@@ -177,4 +195,5 @@ def node_operating_mode(kcos_role: str, node_name: str, is_standalone: bool) -> 
 
 
 def chassis_type_eligible_for_standalone(chassis_type: str) -> bool:
+    """True for KCOS APS types that may run as a standalone box (not T-Rex/HTREX)."""
     return chassis_type in _STANDALONE_ELIGIBLE

@@ -1,4 +1,11 @@
-"""LabPortUsageGraphV1 — canonical graph + reservations + 31-day utilization."""
+"""Lab Port Usage graph (schema ``lab_port_usage_v1``).
+
+Builds the usage-graph JSON the Lab Pulse pages render: the topology graph from
+``TopologyGraphBuilder``, reservation overlays, and 31-day duty cycle per port from
+``port_usage.aggregate_usage_for_topology``. Output is a dict with ``schema_version``,
+``graph_kind``, nodes, and edges colored by duty. No device I/O.
+See ``docs/development/subsystems/metrics-insights.md``.
+"""
 from __future__ import annotations
 
 import re
@@ -243,6 +250,11 @@ class LabPortUsageGraphBuilder:
         planned: bool = True,
         reservations: bool = True,
     ) -> dict:
+        """Return the ``lab_port_usage_v1`` payload (devices, port_nodes, port_links, usage_summary, meta).
+
+        ``live`` / ``lldp`` / ``ocs`` are passed to the topology graph and port-fabric
+        builders; ``live=True`` may probe devices.
+        """
         from .lab_topology_views import _build_port_fabric_payload
         from .models import LabTopology
 

@@ -1,4 +1,21 @@
-"""Unified device driver registry with plugin spikes (drop-in, entrypoint, REST)."""
+"""Unified device driver registry with plugin spikes (drop-in, entrypoint, REST).
+
+Resolution order in :func:`resolve_driver` for ``Device.vendor_type`` (lower-cased):
+
+1. Plugin manifest with ``rest_base_url`` while mode is ``rest``/``d1``/``all`` →
+   :class:`connect.drivers.rest_adapter.RestAdapterDriver`.
+2. Plugin manifest whose ``module``/``class_name`` imports a ``BaseDriver`` subclass.
+3. Built-in ``connect.drivers.VENDOR_DRIVERS``.
+4. :class:`connect.drivers.NullDriver`.
+
+``LABVAULT_DRIVER_PLUGIN_MODE`` (default ``off``) selects discovery:
+``dropin``/``default``/``b1`` scan ``LABVAULT_DRIVER_PATH`` (default
+``/opt/labvault-drivers``) for ``*/manifest.yaml``; ``entrypoint``/``c1`` read the
+``labvault.drivers`` entry-point group; ``rest``/``d1`` load only manifests with
+``rest_base_url``; ``all`` combines entry points and REST. Discovery is cached per
+process (``discover_plugin_manifests(force=True)`` to rescan). Importing a plugin
+executes third-party code and may prepend its directory to ``sys.path``.
+"""
 from __future__ import annotations
 
 import importlib
@@ -23,6 +40,7 @@ _DRIVER_CLASS_CACHE: dict[str, Type[BaseDriver]] = {}
 
 
 def plugin_mode() -> str:
+    """Normalised ``LABVAULT_DRIVER_PLUGIN_MODE`` value (``'off'`` when unset)."""
     # Customer SKU default: off (built-in drivers only). Opt in with dropin/entrypoint/rest.
     return (os.environ.get('LABVAULT_DRIVER_PLUGIN_MODE', 'off') or 'off').strip().lower()
 
@@ -79,6 +97,7 @@ def _discover_entrypoints() -> dict[str, DriverManifest]:
 
 
 def discover_plugin_manifests(*, force: bool = False) -> dict[str, DriverManifest]:
+    """Return ``{vendor_type: DriverManifest}`` for the current plugin mode (cached)."""
     global _PLUGIN_CACHE
     if _PLUGIN_CACHE is not None and not force:
         return _PLUGIN_CACHE
@@ -126,6 +145,7 @@ def _import_driver_class(manifest: DriverManifest) -> Type[BaseDriver] | None:
 
 
 def list_vendor_choices() -> list[tuple[str, str]]:
+    """Built-in ``VENDOR_CHOICES`` plus any plugin vendor types not already listed."""
     from connect.drivers import VENDOR_CHOICES
 
     choices = list(VENDOR_CHOICES)
@@ -138,6 +158,7 @@ def list_vendor_choices() -> list[tuple[str, str]]:
 
 
 def topology_node_type_for_vendor(vendor_type: str) -> str:
+    """Topology node kind for a vendor (plugin manifest first, then built-in map)."""
     m = discover_plugin_manifests().get((vendor_type or '').lower().strip())
     if m:
         return m.topology_node_type
@@ -173,6 +194,7 @@ def resolve_driver(device) -> BaseDriver:
 
 
 def registry_summary() -> dict[str, Any]:
+    """Diagnostics payload: mode, built-in vendor keys, plugin manifests."""
     from connect.drivers import VENDOR_DRIVERS
 
     return {

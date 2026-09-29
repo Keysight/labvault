@@ -1,3 +1,13 @@
+"""Refuse an unsafe customer configuration before the app binds ports.
+
+Checks ``DJANGO_SECRET_KEY`` length and placeholder values, ``DEBUG``,
+``ALLOWED_HOSTS`` (must be non-empty and must not be ``*``), TLS cert/key presence
+and key mode when ``LABVAULT_PUBLIC_ORIGIN`` is https, placeholder database URLs,
+published demo bootstrap passwords and fleet tokens (unless demo defaults are
+explicitly enabled), and mode ``0600`` on ``/etc/labvault/labvault.env``.
+Exits non-zero via ``CommandError``. Run by ``labvault-web`` ``ExecStartPre`` and
+``labvaultctl check``. No database writes and no device I/O.
+"""
 from django.core.management.base import BaseCommand, CommandError
 from django.conf import settings
 import os

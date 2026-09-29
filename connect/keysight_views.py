@@ -2,6 +2,27 @@
 """
 Keysight / Ixia chassis management views for LabVault.
 All views are prefixed with keysight_ and live under /keysight/ URL namespace.
+
+Besides the HTML/AJAX views this module owns the chassis data pipeline:
+
+* :func:`probe_chassis` — driver ``probe()`` → ``KeysightChassis.status``
+  (online / auth_failed / offline) plus a status-transition change-log row.
+* :func:`fetch_chassis_data` — parallel driver calls (info, cards, ports,
+  health, sensors; KCOS: logical/front-panel ports, deployed apps, BPS
+  topology; IxOS: SSH topology + LLDP), chassis-type correction, resource-group
+  layout, LLDP merge, a ``KeysightChassisSnapshot`` row, then
+  :func:`_set_cached`.
+* :func:`ks_refresh_once` — probe + fetch for every chassis; called by
+  ``manage.py run_labvault_refresh`` (the normal path) or by the in-process
+  leader thread from :func:`start_ks_refresh_thread` (dev / runserver only).
+
+Cache: ``keysight:chassis_data:<chassis_id>`` in the Django file cache,
+TTL ``_KS_CACHE_TTL`` (600 s). Pages read it with :func:`_get_cached` and never
+block on a full fleet fetch; cold entries are filled on demand per chassis.
+
+Also here: the ``_api_auth_required`` decorator (session or Bearer
+``APIToken``) reused by ``fleet_api_views``, reservations, subnet discovery,
+KCOS deploy console, node inventory, BMC associations and BMC board.
 """
 from __future__ import annotations
 
@@ -48,12 +69,18 @@ _KS_CACHE_TTL = 600  # seconds — keep ahead of live heartbeat interval (120s)
 
 
 def _set_cached(chassis_id: int, data: dict):
+    """Store a ``fetch_chassis_data`` payload with a ``_cached_at`` epoch stamp."""
     payload = dict(data)
     payload['_cached_at'] = time.time()
     cache_set(f'{_KS_CACHE_KEY_PREFIX}{chassis_id}', payload, _KS_CACHE_TTL)
 
 
 def _get_cached(chassis_id: int) -> dict | None:
+    """Return the cached chassis payload, or None when missing or older than the TTL.
+
+    Besides the file-cache timeout, the ``_cached_at`` stamp is checked, so an
+    entry written without that stamp is always treated as stale.
+    """
     entry = cache_get(f'{_KS_CACHE_KEY_PREFIX}{chassis_id}')
     if entry and (time.time() - entry.get('_cached_at', 0)) < _KS_CACHE_TTL:
         return entry
@@ -81,6 +108,7 @@ def _schedule_full_chassis_fetch(chassis) -> None:
 
 
 def _clear_cached(chassis_id: int):
+    """Drop the chassis cache entry (called after any mutating port/node/card action)."""
     cache_delete(f'{_KS_CACHE_KEY_PREFIX}{chassis_id}')
 
 
@@ -396,6 +424,18 @@ def _log_chassis_operation(
 # ============================================================
 
 def fetch_chassis_data(chassis) -> dict | None:
+    """Pull a full chassis snapshot from the device and cache it.
+
+    Returns None (without caching) when ``get_chassis_info`` fails. Side
+    effects: saves ``KeysightChassis`` (serials, versions, status,
+    ``chassis_type`` corrections from API type / card types / chart name / BPS
+    model / standalone detection), persists LLDP neighbours, writes a
+    ``KeysightChassisSnapshot``, and calls :func:`_set_cached`. Each driver
+    future is given 30 s. Payload keys: cards, ports, health, sensors,
+    total_ports, ports_up/free/owned, is_kcos, is_aresone, logical_ports,
+    fpga_ports, deployed_apps, bps_topology, bps_l23_engines, owners_summary,
+    lldp_neighbors, lldp_count.
+    """
     driver = get_driver(chassis)
     is_kcos = _is_kcos(chassis)
 
@@ -861,6 +901,11 @@ def fetch_chassis_data(chassis) -> dict | None:
 
 
 def probe_chassis(chassis) -> str:
+    """Run the driver probe, persist ``status``/``last_seen``, log transitions.
+
+    Returns the raw probe result (``'ok'``, ``'auth_failed'``, or another
+    failure string mapped to ``offline``).
+    """
     old_status = chassis.status
     driver = get_driver(chassis)
     status = driver.probe()
@@ -935,6 +980,7 @@ def ks_refresh_once() -> int:
 
 
 def _ks_refresh_all():
+    """In-process refresh loop (leader worker only), every ``KS_REFRESH_INTERVAL`` s."""
     while True:
         try:
             ks_refresh_once()
@@ -951,6 +997,12 @@ def _ks_refresh_all():
 
 
 def start_ks_refresh_thread():
+    """Start the in-process refresh thread once per process, if this process wins the flock.
+
+    Always a no-op under gunicorn or with ``LABVAULT_DISABLE_INPROCESS_REFRESH``
+    set; production relies on the ``run_labvault_refresh`` worker instead.
+    Many page views call this defensively.
+    """
     global _ks_refresh_started, _ks_refresh_lock_fd
     flag = (os.environ.get('LABVAULT_DISABLE_INPROCESS_REFRESH') or '').strip().lower()
     if flag in ('1', 'true', 'yes', 'on') or 'gunicorn' in sys.modules:
@@ -997,6 +1049,14 @@ def keysight_refresh_node_slots(request):
 
 @login_required
 def keysight_dashboard(request):
+    """GET /keysight/ — chassis dashboard (``connect/keysight/dashboard.html``).
+
+    Reads only DB rows, the chassis cache (hydrated from ports when cards are
+    missing), cached node associations and reservation summaries; never
+    fetches from devices inline. Filter params per ``keysight_dashboard_filters``;
+    ``?fetch_nodes=1`` redirects to ``keysight_refresh_node_slots``. Chassis
+    with current/upcoming reservations sort first.
+    """
     from django.shortcuts import redirect
     from django.urls import reverse
 
@@ -1130,6 +1190,7 @@ def keysight_dashboard(request):
 
 @login_required
 def keysight_add_chassis(request):
+    """GET/POST /keysight/add/ — ``KeysightChassisForm``; on save probes + fetches in a thread."""
     from .forms import KeysightChassisForm
     if request.method == 'POST':
         form = KeysightChassisForm(request.POST)
@@ -1146,6 +1207,7 @@ def keysight_add_chassis(request):
 
 @login_required
 def keysight_edit_chassis(request, chassis_id):
+    """GET/POST /keysight/chassis/<id>/edit/ — edit form; Slack notice when the HW flag changes."""
     from .forms import KeysightEditChassisForm
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     if request.method == 'POST':
@@ -1172,6 +1234,7 @@ def keysight_edit_chassis(request, chassis_id):
 @login_required
 @require_POST
 def keysight_delete_chassis(request, chassis_id):
+    """POST /keysight/chassis/<id>/delete/ — purge timeseries rows, delete chassis, clear cache."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     ip = ch.ip_address
     try:
@@ -1188,7 +1251,12 @@ def keysight_delete_chassis(request, chassis_id):
 @login_required
 @require_POST
 def keysight_set_node_hardware_error(request, chassis_id):
-    """AJAX: flag/unflag a CN or mgmt node with a reported hardware issue."""
+    """AJAX: flag/unflag a CN or mgmt node with a reported hardware issue.
+
+    POST /keysight/api/chassis/<id>/node-hardware-error/ with ``node_name``
+    and/or ``bmc_hostname``, ``reported`` (1/true/on/yes), ``notes``. Writes
+    ``KeysightBmcEndpoint`` via ``resolve_bmc_endpoint`` and posts to Slack.
+    """
     from .keysight_hw_errors import resolve_bmc_endpoint
 
     ch = get_object_or_404(KeysightChassis, pk=chassis_id)
@@ -1250,6 +1318,13 @@ def keysight_update_team_tags(request, chassis_id):
 
 @login_required
 def keysight_chassis_detail(request, chassis_id):
+    """GET /keysight/chassis/<id>/ — chassis detail (``connect/keysight/chassis_detail.html``).
+
+    Cache hit renders immediately; if the cards were synthesised from the
+    port cache, a background full fetch is scheduled. Cache miss on an
+    online/unknown chassis runs ``fetch_chassis_data`` synchronously (slow).
+    M8400 front-panel BPS lanes are appended to the port list.
+    """
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     cached = _get_cached(ch.id)
     if cached:
@@ -1332,6 +1407,11 @@ def keysight_chassis_detail(request, chassis_id):
 
 @login_required
 def keysight_chassis_data_json(request, chassis_id):
+    """GET /keysight/api/chassis/<id>/data/ — cards/ports/health/counts JSON for page polling.
+
+    Same cache/hydration rules as the detail page, but a miss fetches
+    synchronously regardless of status.
+    """
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     cached = _get_cached(ch.id)
     if cached:
@@ -1355,6 +1435,7 @@ def keysight_chassis_data_json(request, chassis_id):
 
 @login_required
 def keysight_np_timeseries_json(request, chassis_id):
+    """GET /keysight/api/chassis/<id>/np-timeseries/ — stub; always returns an empty series."""
     get_object_or_404(KeysightChassis, id=chassis_id)
     range_label = request.GET.get('range') or '24h'
     return JsonResponse({'range': range_label, 'series': []})
@@ -1362,6 +1443,7 @@ def keysight_np_timeseries_json(request, chassis_id):
 
 @login_required
 def keysight_dashboard_data_json(request):
+    """GET /keysight/api/dashboard/ — filtered chassis list with cached port counts."""
     from .keysight_dashboard_filters import keysight_filtered_chassis_list
     chassis_list = keysight_filtered_chassis_list(request)
     result = []
@@ -1421,6 +1503,10 @@ def api_keysight_resources(request):
     REST API for agents/BPS worker: returns Keysight chassis list with connection info.
     Auth: session cookie OR Authorization: Bearer <api_token>
     Use this to discover BPS/IxOS chassis for running tests.
+
+    GET /api/keysight/resources/. The response includes each chassis's stored
+    ``username`` and ``password``, so any valid API token can read chassis
+    credentials.
     """
     chassis_list = KeysightChassis.objects.all()
     result = []
@@ -1453,6 +1539,11 @@ def api_keysight_resources(request):
 @login_required
 @require_POST
 def keysight_port_operation(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/port-operation/ — bulk port action via the driver.
+
+    Form: ``operation`` (take_ownership | release_ownership | reboot | reset),
+    repeated ``port_ids``. Clears the chassis cache afterwards.
+    """
     from connect.demo_mode import mutation_blocked_response
     blocked = mutation_blocked_response('keysight_port_operation')
     if blocked:
@@ -1492,6 +1583,7 @@ def keysight_port_operation(request, chassis_id):
 @login_required
 @require_POST
 def keysight_card_operation(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/card-operation/ — ``operation=hotswap`` + ``card_id``."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     driver = get_driver(ch)
     op = request.POST.get('operation', '')
@@ -1514,6 +1606,7 @@ def keysight_card_operation(request, chassis_id):
 
 @login_required
 def keysight_chassis_sensors(request, chassis_id):
+    """GET /keysight/chassis/<id>/sensors/ — live ``get_sensors()`` (``chassis_sensors.html``)."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     driver = get_driver(ch)
     result = driver.get_sensors()
@@ -1523,6 +1616,7 @@ def keysight_chassis_sensors(request, chassis_id):
 
 @login_required
 def keysight_chassis_licenses(request, chassis_id):
+    """GET /keysight/chassis/<id>/licenses/ — live ``get_licenses()`` (``chassis_licenses.html``)."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     driver = get_driver(ch)
     result = driver.get_licenses()
@@ -1539,6 +1633,7 @@ def keysight_chassis_licenses(request, chassis_id):
 @login_required
 @require_POST
 def keysight_kcos_switch_app(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/kcos/switch-app/ — ``node_name``, ``app_id``, ``force``."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     if not _is_kcos(ch):
         return JsonResponse({'success': False, 'error': 'Not a KCOS chassis'})
@@ -1556,6 +1651,7 @@ def keysight_kcos_switch_app(request, chassis_id):
 @login_required
 @require_POST
 def keysight_kcos_power_cycle_node(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/kcos/power-cycle-node/ — ``node_name`` (KCOS only)."""
     from connect.demo_mode import mutation_blocked_response
     blocked = mutation_blocked_response('kcos_power_cycle_node')
     if blocked:
@@ -1575,6 +1671,7 @@ def keysight_kcos_power_cycle_node(request, chassis_id):
 @login_required
 @require_POST
 def keysight_kcos_restart_node(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/kcos/restart-node/ — ``node_name`` (KCOS only)."""
     from connect.demo_mode import mutation_blocked_response
     blocked = mutation_blocked_response('kcos_restart_node')
     if blocked:
@@ -1594,6 +1691,7 @@ def keysight_kcos_restart_node(request, chassis_id):
 @login_required
 @require_POST
 def keysight_kcos_power_node(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/kcos/power-node/ — ``node_name`` + ``action`` on/off."""
     from connect.demo_mode import mutation_blocked_response
     blocked = mutation_blocked_response('kcos_power_node')
     if blocked:
@@ -1670,6 +1768,7 @@ def keysight_bulk_redetect(request):
 
 @login_required
 def keysight_discover_page(request):
+    """GET /keysight/discover/ — saved subnets (``subnet_scan.html``)."""
     start_ks_refresh_thread()
     scans = KeysightSubnetScan.objects.all()
     return render(request, 'connect/keysight/subnet_scan.html', {'scans': scans})
@@ -1678,6 +1777,11 @@ def keysight_discover_page(request):
 @login_required
 @require_POST
 def keysight_discover_scan(request):
+    """POST /keysight/discover/scan/ — start a background scan; returns ``scan_id``.
+
+    Form: ``subnet`` (CIDR), ``username``, ``password``. Also upserts a
+    ``KeysightSubnetScan`` row with those default credentials.
+    """
     import ipaddress
     subnet = request.POST.get('subnet', '').strip()
     username = request.POST.get('username', 'admin').strip()
@@ -1701,6 +1805,7 @@ def keysight_discover_scan(request):
 
 @login_required
 def keysight_discover_scan_status(request, scan_id):
+    """GET /keysight/discover/scan/<scan_id>/status/ — in-memory progress for this worker."""
     status = get_scan_status(scan_id)
     if not status:
         return JsonResponse({'success': False, 'error': 'Scan not found'})
@@ -1710,6 +1815,11 @@ def keysight_discover_scan_status(request, scan_id):
 @login_required
 @require_POST
 def keysight_discover_add_devices(request):
+    """POST /keysight/discover/add-devices/ — JSON ``discovered`` list → new chassis rows.
+
+    Skips existing IPs and hosts whose login failed; each new chassis is
+    probed + fetched in its own thread.
+    """
     try:
         body = json.loads(request.body)
     except (json.JSONDecodeError, ValueError):
@@ -1751,6 +1861,10 @@ def keysight_discover_add_devices(request):
 @login_required
 @require_POST
 def keysight_discover_configure(request):
+    """POST /keysight/discover/configure/ — save ``auto_scan`` / ``scan_interval`` for a subnet.
+
+    Stored only; nothing in this module schedules recurring scans.
+    """
     subnet = request.POST.get('subnet', '').strip()
     auto_scan = request.POST.get('auto_scan', 'false') == 'true'
     try:
@@ -1771,6 +1885,7 @@ def keysight_discover_configure(request):
 @login_required
 @require_POST
 def keysight_discover_delete(request, scan_id):
+    """POST /keysight/discover/<id>/delete/ — remove a saved subnet."""
     scan_obj = get_object_or_404(KeysightSubnetScan, id=scan_id)
     scan_obj.delete()
     return JsonResponse({'success': True})
@@ -1782,6 +1897,13 @@ def keysight_discover_delete(request, scan_id):
 
 @login_required
 def keysight_hardware_inventory(request):
+    """GET /keysight/inventory/ — card/port/transceiver rows (``hardware_inventory.html``).
+
+    Online chassis only, dashboard filters plus ``view`` (reserved |
+    reservations), ``type`` (card | port | transceiver), ``chassis``, ``q``,
+    ``format=csv``. Cold cache entries are fetched synchronously for up to 32
+    chassis; ``hw_cache_warming`` tells the template when some were skipped.
+    """
     from collections import Counter
     from .keysight_aps_generations import aps_generation_chip_stats
     from .keysight_dashboard_filters import (
@@ -2024,7 +2146,12 @@ def keysight_hardware_inventory(request):
 
 
 def _upsert_bmc_endpoints(nodes: list[dict]):
-    """Cache BMC endpoints from node inventory data for use by BMC Board."""
+    """Cache BMC endpoints from node inventory data for use by BMC Board.
+
+    Upserts ``KeysightBmcEndpoint`` by BMC hostname (rows without one are
+    skipped), records ``relocated_from_chassis`` when a hostname or serial
+    moves between chassis, and stores ``aps_gen`` / ``operating_mode``.
+    """
     from .keysight_aps_generations import aps_gen_from_fru, node_aps_generation
 
     for n in nodes:
@@ -2091,7 +2218,12 @@ def _upsert_bmc_endpoints(nodes: list[dict]):
 @login_required
 def keysight_node_inventory(request):
     """Unified node inventory: pull mgmt + compute nodes from all KCOS chassis
-    with BMC details, serial numbers, firmware/FRU information."""
+    with BMC details, serial numbers, firmware/FRU information.
+
+    GET /keysight/node-inventory/ (``node_inventory.html``; ``format=csv``).
+    Live: calls ``KCOSDriver.get_node_inventory()`` on every online KCOS
+    chassis per request (6 threads), then upserts BMC endpoints.
+    """
     from collections import Counter
     start_ks_refresh_thread()
     chassis_filter = request.GET.get('chassis', '')
@@ -2248,6 +2380,7 @@ def keysight_node_inventory(request):
 
 @login_required
 def keysight_snapshots_list(request, chassis_id):
+    """GET /keysight/api/chassis/<id>/snapshots/ — KCOS system snapshots (live)."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     if not _is_kcos(ch):
         return JsonResponse({'success': False, 'error': 'Snapshots only for KCOS'})
@@ -2259,6 +2392,7 @@ def keysight_snapshots_list(request, chassis_id):
 @login_required
 @require_POST
 def keysight_snapshot_create(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/snapshot/create/ — ``label`` required."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     if not _is_kcos(ch):
         return JsonResponse({'success': False, 'error': 'Snapshots only for KCOS'})
@@ -2273,6 +2407,7 @@ def keysight_snapshot_create(request, chassis_id):
 @login_required
 @require_POST
 def keysight_snapshot_restore(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/snapshot/restore/ — ``name``; logs a downgrade event."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     if not _is_kcos(ch):
         return JsonResponse({'success': False, 'error': 'Snapshots only for KCOS'})
@@ -2297,6 +2432,7 @@ def keysight_snapshot_restore(request, chassis_id):
 @login_required
 @require_POST
 def keysight_snapshot_delete(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/snapshot/delete/ — ``name`` required."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     if not _is_kcos(ch):
         return JsonResponse({'success': False, 'error': 'Snapshots only for KCOS'})
@@ -2311,6 +2447,11 @@ def keysight_snapshot_delete(request, chassis_id):
 @login_required
 @require_POST
 def keysight_upgrade(request, chassis_id):
+    """POST /keysight/api/chassis/<id>/upgrade/ — start a firmware/chassis upgrade.
+
+    KCOS: JSON body is a component list for ``upgrade_firmware``. IxOS: form
+    ``version`` for ``upgrade_chassis``. Success is written to the change log.
+    """
     from .request_audit import classify_version_change
 
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
@@ -2353,6 +2494,7 @@ def keysight_upgrade(request, chassis_id):
 
 @login_required
 def keysight_upgrade_status(request, chassis_id):
+    """GET /keysight/api/chassis/<id>/upgrade/status/ — KCOS firmware or IxOS operation status."""
     ch = get_object_or_404(KeysightChassis, id=chassis_id)
     driver = get_driver(ch)
     is_kcos = _is_kcos(ch)
@@ -3568,6 +3710,7 @@ def _verify_post_deploy(driver, staged_chart_info: dict | None) -> str:
 
 @login_required
 def keysight_audit_log(request):
+    """GET /keysight/audit/ — last 200 ``AuditLog`` rows whose details start with ``[Keysight]``."""
     logs = AuditLog.objects.filter(details__startswith='[Keysight]').select_related('user')[:200]
     return render(request, 'connect/keysight/audit_log.html', {'logs': logs})
 
@@ -3577,7 +3720,11 @@ def keysight_audit_log(request):
 # ============================================================
 
 def _update_reservation_statuses():
-    """Bulk-update reservation statuses based on current time."""
+    """Bulk-update reservation statuses based on current time.
+
+    upcoming→active once started, upcoming/active→expired once ended. There
+    is no scheduler; every reservation-aware read calls this first.
+    """
     now = timezone.now()
     KeysightReservation.objects.filter(status='upcoming', start_time__lte=now, end_time__gte=now).update(status='active')
     KeysightReservation.objects.filter(status__in=['upcoming', 'active'], end_time__lt=now).update(status='expired')
@@ -3585,7 +3732,10 @@ def _update_reservation_statuses():
 
 @login_required
 def keysight_reservations(request):
-    """List all reservations with filters."""
+    """List all reservations with filters.
+
+    GET /keysight/reservations/?chassis=&status=&user= (``reservations.html``, first 100).
+    """
     _update_reservation_statuses()
 
     reservations = KeysightReservation.objects.select_related('user').prefetch_related('items__chassis').all()
@@ -3615,7 +3765,13 @@ def keysight_reservations(request):
 
 @login_required
 def keysight_create_reservation(request):
-    """Create a new hardware reservation."""
+    """Create a new hardware reservation.
+
+    GET/POST /keysight/reservations/create/ (``reservation_form.html``). Items
+    arrive as indexed ``chassis_N`` / ``slot_N`` / ``port_N`` / ``notes_N``
+    fields; at least one is required. Overlaps are not rejected. Sends the
+    notification email in a background thread.
+    """
     from django.conf import settings as django_settings
     all_chassis = KeysightChassis.objects.all()
     default_email = ', '.join(getattr(django_settings, 'KEYSIGHT_RESERVATION_EMAIL_RECIPIENTS', []))
@@ -3723,7 +3879,11 @@ def keysight_reservation_detail(request, reservation_id):
 
 @login_required
 def keysight_edit_reservation(request, reservation_id):
-    """Edit an existing reservation."""
+    """Edit an existing reservation.
+
+    GET/POST /keysight/reservations/<id>/edit/. Owner or superuser only; all
+    items are deleted and recreated from the form.
+    """
     reservation = get_object_or_404(KeysightReservation, id=reservation_id)
     all_chassis = KeysightChassis.objects.all()
 
@@ -4078,7 +4238,12 @@ def get_reservations_summary_for_chassis(chassis_id):
 @login_required
 def keysight_bmc_associations(request):
     """BMC Associations: broad view mapping each mgmt node to its compute nodes,
-    showing which nodes are up/down per chassis."""
+    showing which nodes are up/down per chassis.
+
+    GET /keysight/bmc-associations/?chassis=&q= (``bmc_associations.html``).
+    Live node-inventory fetch per request; does not write the
+    ``keysight:node_assoc:v1`` cache used by the dashboard.
+    """
     start_ks_refresh_thread()
 
     chassis_filter = request.GET.get('chassis', '')
@@ -4270,7 +4435,15 @@ def _fetch_bmc_data_from_chassis(ch: KeysightChassis) -> list[dict] | dict:
 @login_required
 def keysight_bmc_board(request):
     """BMC Board: pull BMC data from all KCOS chassis (same as Node Inventory),
-    then optionally enrich with direct ipmitool for primary_os_name."""
+    then optionally enrich with direct ipmitool for primary_os_name.
+
+    GET /keysight/bmc-board/?q=&mps=&status=reachable|unreachable&chassis=&ipmi=1&format=csv
+    (``bmc_board.html``). Adds ``manual_import`` endpoints not seen via KCOS
+    (DNS-resolved with ``BMC_DOMAIN_SUFFIX``). ``ipmi=1`` runs ipmitool
+    against every BMC IP and stores FRU product / ``aps_gen`` on the endpoint.
+    BMC credentials cascade endpoint override → chassis → ``BMC_DEFAULT_USER``
+    / ``BMC_DEFAULT_PASS``.
+    """
     import os
     from .bmc_ipmi import fetch_all_bmcs
 

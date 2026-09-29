@@ -1,4 +1,22 @@
-"""Mgmt/compute node association data for KCOS chassis (dashboard + BMC views)."""
+"""Mgmt/compute node association data for KCOS chassis (dashboard + BMC views).
+
+Node inventory is expensive (one KCOS REST call per chassis), so the dashboard
+never fetches it inline. ``refresh_node_associations`` is run on demand from
+``/keysight/refresh-node-slots/`` (or ``?fetch_nodes=1`` on the dashboard) and
+stores ``{'ts', 'by_id': {chassis_id: assoc}}`` under ``keysight:node_assoc:v1``
+in the Django file cache for ``_NODE_ASSOC_TTL`` (180 s). After that the
+dashboard falls back to "no node data" until someone refreshes again.
+
+Association dict shape (per chassis)::
+
+    {'chassis_id', 'mgmt_node': {...} | None, 'compute_nodes': [...],
+     'error', 'standalone', 'cn_identity',
+     'mgmt_count', 'compute_count', 'up_count', 'down_count'}
+
+Node entries carry ``name``, ``role``, ``status``, ``is_ready``, BMC fields,
+``aps_gen``, ``operating_mode`` and (after enrichment) HW-error flags and
+``paired_standalone_*`` links.
+"""
 
 from __future__ import annotations
 
@@ -168,6 +186,7 @@ def refresh_node_associations(
 
 
 def get_cached_node_associations(chassis_ids: list[int] | None = None) -> dict[int, dict]:
+    """Read the last ``refresh_node_associations`` result (empty dict when expired)."""
     payload = cache_get(_NODE_ASSOC_CACHE_KEY)
     if not payload or not isinstance(payload, dict):
         return {}
@@ -178,6 +197,7 @@ def get_cached_node_associations(chassis_ids: list[int] | None = None) -> dict[i
 
 
 def node_slot_counts_by_chassis_id(by_id: dict[int, dict]) -> dict[int, dict]:
+    """``{chassis_id: {'mgmt': n, 'compute': n}}`` from association dicts."""
     return {
         cid: {
             'mgmt': assoc.get('mgmt_count', 0),
@@ -240,6 +260,7 @@ def enrich_associations_with_standalone_links(
 
 
 def aggregate_slot_stats(by_id: dict[int, dict]) -> dict:
+    """Fleet totals for the dashboard header: total_mgmt/compute/nodes_up/nodes_down."""
     mgmt = compute = up = down = 0
     for assoc in by_id.values():
         mgmt += assoc.get('mgmt_count', 0)

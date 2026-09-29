@@ -3,6 +3,13 @@ Canonical topology graph builder (read-only).
 
 Produces NormalizedGraph v1 for graph.json and legacy adapters for fabric.json /
 port-fabric.json. Existing view code paths remain when feature flags are off.
+
+Per-topology sources (each recorded under ``meta.sources``): planned designer
+links, live OCS cross-connects (15 s timeout), device LLDP from
+``get_cached_topology()``, ``ChassisDeviceLink`` rows, the 24 h switch LLDP
+store, and active Keysight reservations. Links are merged per endpoint pair by
+``_priority`` (lower wins) and planned-vs-observed port mismatches become
+``conflicts``. Results are cached in-process for ``CACHE_TTL_SECONDS``.
 """
 from __future__ import annotations
 
@@ -31,7 +38,7 @@ CACHE_TTL_SECONDS = 30
 _graph_cache: Dict[str, Tuple[dict, float]] = {}
 _graph_cache_lock = threading.Lock()
 
-# Theme-aligned link colors (see docs/TOPOLOGY_VIEWS_IMPLEMENTATION_PLAN.md §3.3)
+# Theme-aligned link colors (see docs/development/subsystems/topology.md)
 COLOR_UP = '#22c55e'
 COLOR_STALE = '#f59e0b'
 COLOR_DOWN = '#ef4444'
@@ -44,6 +51,7 @@ SITE_DIR = Path(__file__).resolve().parent.parent / 'resources'
 
 
 def invalidate_cache(topo_id: int | None = None) -> None:
+    """Drop in-process graph cache entries for one topology, or all when ``None``."""
     with _graph_cache_lock:
         if topo_id is None:
             _graph_cache.clear()
@@ -153,6 +161,11 @@ class TopologyGraphBuilder:
         reservations: bool = True,
         use_cache: bool = True,
     ) -> dict:
+        """Return a NormalizedGraph dict; flags toggle each source.
+
+        ``topo_id=None`` builds the global ``/topology/`` shape instead. Sets
+        ``meta.cache_hit``.
+        """
         cache_key = (
             f'{self.topo_id or "global"}:'
             f'{int(live)}{int(lldp)}{int(ocs)}{int(planned)}{int(reservations)}'
@@ -180,10 +193,12 @@ class TopologyGraphBuilder:
         return graph
 
     def get_freshness(self) -> dict:
+        """Per-source ``{ok, at, error}`` from the last build."""
         return dict(self._sources_meta)
 
     @staticmethod
     def link_health(lldp_entry: dict | None, now: float | None = None) -> str:
+        """Map an LLDP record to ``up`` / ``stale`` (>15 min) / ``down`` (>24 h or not up) / ``planned``."""
         if not lldp_entry:
             return 'planned'
         now = now if now is not None else time.time()
@@ -204,6 +219,7 @@ class TopologyGraphBuilder:
 
     @staticmethod
     def link_color(health: str, link_type: str = '') -> str:
+        """Hex color for a link health / type pair (module ``COLOR_*`` constants)."""
         if health == 'conflict':
             return COLOR_CONFLICT
         if link_type in ('ocs_active', 'ocs'):
@@ -944,11 +960,12 @@ class TopologyGraphBuilder:
 
 
 def build_laas_manifest(topo_id: int) -> dict:
-    """LaaS TopologyManifest export is hard-dumped from the customer SKU."""
+    """Manifest export stub: returns ``not_available`` in this SKU."""
     return {'error': 'not_available', 'topology_id': topo_id}
 
 
 def build_global_graph(**kwargs) -> dict:
+    """Global ``/topology/`` graph (``get_cached_topology()`` shape); used when ``LABVAULT_TOPOLOGY_GRAPH_V3=1``."""
     return TopologyGraphBuilder(topo_id=None).build(planned=False, **kwargs)
 
 

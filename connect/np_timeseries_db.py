@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 
 
 def configure_np_timeseries_connection(sender, connection, **kwargs):
+    """``connection_created`` handler: apply WAL/busy-timeout pragmas to np_timeseries SQLite only.
+
+    WAL lets metric collectors write while web workers read; no-op for other aliases
+    or non-SQLite backends (PostgreSQL).
+    """
     if connection.alias != 'np_timeseries':
         return
     if connection.vendor != 'sqlite':
@@ -24,4 +29,5 @@ def configure_np_timeseries_connection(sender, connection, **kwargs):
 
 
 def register_np_timeseries_pragmas():
+    """Connect the pragma handler (idempotent via ``dispatch_uid``); called from ``ConnectConfig.ready``."""
     connection_created.connect(configure_np_timeseries_connection, dispatch_uid='np_timeseries_wal')

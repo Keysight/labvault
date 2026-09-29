@@ -1,4 +1,28 @@
 # connect/models.py
+"""All ORM models for LabVault (single ``connect`` app).
+
+Domains, in file order:
+
+* Network devices — ``Device``, ``DeviceGroup``, ``DeviceSnapshot``, ``InterfaceSnapshot``,
+  ``Alert``, ``ConfigBackup``, ``ComplianceRule`` / ``ComplianceResult``, ``SavedCommand``,
+  ``TopologyLink``, ``ChassisDeviceLink``.
+* Ops settings — ``ScheduledJob``, ``MaintenanceWindow`` (+ ``MaintenanceWindowDevice``),
+  ``WebhookEndpoint``, ``APIToken``.
+* Keysight hardware — ``KeysightChassis`` and snapshots, subnet scans, reservations,
+  deployment jobs, ``KeysightBmcEndpoint``.
+* Time series (``np_timeseries`` DB via ``connect.db_routers``) — ``NPResourceSample``,
+  ``PortUsageSample``, ``LabMetricSample``, ``LabMetricRollup``, ``LabResourceEvent``.
+* Lab Topology Designer — ``LabTopology``, ``LabTopologyNode``, ``LabTopologyLink``,
+  ``TestSetupTemplate`` / ``TestSetupRun``, ``OcsPatchSnapshot``,
+  ``LabTopologyFabricSnapshot``, ``TopologyAuditLog``.
+* Audit / change tracking — ``AuditLog``, ``RequestLog``, ``ChangeLogEvent``,
+  ``DeviceStateBaseline``.
+* Preferences / runtime / CLI — ``LabvaultUserPrefs``, ``LabvaultGlobalPrefs``,
+  ``RuntimeSetting``, ``CliInvocation``, ``CliJob``, ``CliAuthThrottle``.
+
+Device and chassis credentials are stored in plain ``CharField`` columns (drivers need
+the cleartext to log in). Every concrete model is auto-registered in ``connect.admin``.
+"""
 
 from django.db import models
 from django.contrib.auth.models import User
@@ -177,6 +201,15 @@ PDU_OUTLET_STATUS_CHOICES = [
 
 
 class Device(models.Model):
+    """A managed network device (switch, firewall, OCS photonic switch, ...).
+
+    ``vendor_type`` selects the driver via ``connect.drivers.get_driver``. Discovery fields
+    (hostname, version, serial, status, last_seen, ...) are overwritten by
+    ``views.fetch_device_data``; live interface/LLDP data is *not* stored here but in the
+    shared file cache (``device_data:v1:<id>``). Address properties delegate to
+    ``connect.ip_addressing`` for dual-stack resolution.
+    """
+
     VENDOR_CHOICES = [
         ('arista', 'Arista EOS'),
         ('sonic', 'SONiC'),
@@ -463,6 +496,12 @@ class DeviceGroup(models.Model):
 
 
 class AuditLog(models.Model):
+    """User-initiated action trail written by ``views._log_action`` (login, device CRUD, backups, ...).
+
+    ``action`` is not validated on insert, so some writers use values outside
+    ``ACTION_CHOICES`` (e.g. ``import``, ``ocs_snapshot_*``).
+    """
+
     ACTION_CHOICES = [
         ('device_add', 'Device Added'),
         ('device_delete', 'Device Deleted'),
@@ -1391,7 +1430,7 @@ class KeysightDeploymentJob(models.Model):
 
 
 # ============================================================
-# REQUEST LOG (all authenticated page visits)
+# BMC ENDPOINTS + REQUEST LOG (all authenticated page visits)
 # ============================================================
 
 class KeysightBmcEndpoint(models.Model):
@@ -1478,10 +1517,16 @@ class RequestLog(models.Model):
 
 
 # ============================================================
-# CAPEX MANAGEMENT
+# LAB TOPOLOGY DESIGNER
 # ============================================================
 
 class LabTopology(models.Model):
+    """A named lab topology (designer canvas); owns nodes, links, test setups and fabric snapshots.
+
+    ``extra`` is free-form JSON (site data, layout, OCS mappings) read by
+    ``connect.lab_topology_views`` and the topology helper modules.
+    """
+
     SOURCE_CHOICES = [
         ('lldp', 'LLDP'),
         ('import', 'Import'),
@@ -1510,6 +1555,8 @@ class LabTopology(models.Model):
 
 
 class LabTopologyNode(models.Model):
+    """A node on a ``LabTopology`` canvas, optionally bound to an inventory ``Device``."""
+
     NODE_TYPE_CHOICES = [
         ('switch', 'Switch'),
         ('server', 'Server'),
@@ -1537,6 +1584,8 @@ class LabTopologyNode(models.Model):
 
 
 class LabTopologyLink(models.Model):
+    """A cabled or OCS-patched link between two nodes of the same topology."""
+
     CABLE_CHOICES = [
         ('dac', 'DAC'),
         ('optic', 'Optic'),
@@ -1876,6 +1925,8 @@ class DeviceStateBaseline(models.Model):
 
 
 class RuntimeSetting(models.Model):
+    """Versioned key → JSON operator setting, edited at runtime (see ``connect.runtime_settings``)."""
+
     key = models.CharField(max_length=64, unique=True)
     value_json = models.JSONField(default=dict)
     version = models.PositiveIntegerField(default=1)
@@ -1888,6 +1939,8 @@ class RuntimeSetting(models.Model):
 
 
 class CliInvocation(models.Model):
+    """One LabVault CLI command invocation (web or SSH), with redacted args/result for audit."""
+
     actor = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL, related_name='cli_invocations')
     source = models.CharField(max_length=16, default='web')
     command = models.CharField(max_length=128)
@@ -1911,6 +1964,8 @@ class CliInvocation(models.Model):
 
 
 class CliJob(models.Model):
+    """Queued long-running CLI command, polled via ``/api/cli/v1/jobs/<id>/``."""
+
     STATUS_CHOICES = [('queued','Queued'),('running','Running'),('succeeded','Succeeded'),('failed','Failed')]
     command = models.CharField(max_length=128)
     args_redacted = models.JSONField(default=dict)

@@ -1,6 +1,13 @@
 """
 Test Setup Engine — Phase 2 + 3
 Provides ResourceCalculator (compute patch/switch plans) and SetupExecutor (apply them).
+
+``ResourceCalculator.compute`` is pure planning: it reads the topology and
+returns a ``computed_plan`` dict that the views store on ``TestSetupTemplate``.
+``SetupExecutor.execute`` runs in a daemon thread started by
+``test_setup_apply`` and mutates hardware: OCS ``xconnect_add`` via the OCS
+driver's ``send_config`` and switch CLI via ``send_config``. Progress is written
+to ``TestSetupRun.steps`` / ``log`` after every step.
 """
 from __future__ import annotations
 

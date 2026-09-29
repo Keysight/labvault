@@ -1,4 +1,15 @@
-"""Auth-related views (password change restrictions)."""
+"""Auth-related views (password change restrictions and break-glass reset).
+
+Login/logout live in ``connect.views`` (``login_view`` / ``logout_view``). This module
+adds:
+
+* ``LabvaultPasswordChangeView`` — Django's password change, refused for usernames in
+  ``LABVAULT_PASSWORD_LOCKED_USERNAMES``.
+* ``breakglass_reset_user_password`` — lets a ``LABVAULT_PASSWORD_BREAKGLASS_USERNAMES``
+  account set another user's password from the LabVault UI.
+
+Both are routed from ``labvault/urls.py`` under ``/accounts/``.
+"""
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth import get_user_model
@@ -14,6 +25,7 @@ from django.views.decorators.http import require_http_methods
 
 
 def is_password_locked_user(user) -> bool:
+    """True when an authenticated user's username is in ``LABVAULT_PASSWORD_LOCKED_USERNAMES``."""
     if not getattr(user, 'is_authenticated', False):
         return False
     uname = (getattr(user, 'username', None) or '').lower()
@@ -22,6 +34,7 @@ def is_password_locked_user(user) -> bool:
 
 
 def is_breakglass_user(user) -> bool:
+    """True when an authenticated user's username is in ``LABVAULT_PASSWORD_BREAKGLASS_USERNAMES``."""
     if not getattr(user, 'is_authenticated', False):
         return False
     uname = (getattr(user, 'username', None) or '').lower()
@@ -30,7 +43,11 @@ def is_breakglass_user(user) -> bool:
 
 
 def _breakglass_password_reset_candidates(request):
-    """Active users a break-glass account may set a new password for (LabVault UI)."""
+    """Active users a break-glass account may set a new password for (LabVault UI).
+
+    Eligible: usernames in ``LABVAULT_BREAKGLASS_RESETTABLE_USERNAMES`` plus any superuser
+    that is not itself break-glass. Other break-glass accounts are excluded, except the actor.
+    """
     User = get_user_model()
     breakglass = getattr(settings, 'LABVAULT_PASSWORD_BREAKGLASS_USERNAMES', frozenset())
     resettable = getattr(settings, 'LABVAULT_BREAKGLASS_RESETTABLE_USERNAMES', frozenset())
@@ -93,6 +110,12 @@ def breakglass_reset_user_password(request):
 
 
 class LabvaultPasswordChangeView(PasswordChangeView):
+    """Self-service password change; locked usernames are redirected to the dashboard.
+
+    Uses Django's stock ``PasswordChangeForm`` (full ``AUTH_PASSWORD_VALIDATORS``),
+    not the relaxed policy in ``connect.password_policy``.
+    """
+
     template_name = 'connect/auth/password_change_form.html'
     success_url = reverse_lazy('password_change_done')
 

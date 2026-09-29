@@ -1,3 +1,11 @@
+"""Drain queued ``CliJob`` rows.
+
+Long-running worker (opsd service ``jobs``, systemd ``labvault-jobs`` / compose
+``jobs``). Every 2 seconds it marks the oldest ``queued`` job ``succeeded`` with
+``result_redacted={"ok": True}``. It does not call the CLI registry, so queued jobs
+are not actually executed. Nothing in this tree enqueues ``CliJob`` rows yet.
+See ``docs/development/subsystems/cli.md`` and ``operations.md``.
+"""
 from django.core.management.base import BaseCommand
 import time
 from connect.models import CliJob

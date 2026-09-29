@@ -1,6 +1,13 @@
 """
 F5 BIG-IP — iControl REST (HTTPS) for probe, system info, and interfaces.
 SNMP alone is often disabled; use the device username/password (same as web UI / API).
+
+``GET https://<host>:<api_port|443>/mgmt/tm/...`` with HTTP Basic auth, timeout 20 s,
+TLS verification disabled. Read-only: no config push, ``execute_command`` refuses.
+
+Not registered in ``connect.drivers.VENDOR_DRIVERS`` (and ``f5`` is not a
+``Device.VENDOR_CHOICES`` value), so it is reachable only through a plugin manifest
+or direct import.
 """
 import logging
 import re
@@ -17,6 +24,8 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 
 class F5Driver(BaseDriver):
+    """Read-only F5 BIG-IP driver (version, hostname, serial, interfaces; LLDP via SNMP)."""
+
     VENDOR_NAME = 'f5'
     IC_PREFIX = '/mgmt/tm'
 

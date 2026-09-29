@@ -1,4 +1,17 @@
-"""Per-node hardware error flags (CN / mgmt) via KeysightBmcEndpoint."""
+"""Per-node hardware error flags (CN / mgmt) via KeysightBmcEndpoint.
+
+Two flag levels exist:
+
+* Chassis-wide: ``KeysightChassis.hardware_error_reported`` (+ ``notes``), set
+  on the Edit Chassis form.
+* Per node: ``KeysightBmcEndpoint.hardware_error_reported`` /
+  ``hardware_error_notes``, set via the ``node-hardware-error`` AJAX view.
+  Endpoints are matched by BMC hostname first, then ``(chassis, node_name)``.
+
+The helpers here read those rows (DB only, no device calls) and decorate card
+lists, node-association dicts, and dashboard summary chips. Slack reporting
+uses :func:`collect_hw_error_report`.
+"""
 
 from __future__ import annotations
 
@@ -28,6 +41,7 @@ def bmc_hw_flags_for_chassis(chassis_id: int) -> dict[str, dict]:
 
 
 def lookup_node_hw_flag(flags: dict[str, dict], *, node_name: str = '', bmc_hostname: str = '') -> dict:
+    """Look up a flag dict by BMC hostname, then node name; default is unflagged."""
     for key in (bmc_hostname, node_name):
         k = (key or '').strip().lower()
         if k and k in flags:
@@ -36,6 +50,7 @@ def lookup_node_hw_flag(flags: dict[str, dict], *, node_name: str = '', bmc_host
 
 
 def apply_hw_flags_to_cards(cards: list, chassis_id: int) -> list:
+    """Return copies of ``cards`` with ``hardware_error_reported`` / ``_notes`` set per node."""
     flags = bmc_hw_flags_for_chassis(chassis_id)
     enriched = []
     for card in cards:
@@ -269,6 +284,13 @@ def resolve_bmc_endpoint(
     node_name: str = '',
     bmc_hostname: str = '',
 ) -> KeysightBmcEndpoint | None:
+    """Find or create the BMC endpoint row that carries a node's HW flag.
+
+    Order: existing row by BMC hostname (backfilling ``node_name``/``chassis``),
+    existing row by ``(chassis, node_name)``, new ``chassis_derived`` row for a
+    BMC hostname, or a ``manual_import`` placeholder keyed ``"<chassis_id>:<node>"``
+    when only a node name is known. Writes to the DB.
+    """
     node_name = (node_name or '').strip()
     bmc_hostname = (bmc_hostname or '').strip()
     if bmc_hostname:

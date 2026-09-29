@@ -4,6 +4,13 @@ Supports both API token auth and session-based auth (username/password).
 VDOM-aware: enumerates all VDOMs and fetches interfaces/policies/routes per VDOM.
 Handles FortiOS 7.6+ (Angular SPA with /api/v2/authentication) and legacy versions
 (/logincheck with APSCOOKIE).
+
+Auth: when ``Device.api_key`` is set it is sent as the ``access_token`` query
+parameter on every request and no login is attempted. Otherwise a per-IP cookie
+session is created (``/logincheck`` first, then ``/api/v2/authentication``), reused
+for ``_SESSION_TTL`` seconds, and re-authenticated once on HTTP 401/403. A
+``LOCKED_OUT`` reply suppresses further login attempts for 5 minutes. HTTPS only,
+``api_port`` default 443, TLS verification disabled, first connect target only.
 """
 import re
 import time
@@ -50,6 +57,7 @@ def _logout(ip):
 
 
 def clear_cache(ip):
+    """Log out (network call) and drop session, VDOM list and lockout state for *ip*."""
     _logout(ip)  # free the session on the device first
     _sessions.pop(ip, None)
     _vdom_cache.pop(ip, None)
@@ -57,6 +65,12 @@ def clear_cache(ip):
 
 
 class FortiGateDriver(BaseDriver):
+    """FortiGate firewall driver over FortiOS REST (``/api/v2/monitor`` + ``/api/v2/cmdb``).
+
+    VDOM-aware collectors (interfaces, routes, ARP, LLDP, policies, VPN, BGP, OSPF)
+    loop over :meth:`get_vdoms` and tag rows with ``vdom``.
+    """
+
     VENDOR_NAME = 'fortigate'
 
     def _base_url(self):
@@ -74,6 +88,7 @@ class FortiGateDriver(BaseDriver):
         return False
 
     def _ensure_auth(self, session):
+        """Return True when *session* can make API calls (token mode or fresh login)."""
         if self.api_key:
             return True
         if hasattr(session, '_fg_authed') and session._fg_authed:
@@ -188,6 +203,7 @@ class FortiGateDriver(BaseDriver):
         return False
 
     def _get(self, path, params=None, timeout=10):
+        """Authenticated GET; returns a ``requests.Response`` (synthetic 401 if login fails)."""
         session = _get_session(self.ip)
         if not self._ensure_auth(session):
             # Return a mock 401 response so callers can handle it
@@ -544,6 +560,7 @@ class FortiGateDriver(BaseDriver):
         return self.get_running_config()
 
     def execute_command(self, command):
+        """Allowlisted prefixes: get / show / diagnose / exec ping / exec traceroute."""
         cmd = command.strip()
         allowed_prefixes = ('get', 'show', 'diagnose', 'exec ping', 'exec traceroute')
         if not any(cmd.lower().startswith(p) for p in allowed_prefixes):

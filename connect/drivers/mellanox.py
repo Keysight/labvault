@@ -1,6 +1,14 @@
 """
 Mellanox / NVIDIA Spectrum (ONYX) — tries HTTPS JSON UI first, then SNMP (IF-MIB + LLDP).
 Ensure username/password match switch login; set SNMP community for SNMP-only paths.
+
+ONYX: ``POST /json/login`` (timeout 15 s) then probes several JSON paths for system
+and interface data. SNMP fallbacks go through :class:`KeysightDriver` helpers, which
+are stubs on the customer SKU (see ``connect/snmp_utils.py``).
+
+Not registered in ``connect.drivers.VENDOR_DRIVERS`` (and ``mellanox`` is not a
+``Device.VENDOR_CHOICES`` value), so it is reachable only through a plugin manifest
+or direct import.
 """
 import logging
 import re
@@ -19,6 +27,8 @@ OID_IF_OPER_STATUS = '1.3.6.1.2.1.2.2.1.8'
 
 
 class MellanoxDriver(KeysightDriver):
+    """ONYX JSON-first driver with SNMP IF-MIB / LLDP-MIB fallback (inherits SNMP helpers)."""
+
     VENDOR_NAME = 'mellanox'
 
     def __init__(self, device):

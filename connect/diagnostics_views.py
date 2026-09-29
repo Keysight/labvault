@@ -1,4 +1,11 @@
-"""Diagnostics Center — staff UI and export endpoints."""
+"""Diagnostics Center — staff UI and export endpoints.
+
+Staff HTML at ``/diagnostics/``. JSON and tarball downloads call
+``diagnostics.build_diagnostics_payload`` / ``build_diagnostics_tarball``.
+Query flags: ``logs=0`` skips log excerpts; ``log_limit`` is clamped to 50–1000.
+The Bearer-token ingest path (if routed) is documented with the URL table in
+``docs/development/subsystems/diagnostics.md``.
+"""
 from __future__ import annotations
 
 import json

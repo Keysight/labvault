@@ -7,6 +7,7 @@ from django.contrib import admin
 
 
 def django_admin_allowed_usernames() -> frozenset[str]:
+    """Lower-cased ``LABVAULT_DJANGO_ADMIN_USERNAMES`` (default ``{'godmode'}``)."""
     raw = getattr(
         settings,
         'LABVAULT_DJANGO_ADMIN_USERNAMES',
@@ -16,6 +17,7 @@ def django_admin_allowed_usernames() -> frozenset[str]:
 
 
 def user_may_access_django_admin(user) -> bool:
+    """True only for active staff users whose username is on the admin allowlist."""
     if not getattr(user, 'is_active', False):
         return False
     if not getattr(user, 'is_staff', False):

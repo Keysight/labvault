@@ -1,5 +1,10 @@
 """
 Build a LabTopology from current DB: devices, chassis, TopologyLink, ChassisDeviceLink.
+
+Nodes come from ``topology.get_cached_topology()`` (devices keyed ``n_<id>``,
+chassis keyed ``k_<id>``); links are copied row-by-row from ``TopologyLink``
+and ``ChassisDeviceLink`` (not the aggregated UI links). The cable-type and
+grid helpers here are reused by ``lab_topology_ocs_json``.
 """
 from __future__ import annotations
 

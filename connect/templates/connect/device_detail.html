@@ -393,7 +393,7 @@
                 </div>
             </div>
             <p class="mb-1" style="font-size:0.7rem; color:#889;">Triplet <code style="color:#a5b4fc;">s.m.p</code> (shelf, bank/module, port). <strong>Each column</strong> is one bank. Scroll right if many. Colors: <span style="color:#22c55e;">&#9679;</span> green = <strong>live</strong> OCS patch (in service) &nbsp; <span style="color:#ef4444;">&#9679;</span> red = patched but OOS &nbsp; dark = <strong>no</strong> live patch on the controller.</p>
-            <p class="mb-2 ocs-patch-legend" style="font-size:0.62rem; color:#94a3b8;"><span style="color:#fb923c;">Orange lines</span> = the same live patches as the green dots (from <code>/rest/crossconnects</code> only — not site map or switch LLDP). A switch port can be <em>link up</em> on Arista/Ares without an OCS patch; tooltips show site map / LLDP separately. Refreshes with the device poller.</p>
+            <p class="mb-2 ocs-patch-legend" style="font-size:0.62rem; color:#94a3b8;"><span style="color:#fb923c;">Orange lines</span> = the same live patches as the green dots (from <code>/rest/crossconnects</code> only — not site map or switch LLDP). A switch port can be <em>link up</em> on Arista/Ares without an OCS patch; tooltips show site map / LLDP separately. Refreshes with the device poller.{% if cache_age_sec is not None %} <span id="ocsCacheAge">Cached {{ cache_age_sec|floatformat:0 }}s ago</span> · <a href="?refresh=1">Refresh</a>{% endif %}</p>
             <div class="form-check mb-2" style="font-size:0.7rem;">
                 <input class="form-check-input" type="checkbox" id="ocsShowPatchLines" checked>
                 <label class="form-check-label" for="ocsShowPatchLines" style="color:#9ca3af;">Show cross-connect lines on port grid</label>
@@ -1285,6 +1285,10 @@
                 .then(function(r) { return r.json(); })
                 .then(function(j) {
                     if (j && Array.isArray(j.pairs)) { pairs = j.pairs; scheduleDraw(true); }
+                    if (j && j.cache_age_sec != null) {
+                        var ageEl = document.getElementById('ocsCacheAge');
+                        if (ageEl) ageEl.textContent = 'Cached ' + Math.round(j.cache_age_sec) + 's ago';
+                    }
                 })
                 .catch(function() {});
         }, 25000);

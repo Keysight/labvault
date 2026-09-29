@@ -1,4 +1,12 @@
-"""Compile LabVault Site v1 YAML/JSON into site JSON + topology import payload."""
+"""Compile LabVault Site v1 YAML/JSON into site JSON (``ocs_photonic_site`` shape).
+
+Site v1 (see ``resources/labvault_site_v1_example.yaml``) is a minimal operator
+document: ``version: 1``, ``site_tags``, ``ocs``, ``switches``, ``chassis`` and
+an optional ``preset``. :func:`compile_site_v1` maps it to a version-3 site dict
+(``ocs_controller`` / ``arista_switches`` / ``ares_switches``); the only
+validation is ``version == 1``. :func:`merge_site_mapping_from_file` then copies
+``port_to_ocs_triplets`` and missing OCS credentials from a full site JSON.
+"""
 from __future__ import annotations
 
 import json
@@ -82,6 +90,7 @@ def compile_site_v1(doc: dict[str, Any]) -> dict[str, Any]:
 
 
 def compile_site_v1_file(path: str | Path) -> dict[str, Any]:
+    """Load a ``.yaml``/``.yml``/``.json`` Site v1 file and compile it."""
     return compile_site_v1(_load_document(path))
 
 

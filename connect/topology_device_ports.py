@@ -3,6 +3,12 @@ Unified slot/port layout for Lab Topology Designer and Port Fabric.
 
 Produces the same grouping for chassis (RG/slot), OCS (shelf/bank×8),
 switches (OCS uplink vs DAC ranges), and servers.
+
+Shapes: a *slot layout* is ``{slots: [{slot, label, layout, resource_groups:
+[{label, ports}], ports}], flat_ports, source}``; Port Fabric consumes it as
+``port_groups`` via :func:`slot_layout_to_port_groups`. Health values used on
+ports are ``active`` / ``alarm`` / ``lldp_only`` / ``dac`` / ``planned`` /
+``down`` / ``unused`` (colors in ``HEALTH_COLOR``).
 """
 from __future__ import annotations
 
@@ -1350,6 +1356,7 @@ def compact_fabric_port_groups(
 
 
 def persist_layout_on_node(node: LabTopologyNode, layout: Dict[str, Any]) -> None:
+    """Save ``slot_layout``, ``port_details`` and ``ports`` from ``layout`` onto ``node.extra``."""
     extra = dict(node.extra or {})
     if layout.get('slots'):
         extra['slot_layout'] = layout['slots']

@@ -1,6 +1,18 @@
 """
 Keysight device driver - uses SNMP for LLDP (Keysight/Ixia chassis with LLDP support).
 Keysight hardware ports often run LLDP and expose it via standard LLDP-MIB (IEEE 802.1AB).
+
+This is the ``Device.vendor_type == 'keysight'`` driver. Full chassis management
+(ports, cards, ownership, KCOS apps) lives in :mod:`connect.keysight_drivers` and is
+keyed off ``KeysightChassis`` rows instead.
+
+Community-based SNMP on UDP 161, community from ``Device.snmp_community`` (default ``public``);
+get timeout 5 s, walk timeout 10 s, each connect target tried in order.
+
+Customer SKU: ``connect.snmp_utils.snmp_get`` raises ``RuntimeError`` and
+``snmp_walk`` returns ``[]``. ``get_lldp_neighbors_detail`` therefore returns an
+empty list; ``probe()`` / ``get_system_info()`` propagate the ``RuntimeError`` to the
+caller (OcsDriver.probe hits this only after REST fails).
 """
 import logging
 import re
@@ -30,6 +42,7 @@ class KeysightDriver(BaseDriver):
         self.snmp_port = 161
 
     def _snmp_get(self, oid):
+        """First non-empty SNMP GET value across connect targets, else None."""
         from connect.snmp_utils import snmp_get
         saved = self.ip
         for target in self.iter_connect_targets():
@@ -44,6 +57,7 @@ class KeysightDriver(BaseDriver):
         return None
 
     def _snmp_walk(self, oid):
+        """First non-empty ``[(suffix, value), ...]`` walk across connect targets, else None."""
         from connect.snmp_utils import snmp_walk
         saved = self.ip
         for target in self.iter_connect_targets():
@@ -68,6 +82,7 @@ class KeysightDriver(BaseDriver):
         return f'https://{self.ip}'
 
     def get_system_info(self) -> DriverResult:
+        """sysName / sysDescr. Note: returns ``model`` (not ``model_name``)."""
         name = self._snmp_get(OID_SYS_NAME)
         descr = self._snmp_get(OID_SYS_DESCR)
         return DriverResult(success=True, data={

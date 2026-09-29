@@ -31,6 +31,13 @@ def build_lab_topology_from_ocs_json(
     user,
     description: str = "",
 ) -> LabTopology:
+    """Create a ``source='import'`` topology from a site JSON file on disk.
+
+    Requires ``version`` and ``ocs_controller.ip``; raises ``ValueError`` otherwise.
+    Adds one OCS node plus one switch node per ``ares_switches`` / ``arista_switches``
+    entry, and one optic link per triplet in ``fixed_mapping.port_to_ocs_triplets``.
+    Binds ``Device`` rows by exact IP match when present.
+    """
     p = Path(path)
     with open(p, "r", encoding="utf-8") as f:
         data = json.load(f)

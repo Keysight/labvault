@@ -1,4 +1,11 @@
-"""Port usage episodes and 31-day cyclic aggregation (np_timeseries)."""
+"""Port usage episodes and 31-day cyclic aggregation (``np_timeseries``).
+
+``PortUsageSample`` rows are interval events (owned, reserved, linked, patched).
+``aggregate_usage_for_topology`` clips them to the last ``USAGE_WINDOW_DAYS`` (31)
+and returns seconds-used per ``resource_key`` (``device_id__port_label``).
+Reads and writes use the ``np_timeseries`` alias, not the default database.
+See ``docs/development/subsystems/metrics-insights.md``.
+"""
 from __future__ import annotations
 
 import logging
@@ -121,11 +128,13 @@ def _topology_metrics_collection_enabled(topology_id: int) -> bool:
 
 def record_port_usage_episode(payload: dict) -> PortUsageSample:
     """
-    Ingest one LAAS/LabVault episode row.
+    Ingest one port-usage episode row (from an external scheduler or LabVault itself).
 
     Expected keys: topology_id, episode_id, event, resource_key, started_at;
     optional: ended_at, port_label, topology_node_id, chassis_id, ocs_triplet,
-    team, user_name, source, meta.
+    team, user_name, source, meta. When ``resource_key`` is missing it is built from
+    ``device_id``/``node_id`` + ``port_label``. Raises ``ValueError`` when the topology
+    has metrics collection disabled.
     """
     topo_id = int(payload['topology_id'])
     if not _topology_metrics_collection_enabled(topo_id):

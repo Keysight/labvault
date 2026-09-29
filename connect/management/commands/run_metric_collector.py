@@ -1,3 +1,13 @@
+"""Topology metrics collector loop.
+
+Long-running worker (opsd service ``collector``). Each tick calls
+``metric_collectors.collect_all_topologies`` for topologies with
+``metrics_collection_enabled``, then ``refresh_stale_insights_snapshots``.
+``--once`` runs a single tick; ``--interval`` defaults to 60 seconds.
+On the customer SKU ``collector_mode`` defaults to idle, which skips live polls
+unless an operator sets the runtime setting to live.
+See ``docs/development/subsystems/metrics-insights.md``.
+"""
 from django.core.management.base import BaseCommand
 import time
 from django.db import close_old_connections

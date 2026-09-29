@@ -1,3 +1,13 @@
+"""Root URLconf (``ROOT_URLCONF = 'labvault.urls'``).
+
+Mounts, in order: Django ``/admin/`` (restricted by ``connect.django_admin_access``),
+the break-glass password reset and password-change views from ``connect.auth_views``,
+a ``/favicon.ico`` redirect, static/media serving, and finally ``connect.urls`` at ``/``.
+
+``connect.urls`` is included last, so project-level routes here take precedence over
+any same-path route in the app. In non-DEBUG mode ``/static/`` is served by ``django.views.static.serve`` from
+``STATIC_ROOT`` as a fallback when nginx does not serve it directly.
+"""
 from django.conf import settings
 from django.conf.urls.static import static
 from django.contrib import admin

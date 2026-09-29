@@ -8,6 +8,17 @@ Swagger docs   : https://{ip}/chassis/swagger/index.html
 
 Supports both Linux-based (XGS12, APS) and Windows-based chassis with
 graceful degradation for missing endpoints.
+
+Transport: HTTPS only (TLS verification disabled), ``x-api-key`` header, API key
+cached per IP in-process and refreshed once on HTTP 401. Default request timeout
+12 s; async operations (HTTP 202) are polled every 2 s until ``SUCCESS`` /
+``COMPLETED`` / ``ERROR`` or the timeout. SSH (Paramiko, connect timeout 8 s) with
+the chassis credentials is used for IxOS CLI commands (``show topology``,
+``show lldp-peer-info ...``); hostname is tried before the IP.
+
+Consumers: ``keysight_views`` (chassis pages / APIs), ``metric_collectors``,
+``fleet_heartbeat``, ``fleet_api_views``, ``topology_resource_catalog`` and the
+LLDP management commands.
 """
 from __future__ import annotations
 
@@ -35,6 +46,11 @@ from ..ip_addressing import bracket_host, unbracket_host
 
 @dataclass
 class DriverResult:
+    """Chassis-driver result (same fields as ``connect.drivers.base.DriverResult``).
+
+    Separate class: ``isinstance`` checks across the two driver families will not match.
+    """
+
     success: bool = False
     data: Any = None
     error: str = ''
@@ -107,7 +123,17 @@ def fill_inferred_pcpu_mgmt_ips(ports: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 class IxOSDriver:
-    """Driver for a single IxOS chassis."""
+    """Driver for a single IxOS chassis.
+
+    Constructed by :func:`connect.keysight_drivers.get_driver` with the connect
+    host, chassis username/password, ``hostname`` (tried first for SSH) and
+    ``chassis_type`` (XGS-family types get the ``chassis`` CLI prefix). Construction
+    does no I/O.
+
+    Write operations exposed: port take/release ownership, port reboot, port factory
+    reset, card hotswap, IxOS upgrade, and enabling ``lldp-peer-info`` (restarts
+    IxServer). There is no chassis reboot method on this driver.
+    """
 
     def __init__(
         self,
@@ -287,7 +313,11 @@ class IxOSDriver:
     # ------------------------------------------------------------------
 
     def probe(self) -> str:
-        """Test connectivity. Returns 'ok', 'auth_failed', or 'unreachable'."""
+        """Test connectivity. Returns 'ok', 'auth_failed', or 'unreachable'.
+
+        ``_authenticate`` swallows connection errors, so an unreachable chassis is
+        normally reported as ``'auth_failed'``; ``'unreachable'`` is rare.
+        """
         try:
             if self._authenticate():
                 # Quick check that we can actually reach the chassis endpoint
@@ -306,7 +336,11 @@ class IxOSDriver:
     def get_chassis_info(self) -> DriverResult:
         """Fetch chassis details: type, serial, state, applications.
         AresONE may expose type via Platform API; IxOS chassis API
-        can return empty/different structure, so we try both."""
+        can return empty/different structure, so we try both.
+
+        ``data``: management_ip, chassis_type, serial_number, controller_serial, state,
+        num_physical_cards, ixos_applications ({name: version}), ixos_version (optional).
+        """
         result = self._get('/chassis')
         raw = None
         chassis_type = ''
@@ -423,7 +457,12 @@ class IxOSDriver:
     def get_ports(self) -> DriverResult:
         """Fetch all ports across all cards.
         Returns list of dicts with card/port numbers, owner, transceiver,
-        link state, speed, phyMode, transmitState."""
+        link state, speed, phyMode, transmitState.
+
+        Also: led_color, pcpu_status, port_memory_kb, fully_qualified_port_name,
+        management_ip (PCPU, possibly inferred — see ``fill_inferred_pcpu_mgmt_ips``),
+        port_display, resource_group_number. Sorted by (card, port).
+        """
         result = self._get('/ports')
         if not result.success:
             return result
@@ -1343,7 +1382,12 @@ class IxOSDriver:
     # ------------------------------------------------------------------
 
     def get_licenses(self) -> DriverResult:
-        """Fetch license information."""
+        """Fetch license information.
+
+        Uses the Platform licensing API: list servers, then POST
+        ``retrievelicenses`` on the first server (triggers a license retrieval on the
+        chassis) and read the result. ``data`` is the vendor license list or ``[]``.
+        """
         try:
             # Step 1: get license servers
             resp, servers = self._request('GET',

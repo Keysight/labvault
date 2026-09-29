@@ -1,4 +1,12 @@
-"""Graph-based Lab Pulse companion views — radial, stream, radar, matrix, topology."""
+"""Graph-based Lab Pulse companion views — radial, stream, radar, matrix, topology.
+
+Each entry in ``GRAPH_VIEWS`` is a login-required HTML page that loads one module
+from ``connect/static/js/lab-graph/`` (``view-pulse-radial.js``, ``view-stream-wave.js``,
+``view-radar-health.js``, ``view-matrix-heat.js``, ``view-topology-pulse.js``).
+Those scripts fetch the same timeline/insights JSON the timeline API returns; this
+module does not query devices itself.
+See ``docs/development/subsystems/metrics-insights.md``.
+"""
 
 from __future__ import annotations
 

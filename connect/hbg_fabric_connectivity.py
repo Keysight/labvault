@@ -2,6 +2,12 @@
 
 Customer SKU ships with an empty map. Load a site file at runtime or call
 ``set_fabric_map`` from tests. Do not bake a specific lab's IPs here.
+
+The map is ``{mgmt_ip: {chassis_id, node_key, path: 'ocs'|'dac_direct',
+ocs_connected, ocs_ip, ocs_blade, peer_ip, peer_label}}``. Module globals are
+rebound by ``set_fabric_map``; import the module (not the names) to see updates.
+``ocs_fixed_mapping_is_active`` is used by ``ocs_helpers`` to skip site
+``fixed_mapping`` blocks that are DAC-direct or pending a physical patch.
 """
 from __future__ import annotations
 
@@ -35,12 +41,14 @@ def set_fabric_map(
 
 
 def lookup_aresone_fabric(mgmt_ip: str) -> Optional[Dict[str, Any]]:
+    """Copy of the fabric-map entry for one chassis management IP, or ``None``."""
     ip = (mgmt_ip or "").strip()
     meta = ARESONE_FABRIC_BY_IP.get(ip)
     return dict(meta) if meta else None
 
 
 def fabric_path_label(meta: Dict[str, Any]) -> str:
+    """Short UI label such as ``OCS → <label>`` or ``DAC → <peer>``."""
     if meta.get("path") == "ocs":
         return f"OCS → {meta.get('ocs_label', OCS_CONTROLLER_LABEL)}"
     if meta.get("path") == "dac_direct":
@@ -71,6 +79,7 @@ def _fabric_summary_rows() -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
 
 
 def build_site_fabric_summary() -> Dict[str, Any]:
+    """Site-wide OCS vs DAC-direct chassis summary (the ``notes`` text is static example copy)."""
     ocs_rows, dac_rows = _fabric_summary_rows()
     return {
         "scope": "site",

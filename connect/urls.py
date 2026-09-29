@@ -1,3 +1,14 @@
+"""App URLconf, included at ``/`` by ``labvault/urls.py``.
+
+Routes are grouped by area and point into several view modules: ``views`` (devices,
+alerts, compliance, config, reports, settings, export/import, audit, legacy REST, OCS
+snapshots), ``health_views``, ``labvault_cli_views``, ``lab_topology_views`` /
+``lab_topology_onboard`` / ``lab_timeline_views`` / ``lab_usage_*_views`` (Lab Topology
+Designer and usage graphs), ``views_ocs_xconnect``, ``diagnostics_views``,
+``fleet_api_views`` (Bearer automation API) and ``keysight_views`` /
+``keysight_slack_views`` (Keysight chassis). ``api/nexus/*``, ``api/research/*`` and
+``api/hw-assignments/release`` resolve to stubs that always return 404 JSON.
+"""
 from django.conf import settings
 from django.conf.urls.static import static
 from django.urls import path

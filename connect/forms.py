@@ -1,4 +1,11 @@
 # connect/forms.py
+"""ModelForms and plain forms for device, Keysight chassis, import and compliance pages.
+
+Device and chassis forms share two mixins: ``MgmtIpv6FormMixin`` (normalizes the
+optional ``mgmt_ipv6``) and ``ConnectViaFormMixin`` (the four "Connect via" modes plus
+DHCPv6/SLAAC/static source). Add forms render the password as a masked input; edit
+forms deliberately show stored credentials in plain text so operators can verify them.
+"""
 
 from django import forms
 from .models import (
@@ -39,6 +46,7 @@ class ConnectViaFormMixin:
     )
 
     def clean(self):
+        """Reject a typed IPv6 when source is DHCPv6; stash an inferred display hint instead."""
         cleaned = super().clean()
         if not cleaned:
             return cleaned
@@ -162,6 +170,8 @@ class EditDeviceForm(ConnectViaFormMixin, MgmtIpv6FormMixin, forms.ModelForm):
 
 
 class CommandForm(forms.Form):
+    """Single-line command field; imported by views but not rendered (device shell is not shipped)."""
+
     command = forms.CharField(
         max_length=500,
         widget=forms.TextInput(attrs={
@@ -173,6 +183,8 @@ class CommandForm(forms.Form):
 
 
 class DeviceImportForm(forms.Form):
+    """CSV upload for ``views.import_devices`` (bundle/JSON uploads bypass this form)."""
+
     csv_file = forms.FileField(
         label='CSV File',
         help_text='CSV with headers: IP Address, Username, Password, Vendor, Tags, Notes, Site, Group',
@@ -270,6 +282,8 @@ class KeysightEditChassisForm(ConnectViaFormMixin, MgmtIpv6FormMixin, forms.Mode
 
 
 class ComplianceRuleForm(forms.ModelForm):
+    """Regex compliance rule editor (``pattern`` is matched with ``re.MULTILINE``); currently unused by views."""
+
     class Meta:
         model = ComplianceRule
         fields = ['name', 'description', 'vendor_type', 'pattern', 'should_exist', 'severity', 'enabled']

@@ -1,4 +1,20 @@
-"""REST sidecar driver adapter (spike D1)."""
+"""REST sidecar driver adapter (spike D1).
+
+Selected by :func:`connect.driver_registry.resolve_driver` only when
+``LABVAULT_DRIVER_PLUGIN_MODE`` is ``rest`` / ``d1`` / ``all`` and the vendor's
+``manifest.yaml`` sets ``rest_base_url``. Each call is a JSON ``POST`` (timeout
+15 s) to the operator-hosted service:
+
+- ``<rest_probe_path>`` (default ``/probe``) — body ``{ip, username, vendor_type}``;
+  response ``status`` / ``probe`` field becomes the probe result.
+- ``/health``, ``/interfaces`` — body ``{ip, username}``; JSON response is returned
+  verbatim as ``DriverResult.data``.
+- ``/command`` — body ``{ip, command}``.
+
+The device password is not forwarded; the sidecar owns its own credentials.
+Other ``BaseDriver`` methods are not overridden (core ones raise
+``NotImplementedError``).
+"""
 from __future__ import annotations
 
 import json
@@ -28,6 +44,7 @@ class RestAdapterDriver(BaseDriver):
         return urljoin(self._base + '/', path.lstrip('/'))
 
     def _post(self, path: str, payload: dict[str, Any]) -> DriverResult:
+        """POST JSON to the sidecar; non-JSON bodies come back as ``{'raw': ...}``."""
         if not self._base:
             return DriverResult(False, error='rest_base_url not configured')
         try:

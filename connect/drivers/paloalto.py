@@ -3,6 +3,11 @@ Palo Alto driver - communicates via PAN-OS XML API.
 Uses API key authentication (generated from credentials or pre-configured).
 Robust interface parsing: correlates ifnet (logical) and hw (physical) entries,
 handles multi-vsys, and properly detects admin vs link status.
+
+All calls are ``GET https://<host>:<api_port|443>/api/`` with ``type=op|config|commit``
+and the API key as the ``key`` parameter. ``Device.api_key`` is used verbatim when
+set; otherwise a key is generated once per IP via ``type=keygen`` (username/password)
+and cached in-process. TLS verification disabled; first connect target only.
 """
 import re
 import logging
@@ -33,6 +38,8 @@ def clear_cache(ip):
 
 
 class PaloAltoDriver(BaseDriver):
+    """Palo Alto PAN-OS firewall driver over the XML API (op / config / commit)."""
+
     VENDOR_NAME = 'paloalto'
 
     def _base_url(self):
@@ -40,6 +47,7 @@ class PaloAltoDriver(BaseDriver):
         return f"https://{self.ip}:{port}"
 
     def _get_api_key(self):
+        """Stored ``api_key``, cached keygen result, or a fresh keygen (None on failure)."""
         if self.api_key:
             return self.api_key
         if self.ip in _api_key_cache:
@@ -89,6 +97,8 @@ class PaloAltoDriver(BaseDriver):
         return (el.text or '').strip() if el is not None and el.text else default
 
     def probe(self):
+        """Keygen + ``show system info``. A connect failure during keygen is swallowed,
+        so an unreachable firewall is usually reported as ``'auth_failed'``."""
         try:
             key = self._get_api_key()
             if not key:
@@ -472,6 +482,7 @@ class PaloAltoDriver(BaseDriver):
         return self.get_running_config()
 
     def execute_command(self, command):
+        """``show ...`` only; converted to nested XML tags by :meth:`_cli_to_xml`."""
         cmd = command.strip()
         if not cmd.lower().startswith('show'):
             return DriverResult(error="Only 'show' commands are allowed.")
@@ -913,6 +924,8 @@ class PaloAltoDriver(BaseDriver):
 
     @staticmethod
     def _cli_to_xml(cli_cmd):
+        """``'show system info'`` → ``'<show><system><info></info></system></show>'``
+        (non ``[A-Za-z0-9_-]`` characters stripped from each token)."""
         parts = cli_cmd.strip().split()
         xml = ''
         closing = ''

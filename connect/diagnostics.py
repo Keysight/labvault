@@ -1,5 +1,13 @@
 # HARD_DUMP_REMOVED — customer stub/compat
-"""LabVault Diagnostics Center — comprehensive health and incident bundle."""
+"""LabVault Diagnostics Center — health report and support-bundle builder.
+
+``build_diagnostics_payload`` runs a fixed set of checks (database, cache, workers,
+TLS, migrations, fleet heartbeat, device reachability) and returns a JSON-serializable
+dict. ``build_diagnostics_tarball`` wraps that payload plus optional log excerpts.
+Nothing here restarts services or talks to lab gear except an optional read-only OCS
+probe. Check meanings, bundle layout, and known false warnings:
+``docs/development/subsystems/diagnostics.md``.
+"""
 from __future__ import annotations
 
 import io

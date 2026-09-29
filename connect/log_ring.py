@@ -1,4 +1,10 @@
-"""In-memory ring buffer for recent log records (diagnostics export)."""
+"""In-process ring buffer of recent WARNING+ log records for diagnostics export.
+
+``RingBufferHandler`` keeps the last 5000 records in a process-local deque.
+Gunicorn workers do not share it, so a bundle only sees logs from the worker that
+built it. Attach the handler from Django logging config; ``snapshot()`` copies the
+deque under a lock for ``build_diagnostics_payload``.
+"""
 from __future__ import annotations
 
 import logging

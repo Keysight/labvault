@@ -4,6 +4,10 @@ Export filtered network topology for draw.io / diagrams.net and JSON tools.
 Produces:
   - drawio: mxGraphModel XML (.drawio) importable via File → Import
   - json: LabVault topology subgraph with tier layout hints
+
+Input is the global ``/topology/`` node/link shape (``get_cached_topology()`` or
+``build_global_graph()``); served by ``views.topology_export`` at
+``/topology/export/?format=drawio|json&tags=…``.
 """
 from __future__ import annotations
 
@@ -40,6 +44,7 @@ def _norm_tags(raw: Any) -> List[str]:
 
 
 def node_matches_tags(node: dict, selected: Set[str]) -> bool:
+    """True when ``selected`` is empty or the node has any selected tag (OR match)."""
     if not selected:
         return True
     tags = _norm_tags(node.get('tags'))
@@ -135,6 +140,7 @@ def topology_export_json(
     title: str = 'LabVault topology',
     tags: Optional[List[str]] = None,
 ) -> dict:
+    """``labvault-topology-export-v1`` JSON: nodes with tier + x/y hints, and links."""
     positions = assign_tier_positions(nodes)
     out_nodes = []
     for n in nodes:
@@ -326,6 +332,7 @@ def topology_to_drawio_xml(
 
 
 def parse_tags_param(raw: str) -> List[str]:
+    """Split a ``tags=`` query value on commas/semicolons."""
     if not raw:
         return []
     return [p.strip() for p in re.split(r'[,;]+', raw) if p.strip()]

@@ -1,4 +1,25 @@
-"""Lab Topology Designer views - separate module to keep views.py clean."""
+"""Lab Topology Designer views (``/lab-topology/*`` and ``/test-setup/*``).
+
+Kept separate from ``views.py`` (which owns the global ``/topology/`` LLDP map).
+Groups of views in this module:
+
+* Designer CRUD — list/new/detail, ``data/`` (GET/POST layout), node and link
+  add/patch/delete, inventory picker, clone, delete, metrics-collection toggle.
+* Import / export / build — v3 export/import (``lab_topology_io``), two-file
+  site import, DC preset build, inventory build, build-from-LLDP, split into
+  sub-topologies (``lab_topology_split``).
+* Discovery helpers — serial DAC/B2B discovery (``topology_dac_finder``),
+  per-node slot/port grid (``topology_device_ports``), link validation by port
+  flap (``topology_link_validate``).
+* Fabric views — ``fabric.json`` (node-level map), ``port-fabric.json``
+  (port-level map built by :func:`_build_port_fabric_payload` and cached via
+  ``topology_fabric_cache``), ``graph.json`` (``topology_graph`` NormalizedGraph).
+* Test setup builder and scenario analysis — plan OCS patches / switch config
+  (``test_setup_engine``) and diff them against live OCS cross-connects.
+
+See ``docs/development/subsystems/lab-topology-designer.md`` for the URL map,
+data sources, and caches.
+"""
 from __future__ import annotations
 
 import copy
@@ -433,6 +454,7 @@ def lab_topology_link_add(request, topo_id):
 @login_required
 @require_http_methods(['PATCH', 'DELETE'])
 def lab_topology_link_delete(request, topo_id, link_id):
+    """PATCH ports/cable_type/label/extra on one link, or DELETE it."""
     topo = get_object_or_404(LabTopology, pk=topo_id)
     lk = get_object_or_404(LabTopologyLink, pk=link_id, topology=topo)
     if request.method == 'DELETE':
@@ -577,6 +599,7 @@ def lab_topology_build_inventory(request):
 
 @login_required
 def lab_topology_list(request):
+    """Render the topology list; sub-topology children are flagged via ``child_topo_ids``."""
     topos = list(LabTopology.objects.all().order_by('-updated_at'))
     child_ids = set()
     for t in topos:
@@ -598,6 +621,7 @@ def lab_topology_list(request):
 
 @login_required
 def lab_topology_new(request):
+    """POST creates an empty manual topology and redirects to it; GET shows the list with the new form."""
     if request.method == 'POST':
         name = (request.POST.get('name') or '').strip() or 'Untitled Topology'
         topo = LabTopology.objects.create(
@@ -614,6 +638,7 @@ def lab_topology_new(request):
 
 @login_required
 def lab_topology_detail(request, topo_id):
+    """Designer canvas page; the page JS loads nodes/links from ``data/``."""
     from connect.lab_topology_split import get_sub_topology_nav
 
     topo = get_object_or_404(LabTopology, pk=topo_id)
@@ -631,6 +656,13 @@ def lab_topology_detail(request, topo_id):
 @login_required
 @require_http_methods(['GET', 'POST'])
 def lab_topology_data(request, topo_id):
+    """GET: designer JSON (``topology_to_api_dict``). POST: partial save.
+
+    POST body may carry ``nodes`` (x/y/label/extra by DB id), ``links`` (ports,
+    cable_type, label, color, extra; ``live_*`` ids are ignored), ``name``,
+    ``metrics_collection_enabled`` and ``view_layouts`` (merged per view key).
+    Node/link-only edits do not bump ``LabTopology.updated_at``.
+    """
     topo = get_object_or_404(LabTopology, pk=topo_id)
     if request.method == 'GET':
         return JsonResponse(_topo_to_dict(topo))
@@ -819,6 +851,7 @@ def lab_topology_clone(request, topo_id):
 
 @login_required
 def lab_topology_export(request, topo_id):
+    """Download the v3 export (``<name>.labtopo.v3.json``)."""
     from connect.lab_topology_io import export_topology
 
     topo = get_object_or_404(LabTopology, pk=topo_id)
@@ -833,6 +866,7 @@ def lab_topology_export(request, topo_id):
 @login_required
 @require_http_methods(['POST'])
 def lab_topology_import(request, topo_id):
+    """Replace this topology's nodes/links from an uploaded ``file`` or raw JSON body (v2/v3)."""
     topo = get_object_or_404(LabTopology, pk=topo_id)
     uploaded = request.FILES.get('file')
     if uploaded:
@@ -855,6 +889,10 @@ def lab_topology_import(request, topo_id):
 @login_required
 @require_http_methods(['POST'])
 def lab_topology_push_port_config(request, topo_id):
+    """Send ``commands`` to the device bound to ``node_id`` via ``driver.send_config``.
+
+    Changes running config on real hardware; only ``@login_required`` guards it.
+    """
     topo = get_object_or_404(LabTopology, pk=topo_id)
     try:
         body = json.loads(request.body)
@@ -884,6 +922,7 @@ def lab_topology_push_port_config(request, topo_id):
 @login_required
 @require_http_methods(['GET', 'POST'])
 def lab_topology_from_lldp(request):
+    """POST: snapshot ``get_cached_topology()`` into a new ``source='lldp'`` topology."""
     if request.method == 'GET':
         return redirect('lab_topology_list')
     import datetime
@@ -2688,6 +2727,13 @@ def _build_port_fabric_payload(
     """
     Build port-fabric JSON (devices, connections, summary). Used by API + cache warmer.
     Returns (payload_dict, timing_dict).
+
+    Sources, in order: OCS triplet map (site JSON + Device.notes), live OCS
+    cross-connects (``want_live``; cached 600 s under ``port_fabric_ocs_xcon:<ip>``),
+    switch LLDP (persistent store, ``/tmp`` cache file from ``refresh_lldp``,
+    ``get_cached_topology()``), per-node slot layouts, chassis LLDP, then the
+    post-passes that add B2B links and propagate connection health onto ports.
+    ``force_refresh`` allows chassis SSH (IxOS cache refresh / LLDP SSH).
     """
     import time as _perf
     from datetime import datetime, timezone as _tz
@@ -3425,7 +3471,7 @@ def _build_port_fabric_payload(
 
     # ── Post-loop: build LLDP-verified DAC connections from switch LLDP files ───
     # For each switch, scan its lldp_by_eth and resolve remote chassis to topology nodes.
-    # This is the only way to show M01-M04 connections (they have no OCS triplets).
+    # This is the only way to show DAC-direct chassis links (they have no OCS triplets).
     for dev in devices_out:
         sw_ip = dev['ip']
         if dev['node_type'] != 'switch' or not sw_ip:
@@ -3446,7 +3492,7 @@ def _build_port_fabric_payload(
             remote_sample_ports[rd].append(eth_p)
 
         # Also mark this switch's own DAC ports as lldp_only for verified neighbors
-        # (the Arista side: Ethernet80-87 to M06, Ethernet64-71 to M02, etc.)
+        # (the switch side of each DAC bundle to a chassis).
         sw_lldp_verified_count = sum(
             1 for rd, nbr in eth_lldp_sw.items()
             if (nbr.get('remote_device') or '').lower() not in ('sonic', 'lbjpmlabasw01', '')
@@ -3882,7 +3928,7 @@ def lab_topology_usage_by_name(request, name):
 @require_http_methods(['POST'])
 def api_port_usage_episodes(request):
     """
-    Ingest LAAS run/reservation episodes into np_timeseries PortUsageSample.
+    Ingest external run/reservation episodes into np_timeseries PortUsageSample.
 
     Body: { "episodes": [ { topology_id, episode_id, event, resource_key, ... } ] }
     or a single episode object. Use action=close to end an episode.
@@ -3906,12 +3952,12 @@ def api_port_usage_episodes(request):
 
 
 def lab_topology_laas_manifest(request, topo_id):
-    """LAAS manifest export is hard-dumped from the customer SKU."""
+    """Manifest export stub: always 404 ``not_available`` in this SKU."""
     return JsonResponse({'error': 'not_available'}, status=404)
 
 
 def lab_port_fabric_summary_api(request, topo_id):
-    """LaaS/B2B fabric summary is hard-dumped from the customer SKU."""
+    """Fabric summary stub: always 404 ``not_available``; use ``port-fabric.json``."""
     return JsonResponse({'error': 'not_available'}, status=404)
 
 
@@ -3934,7 +3980,7 @@ def lab_topology_by_name(request, name):
 @_api_auth_required
 @require_http_methods(['GET'])
 def lab_topology_list_json(request):
-    """Machine-readable topology inventory for the LAAS lab catalog (additive)."""
+    """Machine-readable topology inventory (id, name, node kinds) for API clients."""
     rows = []
     for topo in LabTopology.objects.all().order_by('pk'):
         node_kinds = {}
@@ -4065,7 +4111,7 @@ def lab_fabric_map_api(request, topo_id):
 
     Combines:
       1. Topology nodes/links (planned physical cables from DB)
-      2. Live OCS crossconnects (fetched from Calient)
+      2. Live OCS crossconnects (fetched from the OCS controller driver)
       3. LLDP adjacencies from Device cache
 
     Query params:

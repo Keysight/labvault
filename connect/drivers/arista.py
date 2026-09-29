@@ -15,6 +15,14 @@ first, then falls back to SSH with the same username/password. Optional device `
 - ``{"eapi_cmd_schema_version": 2}`` — use eAPI JSON schema version **2** for ``runCmds`` (default **1**).
   Try **2** on recent platforms (e.g. DCS-7060X6) if some ``show * | json`` output fails or is empty
   (same HTTP ``command-api``; only the model revision changes).
+- ``{"vendor_type_secondary": "sonic"}`` / ``{"active_os_detected": "eos"|"sonic"}`` — dual-OS
+  hints (also available as ``Device`` fields ``vendor_type_secondary`` / ``dual_os_mode``).
+
+Transport summary: eAPI ``POST {proto}://<host>:<port>/command-api`` (probe timeout 8 s; https then
+http unless ``transport`` pins one; TLS verification disabled). SSH via Paramiko (connect timeout 16 s,
+command timeout up to 200 s) with a per-device pooled session reused for ``SSH_IDLE_SEC``. Dual-OS boxes
+delegate to :class:`~connect.drivers.sonic.SonicDriver` using the SONiC credential pair when the active
+OS is SONiC.
 """
 import json
 import re
@@ -123,6 +131,7 @@ def _get_session(ip):
 
 
 def clear_cache(ip):
+    """Drop cached HTTP session, detected eAPI protocol and pooled SSH for *ip*."""
     _sessions.pop(ip, None)
     _protocol_cache.pop(ip, None)
     _arista_ssh_pool_close_ip(ip)
@@ -265,6 +274,13 @@ def extract_input_discards_from_interface_info(info: dict) -> int:
 
 
 class AristaDriver(BaseDriver):
+    """Arista EOS driver (eAPI first, SSH/FastCli fallback, optional EOS↔SONiC dual-OS).
+
+    ``probe()`` sets ``_arista_mode`` to ``'eapi'`` or ``'ssh'``; every collector goes
+    through ``_arista_run`` so both transports return the same eAPI-shaped JSON.
+    Only the first connect target that probes ``ok`` is used for the rest of the call.
+    """
+
     VENDOR_NAME = 'arista'
 
     def __init__(self, device):
@@ -335,11 +351,11 @@ class AristaDriver(BaseDriver):
 
     def _active_credentials(self) -> Tuple[str, str]:
         """Return (username, password) for the currently detected OS.
-        EOS → arista_username/arista_password (admin/admin)
-        SONiC → sonic_username/sonic_password  (admin/password)
+        EOS → Device.arista_username / arista_password
+        SONiC → Device.sonic_username / sonic_password
         Falls back to device.username/password if no OS-specific creds available.
-        When OS is unknown on a dual-OS box, prefer sonic credentials (they're active more often
-        during the ~12h cycle at 8 hours per day SONiC / 4 hours EOS typical split).
+        When OS is unknown on a dual-OS box, prefer sonic credentials (on rotating boxes SONiC is
+        usually the longer-running half of the cycle).
         """
         if self._active_os == 'sonic':
             u, p = self._sonic_credentials()
@@ -571,6 +587,9 @@ class AristaDriver(BaseDriver):
         self.probe()
 
     def _arista_run(self, version: int, cmds: List[str], fmt: str) -> Any:
+        """Run *cmds* via the probed transport; returns a list (one entry per command,
+        or a single merged entry for multi-command text over SSH). Raises OSError when
+        no transport works."""
         self._ensure_arista_mode()
         # For SSH transport override (user set transport='ssh' explicitly)
         if self.transport == 'ssh' and self._arista_mode != 'eapi':
@@ -734,7 +753,12 @@ class AristaDriver(BaseDriver):
 
     def probe(self) -> str:
         """Probe the device: for dual-OS (EOS/SONiC) boxes, auto-detect active OS first
-        so the correct credentials are used for subsequent SSH sessions."""
+        so the correct credentials are used for subsequent SSH sessions.
+
+        Tries each connect target in order; per target: eAPI https → http (unless
+        ``transport``/``prefer_ssh`` say otherwise), then SSH. Returns ``'ok'``,
+        ``'auth_failed'`` or ``'unreachable'`` and sets ``_arista_mode``.
+        """
         if len(self._connect_targets) > 1:
             saved_ip = self.ip
             last = 'unreachable'
@@ -889,11 +913,17 @@ class AristaDriver(BaseDriver):
             return DriverResult(error=str(e))
 
     def _get_switch(self):
+        # Credentials are embedded in the jsonrpclib URL; do not log this object or its URL.
         proto = self._detect_protocol() or 'http'
         port = self.api_port or (443 if proto == 'https' else 80)
         return Server(f"{proto}://{self.username}:{self.password}@{self.ip}:{port}/command-api")
 
     def get_system_info(self):
+        """``show version`` (+ text parse / ``show hostname`` fallbacks).
+
+        ``data``: hostname, version, serial_number, model_name, mac_address, uptime,
+        vendor_detail, active_os, secondary_os, dual_os.
+        """
         if self._should_use_sonic():
             result = self._sonic_delegate('get_system_info')
             if result.success:
@@ -946,6 +976,11 @@ class AristaDriver(BaseDriver):
             return DriverResult(error=str(e))
 
     def get_interfaces(self):
+        """``show interfaces`` → physical/vlan/port_channel/management lists.
+
+        Breakout lanes (``EthernetN/M``) are grouped under a synthetic parent row with
+        ``is_group=True`` and ``children=[...]``.
+        """
         if self._should_use_sonic():
             return self._sonic_delegate('get_interfaces')
         try:
@@ -1057,6 +1092,7 @@ class AristaDriver(BaseDriver):
             return DriverResult(error=str(e))
 
     def get_health(self):
+        """``show version`` + ``show processes top once`` → cpu/memory/uptime dict."""
         if self._should_use_sonic():
             return self._sonic_delegate('get_health')
         try:
@@ -1160,6 +1196,11 @@ class AristaDriver(BaseDriver):
             return DriverResult(error=str(e))
 
     def execute_command(self, command):
+        """Run one ``show ...`` command as text; anything else is rejected.
+
+        The check is a prefix match only; over SSH the string is passed to
+        ``FastCli -c`` (or directly to the login shell on direct-EOS sessions).
+        """
         cmd = command.strip()
         if not cmd.lower().startswith('show'):
             return DriverResult(error="Only 'show' commands are allowed.")
@@ -1417,7 +1458,11 @@ class AristaDriver(BaseDriver):
     # ---- Configuration Push ----
 
     def send_config(self, commands, commit=True):
-        """Push config commands via eAPI configure mode."""
+        """Push config commands via eAPI configure mode (or ``;``-joined FastCli over SSH).
+
+        Wraps *commands* in ``enable`` / ``configure`` / ``end`` and appends
+        ``write memory`` when *commit*. ``data``: {outputs, commands_sent}.
+        """
         try:
             cmds = ['enable', 'configure'] + list(commands) + ['end']
             if commit:

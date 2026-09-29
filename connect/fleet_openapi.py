@@ -1,8 +1,22 @@
-"""Full OpenAPI 3.0 document for the LabVault fleet Bearer APIs."""
+"""Full OpenAPI 3.0 document for the LabVault fleet Bearer APIs.
+
+Hand-maintained: paths are not introspected from ``urls.py``, so a new
+``/api/fleet/*`` route must be added here (and to ``fleet_index``) by hand.
+Served by ``fleet_api_views.fleet_openapi`` at ``/api/fleet/openapi.json`` and
+rendered by Swagger UI at ``/api/docs/``. Example addresses use RFC 5737
+``192.0.2.0/24``.
+"""
 from __future__ import annotations
 
 
 def fleet_openapi_document(*, server_url: str = '/', absolute_server_url: str | None = None) -> dict:
+    """Return the OpenAPI 3.0.3 dict for the fleet + OCS routes.
+
+    ``server_url`` is listed first (same-origin, keeps the browser's host:port
+    for Swagger "Try it out"); ``absolute_server_url`` is appended when it
+    differs. Operations are tagged by persona (meta, oncaller, test_user,
+    em_director, lab_admin, infra_sre) and all declare ``bearerAuth``.
+    """
     bearer = {'bearerAuth': []}
 
     def get_op(summary: str, description: str = '', *, params=None, story: str = '', response_schema=None):

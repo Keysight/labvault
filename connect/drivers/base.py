@@ -1,8 +1,18 @@
 """
 Base driver interface for all vendor device drivers.
-All vendor drivers must implement probe(), get_system_info(), get_interfaces(),
-get_health(), get_routes(), get_vlans(), get_running_config(), etc.
-Enhanced methods: BGP, OSPF, environment, counters, DOM, port-channel, LLDP detail.
+
+Core methods raise ``NotImplementedError`` here and must be overridden:
+``probe()``, ``get_base_url()``, ``get_system_info()``, ``get_interfaces()``,
+``get_health()``, ``get_routes()``, ``get_vlans()``, ``get_running_config()``,
+``get_startup_config()``, ``execute_command()``.
+
+Optional methods have safe defaults: ``send_config`` / ``enable_lldp`` and the
+firewall helpers return ``success=False``; the "enhanced" collectors (BGP, OSPF,
+environment, counters, DOM, port-channel) return ``success=True`` with empty data;
+``get_lldp_neighbors_detail`` delegates to ``get_lldp_neighbors``.
+
+Drivers never raise for device-side failures in normal use — they return a
+:class:`DriverResult` with ``success=False`` and ``error`` set.
 """
 import logging
 from dataclasses import dataclass, field
@@ -13,7 +23,14 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class DriverResult:
-    """Standardized result from driver operations."""
+    """Standardized result from driver operations.
+
+    ``data`` shape depends on the method (see each method docstring), e.g. a dict
+    for ``get_system_info`` / ``get_interfaces`` / ``get_health``, a list of dicts
+    for routes / LLDP / ARP, or a string for config and command output. On failure
+    ``success`` is False and ``error`` holds a human-readable message (``data`` may
+    still carry partial results).
+    """
     success: bool = False
     data: Any = None
     error: str = ''
@@ -23,6 +40,13 @@ class BaseDriver:
     """
     Abstract base driver that all vendor drivers must implement.
     Provides a uniform interface for multi-vendor device management.
+
+    The constructor copies connection settings from the ``Device`` row and does no
+    network I/O: ``connect_targets`` (dual-stack ordered list; falls back to
+    ``connect_address`` or ``ip_address``), ``username``, ``password``, ``api_key``
+    (literal token or a JSON options object, interpreted per driver), ``api_port``
+    and ``transport`` (``auto`` / ``https`` / ``http`` / ``ssh``). ``self.ip`` is the
+    first connect target; drivers that fail over reassign it while iterating.
     """
 
     VENDOR_NAME = 'generic'
@@ -59,13 +83,25 @@ class BaseDriver:
     # ---- System Info ----
 
     def get_system_info(self) -> DriverResult:
-        """Fetch system information: hostname, version, serial, model, uptime, etc."""
+        """Fetch system information.
+
+        ``data`` keys consumed by ``views.fetch_device_data``: ``hostname``,
+        ``version``, ``serial_number``, ``model_name``, ``mac_address``, ``uptime``
+        (seconds or None). Drivers may add extras such as ``vendor_detail``.
+        """
         raise NotImplementedError
 
     # ---- Interfaces ----
 
     def get_interfaces(self) -> DriverResult:
-        """Fetch all interfaces: physical_data, vlan_data, port_channel_data, management_data"""
+        """Fetch all interfaces.
+
+        ``data`` is a dict of lists: ``physical_data``, ``vlan_data``,
+        ``port_channel_data``, ``management_data`` (some drivers use
+        ``logical_data``). Each row typically has ``name``, ``short_name``,
+        ``status``, ``admin_status``, ``status_color``, ``speed_label`` and optional
+        ``description`` / ``mtu`` / ``mac`` / ``alias`` / ``display_name``.
+        """
         raise NotImplementedError
 
     # ---- Health ----
@@ -99,7 +135,11 @@ class BaseDriver:
     # ---- Command Execution ----
 
     def execute_command(self, command: str) -> DriverResult:
-        """Execute a read-only command on the device. Returns text output."""
+        """Execute a read-only command on the device. Returns text output.
+
+        Implementations reject commands that do not start with an allowed prefix
+        (usually ``show``). There is no free-form shell entry point on this SKU.
+        """
         raise NotImplementedError
 
     # ---- Configuration Push ----
@@ -150,12 +190,18 @@ class BaseDriver:
     # ---- LLDP Neighbors ----
 
     def get_lldp_neighbors(self) -> DriverResult:
+        """LLDP neighbors: list of {local_port, remote_device, remote_port, ...}."""
         return DriverResult(success=False, error='Not supported by this vendor')
 
     # ---- Enhanced: LLDP Neighbors Detail (with chassis-id, mgmt-ip) ----
 
     def get_lldp_neighbors_detail(self) -> DriverResult:
-        """Fetch detailed LLDP info including chassis-id, management-address, system-name."""
+        """Fetch detailed LLDP info including chassis-id, management-address, system-name.
+
+        ``data`` rows: ``local_port``, ``remote_device``, ``remote_port``,
+        ``chassis_id``, ``mgmt_ip`` (plus optional ``system_description`` /
+        ``source``). Used by device detail and topology discovery.
+        """
         return self.get_lldp_neighbors()
 
     # ---- Enhanced: BGP Summary ----
@@ -198,6 +244,7 @@ class BaseDriver:
 
     @staticmethod
     def _speed_label(bandwidth):
+        """Map bandwidth in bits/s to a short label ('100G', '25G', '100M', '')."""
         if bandwidth >= 1_600_000_000_000:
             return '1.6T'
         elif bandwidth >= 800_000_000_000:
@@ -222,6 +269,7 @@ class BaseDriver:
 
     @staticmethod
     def _status_color(link_status, admin_status):
+        """LED color for the port panel: green / yellow / amber / off / red."""
         if link_status == 'up':
             return 'green'
         elif admin_status in ('disabled', 'adminDown', 'down'):

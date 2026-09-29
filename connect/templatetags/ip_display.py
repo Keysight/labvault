@@ -55,6 +55,7 @@ def hardware_login_for(obj):
 
 @register.filter
 def labvault_detail_path(obj):
+    """In-app detail URL for a device/chassis object (``''`` when unknown)."""
     return _labvault_detail_path(obj)
 
 

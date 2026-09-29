@@ -1,4 +1,4 @@
-"""AresONE 800GE resource-group fanout planning for LAAS reserve wizard.
+"""AresONE 800GE resource-group fanout planning (pure functions, no I/O).
 
 Each 800GE-8P card exposes 8 resource groups (RGs). Fanout mode is fixed per
 card and determines how each RG is split:
@@ -9,6 +9,11 @@ card and determines how each RG is split:
   8×1×800G  → 8 RGs × 1 port × 800G   (8 ports/card)
 
 B2B loopback needs two ports at the same line rate → ceil(port_count / 2) pairs.
+
+Capacity checks take a *fabric detail* dict: ``{chassis: [{family, slots:
+[{card_type, ports_up, ports_total}]}], ocs_paths: {total, active},
+nodes_by_kind}``. Physical up/total counts are scaled to logical ports for the
+requested fanout mode. Not imported by any view in this tree (tests only).
 """
 from __future__ import annotations
 
@@ -45,6 +50,7 @@ _MODE_BY_GBPS = {m.line_rate_gbps: m for m in FANOUT_MODES}
 
 
 def fanout_modes_for_api() -> List[Dict[str, Any]]:
+    """JSON-friendly list of supported fanout modes."""
     return [
         {
             "id": m.mode_id,
@@ -59,6 +65,7 @@ def fanout_modes_for_api() -> List[Dict[str, Any]]:
 
 
 def parse_line_rate_gbps(line_rate: str) -> Optional[int]:
+    """Parse ``"400G"`` / ``"400"`` / ``"400Gbps"`` → 400; ``None`` if unparseable."""
     s = (line_rate or "").strip().upper().replace(" ", "")
     if not s:
         return None
@@ -69,10 +76,12 @@ def parse_line_rate_gbps(line_rate: str) -> Optional[int]:
 
 
 def mode_for_line_rate(line_rate_gbps: int) -> Optional[FanoutMode]:
+    """Fanout mode whose per-port rate equals ``line_rate_gbps``."""
     return _MODE_BY_GBPS.get(int(line_rate_gbps))
 
 
 def is_aresone_card_type(card_type: str) -> bool:
+    """True for 800GE / AresONE card type strings."""
     ct = (card_type or "").upper()
     return "800GE" in ct or "ARESONE" in ct
 
@@ -356,6 +365,7 @@ def validate_lab_aresone_capacity(
 
 
 def requirement_applies(chassis_family: str, line_rate: str) -> bool:
+    """True when fanout planning is relevant (AresONE family or ≥50G line rate)."""
     fam = (chassis_family or "").lower()
     if fam in ("aresone", "ares"):
         return True

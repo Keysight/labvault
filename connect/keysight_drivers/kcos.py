@@ -18,6 +18,21 @@ Ownership (M8400 front-panel + APS compute node ports):
     {"tepid":"1.0","name":"merpro2a","link":"UP","owner":"QA-Team","slot":1,"to":"1.0",...}
     {"nodeName":"merpro2b","reservedBy":"Apps-Lab","link":"DOWN",...}
   Fallbacks: /introspection/logicalports, /introspection/debug/hardware/frontpanel.
+
+Transport: HTTPS only (TLS verification disabled), ``Authorization: Bearer`` token
+cached per host until ``expires_in`` minus 30 s, re-auth once on HTTP 401. GET
+timeout 15 s, POST 30 s by default. Each driver instance memoises GET results per
+path (``_req_cache``), including failures, for its lifetime — create a new driver
+for fresh data. HTRex/T-Rex ports may also be read from the IxOS-style
+``/chassis/api/v2`` tree with the same token.
+
+LLDP (:meth:`KCOSDriver.get_lldp_ssh`) uses root SSH to the management node via
+:mod:`connect.kcos_ssh` with ``KCOS_ROOT_SSH_*`` settings (port default 9022).
+
+Mutating operations include app switch / default app, node power-cycle / on / off
+/ restart via BMC, firmware upgrade, Helm stage/deploy, snapshot create / restore /
+delete, and ``reboot_chassis`` (whole cluster). They run only when a caller invokes
+them explicitly.
 """
 from __future__ import annotations
 
@@ -68,7 +83,13 @@ def _get_session(ip: str) -> requests.Session:
 # ---------------------------------------------------------------------------
 
 class KCOSDriver:
-    """Driver for a single KCOS-based APS chassis."""
+    """Driver for a single KCOS-based APS chassis.
+
+    Mirrors the :class:`~connect.keysight_drivers.ixos.IxOSDriver` read interface
+    (``get_chassis_info`` / ``get_cards`` / ``get_ports`` / ``get_health`` ...) by
+    mapping KCOS nodes to cards/slots and ``/introspection/connections`` to ports.
+    IxOS-only port operations are no-op successes here.
+    """
 
     # Keycloak settings (standard across all KCOS deployments)
     _REALM = 'keysight'
@@ -222,7 +243,13 @@ class KCOSDriver:
     # ------------------------------------------------------------------
 
     def get_chassis_info(self) -> DriverResult:
-        """Fetch chassis-level details: hostname, KCOS version, node count."""
+        """Fetch chassis-level details: hostname, KCOS version, node count.
+
+        ``data`` uses the IxOS keys (management_ip, chassis_type='APS', serial_number,
+        state 'ready'|'degraded', num_physical_cards, empty ixos_*) plus hostname,
+        kcos_version, kcos_chart_name, os_image, os_platform='kcos', k8s_version,
+        kernel_version, total_nodes, compute_nodes.
+        """
         # Hostname
         hostname_result = self._get('/vital/hostname')
         hostname = ''
@@ -1525,7 +1552,11 @@ class KCOSDriver:
         return self._get('/introspection/hosts')
 
     def reboot_chassis(self) -> DriverResult:
-        """Reboot the entire KCOS cluster."""
+        """Reboot the entire KCOS cluster (``POST /vital/control``). Disruptive.
+
+        Reached from ``fleet_api_views.fleet_chassis_recover``; not called by any
+        polling or collection path.
+        """
         return self._post('/vital/control', payload={'name': 'reboot'})
 
     def get_node_inventory(self) -> DriverResult:
