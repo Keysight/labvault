@@ -69,11 +69,12 @@ labvault_export.bin
 .DS_Store
 Thumbs.db
 
-# Agent / local research
+# Agent / local research. Do not publish.
 agent-research/outputs/
 agent-research/graph/
 agent-research/index/
 graphify-out/
+# Operator pack: raw plans, chat digests, session notes. Never add or commit.
 .context/
 .cache/
 
