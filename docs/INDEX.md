@@ -34,7 +34,7 @@ Full catalog: **[MODULES.md](MODULES.md)**
 | CLI | [cli/](cli/) — LabVault CLI, commands, opsd service control, automation |
 | API | [api/](api/) — fleet OpenAPI + auth |
 | Security | [security/](security/) — hardening, credentials, ports, threat model |
-| Development | [development/](development/) — local dev, tests, architecture, release |
+| Development | [development/](development/) — local dev, tests, [architecture](development/ARCHITECTURE.md), [data flow](development/DATA_FLOW.md), [extending](development/EXTENDING.md), release |
 
 ## Controllers & URLs (memorize)
 

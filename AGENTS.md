@@ -12,6 +12,14 @@ Refresh: `python3 scripts/context_pack.py --target /root/Apps/labvault-public --
 
 This tree is the **customer SKU** (Capex, Hyperview, LAAS, AI Nexus, Snappi, Demo Stage, and UHD hardware are omitted).
 
+## Code map (read before changing a subsystem)
+
+[docs/development/ARCHITECTURE.md](docs/development/ARCHITECTURE.md) — processes, databases, caches.
+[docs/development/DATA_FLOW.md](docs/development/DATA_FLOW.md) — device page, chassis, topology, metrics, CLI.
+[docs/development/EXTENDING.md](docs/development/EXTENDING.md) — where to add a page, driver, fleet endpoint, CLI verb, or metric.
+Per-area guides: [docs/development/subsystems/](docs/development/subsystems/).
+App file list: [connect/README.md](connect/README.md).
+
 ## Mandatory checks
 
 1. `docs/INDEX.md` — documentation map
