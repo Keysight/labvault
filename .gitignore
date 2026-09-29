@@ -7,6 +7,9 @@
 secrets/
 *.pem
 *.key
+*.ppk
+id_rsa
+id_ed25519
 
 # Local databases & media
 *.sqlite3
@@ -60,8 +63,6 @@ labvault_export.bin
 
 # IDE / OS
 .cursor/
-!.cursor/rules/
-!.cursor/rules/*.mdc
 .idea/
 .vscode/
 *.swp

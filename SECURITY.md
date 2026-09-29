@@ -6,8 +6,8 @@ Security fixes are published for the latest signed `vX.Y.Z` release of this LabV
 
 ## Reporting a vulnerability
 
-Prefer private disclosure: email the security contact published with your release packet,
-or use the repository’s private vulnerability reporting feature when enabled.
+Report undisclosed vulnerabilities through GitHub private vulnerability reporting
+on this repository. Do not include lab addresses, passwords, or tokens in the report.
 
 Do not file public issues for undisclosed vulnerabilities.
 
